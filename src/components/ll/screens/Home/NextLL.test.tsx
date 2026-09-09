@@ -23,12 +23,7 @@ import { DateTime, ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
 import { TODAY } from '@/testing';
 
-import {
-  NEXTLL,
-  NEXTLL_WATCHLIST_KEY,
-  NextLL,
-  NextLLChooser,
-} from './NextLL';
+import { NEXTLL, NEXTLL_WATCHLIST_KEY, NextLL, NextLLChooser } from './NextLL';
 
 const BZ = '80010114';
 const OFF: PollerStatus = { mode: 'off', consecutiveFailures: 0, polls: 0 };
