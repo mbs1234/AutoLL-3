@@ -167,15 +167,32 @@ jobs:
             exit 1
           fi
 
-      - name: Repoint upstream URLs at this fork
+      - name: Brand installer assets for AutoLL-3
         run: |
           set -euo pipefail
           # index.html and autoloader.user.js hardcode joelface.github.io/bg1.
           # Left unrewritten, the bookmarklet would silently load upstream's
-          # build instead of this one.
+          # build instead of this one. The static pages are inherited from
+          # AutoLL-2, so their visible product name, repository links, and
+          # start-page preference key must be rewritten as well. Otherwise a
+          # person installing AutoLL-3 sees AutoLL-2 and the two builds share
+          # that preference on Disney's origin.
           find dist -type f \( -name '*.html' -o -name '*.js' -o -name '*.css' \) -print0 \
             | xargs -0 --no-run-if-empty \
-                sed -i "s|https://joelface\.github\.io/bg1|$PAGES_ORIGIN|g"
+                sed -i \
+                  -e "s|https://joelface\.github\.io/bg1|$PAGES_ORIGIN|g" \
+                  -e 's|https://github.com/mbs1234/AutoLL-2|https://github.com/mbs1234/AutoLL-3|g' \
+                  -e 's/AutoLL-2/AutoLL-3/g' \
+                  -e 's/autoll2/autoll3/g'
+          # These are the only inherited pages that make up the installation
+          # path. Fail closed if a future upstream asset changes spelling and
+          # leaves AutoLL-2 branding in front of an AutoLL-3 user.
+          if grep -nEi 'AutoLL-2|autoll2|mbs1234/AutoLL-2' \
+              dist/index.html dist/start.html dist/news.html \
+              dist/contact.html dist/autoloader.user.js; then
+            echo '::error::AutoLL-2 branding remains in an AutoLL-3 installer asset'
+            exit 1
+          fi
           echo "--- remaining 'joelface' references ---"
           echo "(github.com/joelface/bg1 source links are expected and kept:"
           echo " GPL-3.0 attribution. bg1.joelface.com is the upstream time-sync"

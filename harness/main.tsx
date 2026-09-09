@@ -32,7 +32,7 @@ if (scenario.tab) kvdb.set(HOME_TAB_KEY, scenario.tab);
 
 const world = new World(scenario.script);
 const clients = createFakeClients(world);
-document.title = `AutoLL-2 harness: ${scenario.title}`;
+document.title = `AutoLL-3 harness: ${scenario.title}`;
 
 const app = <HarnessApp scenario={scenario} world={world} clients={clients} />;
 
