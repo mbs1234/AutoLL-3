@@ -190,10 +190,10 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       return depsRef.current.findHeld
         ? depsRef.current.findHeld(plans, depsRef.current.booking)
         : findExistingLL(
-          plans,
-          depsRef.current.booking.facilityId,
-          parkDate(depsRef.current.booking.start)
-        );
+            plans,
+            depsRef.current.booking.facilityId,
+            parkDate(depsRef.current.booking.start)
+          );
     }
 
     async function cycle() {
