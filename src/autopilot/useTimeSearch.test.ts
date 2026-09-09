@@ -52,6 +52,9 @@ function setup({
   quoted,
   commit,
   plans,
+  confirmEveryMove,
+  stopAfterConfirmedMove,
+  findHeld,
 }: {
   goal?: SearchGoal;
   held?: ParkTime;
@@ -59,6 +62,9 @@ function setup({
   quoted?: jest.Mock;
   commit?: jest.Mock;
   plans?: jest.Mock;
+  confirmEveryMove?: boolean;
+  stopAfterConfirmedMove?: boolean;
+  findHeld?: TimeSearchDeps['findHeld'];
 } = {}) {
   let current = held;
   const deps: TimeSearchDeps = {
@@ -76,6 +82,9 @@ function setup({
     pollPlans:
       plans ??
       (jest.fn(async () => [booking(current)]) as () => Promise<Booking[]>),
+    confirmEveryMove,
+    stopAfterConfirmedMove,
+    findHeld,
   };
   const view = renderHook(() => useTimeSearch(deps));
   return { ...view, deps };
@@ -118,6 +127,26 @@ describe('useTimeSearch', () => {
     expect(`${result.current.pending}`).toBe('15:00:00');
     expect(deps.commit).not.toHaveBeenCalled();
     expect(result.current.moves).toBe(0);
+  });
+
+  it('requires approval even for an earlier replacement when requested', async () => {
+    const { result, deps } = setup({ confirmEveryMove: true });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.pending).toBeDefined());
+    expect(deps.commit).not.toHaveBeenCalled();
+  });
+
+  it('stops after Plans confirms a one-shot replacement', async () => {
+    const { result } = setup({
+      confirmEveryMove: true,
+      stopAfterConfirmedMove: true,
+    });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.pending).toBeDefined());
+    act(() => result.current.accept());
+    await runCycles(3);
+    expect(result.current.stop).toBe('goal-met');
+    expect(result.current.moves).toBe(1);
   });
 
   it('makes the later move once it is accepted', async () => {
