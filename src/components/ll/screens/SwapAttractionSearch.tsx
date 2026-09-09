@@ -1,7 +1,8 @@
 import { use, useMemo, useState } from 'react';
 
-import { Booking, isLLMP, LLMP } from '@/api/itinerary';
+import { LLMP } from '@/api/itinerary';
 import { Experience } from '@/api/ll';
+import { findHeldByEntitlement } from '@/autopilot/swap';
 import { SearchStop } from '@/autopilot/timesearch';
 import useTimeSearch from '@/autopilot/useTimeSearch';
 import Button from '@/components/Button';
@@ -20,15 +21,6 @@ const STOPPED: Record<Exclude<SearchStop, 'failed'>, string> = {
     'The replacement was accepted, but Plans has not caught up yet. Refresh Plans to confirm it.',
   stopped: 'Stopped.',
 };
-
-/** Finds the same entitlement even after its attraction has changed. */
-export function findHeldByEntitlement(plans: Booking[], original: LLMP) {
-  const entitlements = new Set(original.guests.map(g => g.entitlementId));
-  return plans.find(
-    (plan): plan is LLMP =>
-      isLLMP(plan) && plan.guests.some(g => entitlements.has(g.entitlementId))
-  );
-}
 
 /**
  * Continuously looks for a replacement attraction for one held Multi Pass.
@@ -111,7 +103,12 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
               ))}
             </select>
           </label>
-          <Button type="full" className="mt-4" disabled={!target} onClick={start}>
+          <Button
+            type="full"
+            className="mt-4"
+            disabled={!target}
+            onClick={start}
+          >
             Search for a replacement
           </Button>
         </>

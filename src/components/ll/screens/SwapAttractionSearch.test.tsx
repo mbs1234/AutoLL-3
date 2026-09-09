@@ -2,7 +2,7 @@ import { LLMP } from '@/api/itinerary';
 import { DateTime, ParkTime } from '@/datetime';
 import { TODAY } from '@/testing';
 
-import { findHeldByEntitlement } from './SwapAttractionSearch';
+import { findHeldByEntitlement } from '@/autopilot/swap';
 
 function held(facilityId: string, entitlementId: string): LLMP {
   return {
@@ -25,6 +25,8 @@ describe('findHeldByEntitlement', () => {
 
   it('does not confuse another reservation with the selected one', () => {
     const original = held('old-attraction', 'ent-1');
-    expect(findHeldByEntitlement([held('other-attraction', 'ent-2')], original)).toBeUndefined();
+    expect(
+      findHeldByEntitlement([held('other-attraction', 'ent-2')], original)
+    ).toBeUndefined();
   });
 });
