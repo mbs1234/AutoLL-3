@@ -1,164 +1,113 @@
 # AutoLL-3
 
-AutoLL-3 is an experimental successor to **[AutoLL](https://github.com/mbs1234/AutoLL)** and **[AutoLL-2](https://github.com/mbs1234/AutoLL-2)** — an unofficial client for Lightning Lane Multi Pass at Walt Disney World, run as a bookmarklet or userscript from the phone you carry in the park.
+AutoLL-3 is a public testing line of
+[AutoLL-2](https://github.com/mbs1234/AutoLL-2). It keeps AutoLL-2's Walt
+Disney World Lightning Lane features, behavior, and limitations. This README
+documents only what changed in AutoLL-3; use the
+[AutoLL-2 README](https://github.com/mbs1234/AutoLL-2#readme) for normal
+installation and feature instructions.
 
-It does everything AutoLL v1.0 does at Walt Disney World, with the same Autopilot engine, the same NextLL search, the same safety limits and the same corrected attraction data — and nothing else: Disneyland and virtual queues, which AutoLL still carries, are not here. **This README covers only what is different.** For how any of the base features work — installing, the LL/Times/Plans tabs, arming actions, return-time windows, the action budget, dry run, NextLL — read [AutoLL's README](https://github.com/mbs1234/AutoLL#readme). Everything there applies here unchanged unless a section below says otherwise.
-
-**Important:** AutoLL-3 is unofficial, experimental software. It is not affiliated with or endorsed by Disney, may stop working at any time, and is provided without warranty. Keep the official Disney app as the source of truth for your plans and reservations.
-
-**Walt Disney World, Lightning Lane only.** AutoLL-3 runs on `disneyworld.disney.go.com/vas/` and nowhere else. Run from a Disneyland or virtual-queue page, it returns you to the start page, which offers that one destination. Disneyland booking never worked in this fork and virtual queues were not in use, so both were removed rather than carried; see [FORK.md](FORK.md#scope).
+AutoLL-3 is unofficial, experimental software. It is not affiliated with or
+endorsed by Disney, may stop working at any time, and is provided without
+warranty. Keep the official Disney app as the source of truth for plans and
+reservations.
 
 ## Install
 
-Open the [AutoLL-3 setup page](https://mbs1234.github.io/AutoLL-3/) on your phone and follow it. The two install paths — bookmarklet and userscript — work exactly as AutoLL's do.
+Open the [AutoLL-3 setup page](https://mbs1234.github.io/AutoLL-3/) on the
+phone you will use in the park, then install its bookmarklet or userscript.
 
-AutoLL-3 keeps its own `autoll3.*` browser storage and its own `autoll3-` notification tags, both separate from AutoLL-2, AutoLL and BG1. That means the builds can be installed side by side without overwriting each other's watch lists, budgets, booking tracking or alerts — and AutoLL-3 needs its own sign-in and setup. Nothing is imported from the other builds.
+AutoLL-3 is a separate build. It has its own sign-in and uses the `autoll3.*`
+browser-storage namespace and `autoll3-` notification tags. It can therefore
+be installed alongside AutoLL-2 without overwriting AutoLL-2's saved party,
+watch list, budget, booking tracking, diagnostics, or alerts.
 
-The settings menu names the build, so two builds open at once can be told apart.
+## Changes from AutoLL-2
 
-## What AutoLL-3 adds
+### Safer, clearer sign-in
 
-### Sign-in and session safety
+AutoLL-3 still signs in through Disney's OneID page and does not handle a
+Disney password. The ordinary session flow has been tightened:
 
-AutoLL-3 signs in through Disney's OneID page. It stores only the resulting
-Disney user identifier, access token, expiry, issuing resort and a schema
-version; it does not handle a Disney password. Saved results are validated
-before use, tied to the Walt Disney World client, and rejected when they
-expire before 5:00 PM park time. The sign-in screen explains that early-expiry
-case, provides a retry if OneID cannot load, and lets a dismissed Disney sheet
-stay dismissed instead of immediately reopening.
+- OneID loading has a timeout, a useful error message, and a retry control.
+- Closing Disney's sign-in sheet leaves it closed; it no longer immediately
+  reopens.
+- Saved session data is validated before use and includes a format version,
+  issuing resort, and receipt time.
+- A session that expires before 5:00 PM park time is rejected before an
+  Autopilot run starts, with an explanation of why a fresh sign-in is needed.
+- Several simultaneous unauthorized responses produce one clean transition
+  back to sign-in rather than competing error states.
+- Settings shows the current session state.
 
-By default the session is retained in browser storage for convenience. In
-**Settings**, choose **Session-only login: On** to keep the current result only
-in memory. You will need to sign in again after a reload or browser restart.
-This is a privacy option, not protection against a malicious script already
-running on the same browser origin. The Settings menu also shows session state.
+These changes concern normal session lifecycle only. They do not change the
+protected device-validation behavior or booking rules inherited from
+AutoLL-2.
 
-Concurrent unauthorized responses are collapsed into one return to the
-sign-in screen. Booking-capable calls always use that behavior; the sole
-exception is the documented itinerary refresh path, where the response is
-reported to its caller rather than logging out a healthy foreground session.
+### Session-only login option
 
-| Addition                         | What it is                                                                                                                                                          |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Passkey and tap-in strategy**  | Mark one easy non-Tier-1 attraction as the pass to spend first. Once that entitlement is established as gone, AutoLL-2 reports the day's Tier 1 restriction lifted. |
-| **Day plans**                    | Watch targets carry a park, a date and a manual **rank**, so a watch list is a plan for one park day rather than a global list.                                     |
-| **Plan check**                   | A preflight over the plan you have configured, run before turning Autopilot on. Makes no booking requests.                                                          |
-| **Today, Configure, Activity**   | A Today tab that answers what Autopilot is doing and what is held; setup on its own Configure screen; the log and diagnostics on Activity.                            |
-| **Timeline**                     | A read-only picture of the day: held Lightning Lanes beside the windows Autopilot may use.                                                                            |
-| **More cadence modes**           | Refill windows, a longer drop-burst lead, and a bounded cadence for a next-day watch.                                                                               |
-| **Reopening alerts**             | A watched attraction coming back from a temporary closure raises an alert — an alert only.                                                                          |
-| **Live tier reporting**          | Where Disney labels a tier that disagrees with the curated table, the disagreement is reported rather than applied.                                                 |
-| **Diagnostics**                  | Drop-demotion evidence, local poll timing, a published release manifest, and a weekly data audit.                                                                   |
+The default remains persistent login: the OneID result is retained in browser
+storage so a reload does not require signing in again.
 
-Each is described below.
+Choose **Settings → Session-only login: On** to retain the current result only
+in memory. It is removed when the page reloads or the browser restarts, so the
+next session requires a new sign-in. This is a privacy choice, not protection
+against a malicious script already executing on the same browser origin.
 
-## Planning
+### Separate release identity
 
-### Plan check
+AutoLL-3 has its own:
 
-**Plan check** is one tap from the Today tab. It reviews the plan already on screen and reports three levels: *Fix before enabling*, *Review*, and *Ready*.
+- bookmarklet and GitHub Pages origin;
+- responder-page URL;
+- app name, short label, and browser tab identity;
+- browser-storage and notification namespaces; and
+- package/release-manifest names.
 
-It checks configuration only — targets that are not on the loaded tipboard, actions armed on a paused attraction, impossible return windows (earliest after latest), an exhausted action budget, return windows that overlap something you already hold, more than one Tier 1 armed, and the two global toggles that widen what Autopilot may do.
+This avoids the accidental cross-loading and shared-state risks of using two
+similar bookmarklet builds on one phone.
 
-What it deliberately does not do is ask Disney anything. Every fact it reasons over is already on the screen. That is the point: eligibility, inventory and the offer's real return time are re-read immediately before every action anyway, so a preflight that made one more request would look more authoritative without being more accurate.
+### Release and deployment controls
 
-One optional button, **Check current party**, makes a single eligibility-only request, scoped to the park and date on screen. It cannot create an offer or spend an entitlement.
+The AutoLL-3 release pipeline is independently verified and published:
 
-It reports **Dry run** rather than calling such a plan ready, and it asks the engine's own rules rather than re-deriving them — so it excludes the reservation an Auto-move target is trying to move, ignores a Multiple Experiences Pass the way the booker does, stays quiet about overlaps when Avoid clashes is off, and only raises the Tier 1 warning where a hold is actually possible. Blockers are listed above reviews.
+- `main` is protected by the required `check` status check, linear-history
+  rules, no force-pushes or deletion, and resolved-conversation requirements.
+- CI runs the test suite, lint, typecheck, and production build.
+- Deployment independently gates publication on typecheck and tests. If they
+  fail, GitHub Pages continues serving the previous successful build.
+- The deployed site includes `autoll3-release.json` and
+  `autoll3-files.sha256`, recording the precise source revisions and hashes of
+  the published payload.
+- AutoLL-3 explicitly reads the inherited installer assets and runtime module
+  from AutoLL-2 during deployment, rather than assuming those branches exist
+  in this repository.
+- Dependabot reviews npm and GitHub Actions dependency updates weekly.
 
-### Day plans
+The live release manifest is available at
+<https://mbs1234.github.io/AutoLL-3/autoll3-release.json>.
 
-A watch target records the park and date it was starred on, so a watch list is a plan for one park day rather than a global list. Only targets matching the loaded park and selected date are watched or acted on; the others are kept for the day they belong to. Targets saved before this existed carry no park or date and stay global.
+## What did not change
 
-Each target can also carry a **plan rank** — a number, lower tried first, overriding the built-in priority order for both ordering and swap decisions.
-
-Targets are named when they are starred, so **Not on today's list** can name the ones Disney's tipboard has stopped listing — a seasonal version, or a changed attraction ID — rather than showing bare facility IDs. Autopilot cannot watch or book those, and each row has a button to remove it.
-
-### Passkey and tap-in strategy
-
-A **passkey** is an easy early Lightning Lane selected to help open up the rest of the day. Mark one non-Tier-1 target as Passkey, enable the action you want for it, and redeem it with the selected party. AutoLL-2 waits until the pass is spent, then checks Disney's eligibility response; it only reports the Tier 1 hold unlocked once both are true. Both halves are needed: Disney only reports the restriction to a party already holding a Tier 1, so on its own the eligibility check says nothing.
-
-"Spent" is what can actually be established, and it covers a pass whose window lapsed unused as well as one that was tapped in — Disney counts both as ridden. That is the right test here, because the tier limit turns on the entitlement being gone rather than on how it went.
-
-Passkey is optional. It never creates a booking authorization, bypasses an eligibility rule, or assumes a reservation was redeemed because it appears in Plans.
-
-### Ordering
-
-Where AutoLL orders same-tick candidates by the LL list's **Priority** sort alone, AutoLL-2 puts the lower plan rank first, then Priority. On the current day, before the party has redeemed anything, a passkey target sorts ahead of both.
-
-## The day, at a glance
-
-### Today
-
-The first tab. The Autopilot switch, a headline saying what it last did ("7:17 PM — Moved Haunted Mansion from 8:29 PM to 7:49 PM"), its status, then buttons to Configure, Plan check, Timeline and Activity; below them the day's alerts, the next Lightning Lane and drop times, every Multi Pass held on the date in any park with its grace-scan window, and the plan for the loaded park in rank order with what each target is armed to do. Every Lightning Lane screen carries the same one-line context under its title: park, date, party size, and whether this is a dry run.
-
-### Configure
-
-Where a plan is set up: the three safeguards (dry run, whole party only, avoid clashes), a card per watched attraction that folds to one line and opens to its actions, return window and rank, and the list of attractions to add. Chips are coloured by what turning them on does — blue for an action that spends an entitlement, green for a safeguard, yellow for rehearsal, amber for paused — and red is kept for Stop and errors. Removing a target takes an open card and can be undone for a few seconds.
-
-### Activity
-
-The day's booking log, the counts of why nothing was booked, and the drop times Autopilot has learned.
-
-### Timeline
-
-A read-only picture of the park day: held Lightning Lanes in one column, the return windows Autopilot is allowed to use in the other, both on a 4am-to-4am rail. An amber target window crosses the protected time around a held reservation; a green one does not.
-
-A target with no window is drawn across the day in grey and labelled "any time", because that is what it permits — not amber, since a full-day window necessarily crosses everything you hold. Red means the window is either wholly inside a protected span, so nothing it allows could be booked, or reversed. Bars are packed into columns, so simultaneous reservations sit side by side rather than on top of each other, and a held pass whose end time Disney did not send is marked rather than drawn as if the end were known.
-
-## How Autopilot checks
-
-Same coordinated polling loop as AutoLL, with three additions to the cadence table:
-
-| Mode                  | When                                                                             | Interval |
-| --------------------- | -------------------------------------------------------------------------------- | -------- |
-| **Refill window**     | inside a span an attraction tends to refill over, rather than one instant        | ~6s      |
-| **Watching tomorrow** | a watch on the next day, between 07:00 and 22:00                                 | ~15s     |
-| **Checking rapidly**  | 2 minutes before to 2 minutes after a drop — where AutoLL uses 30 seconds before | ~1.2s    |
-
-A refill window holds the approach rate for its whole duration; a real scheduled drop inside one still wins and uses the shorter burst interval. Refill windows are curated per attraction in `src/api/data/wdw.ts`.
-
-Anything further out than tomorrow polls at the slow steady rate, as in AutoLL, since cancellations have no schedule.
-
-### Reopening alerts
-
-A watched attraction returning from a temporary closure raises an alert. Deliberately an alert only — a reopening often creates useful near-term inventory, but the ordinary watch and booking rules stay the sole authority for spending an entitlement.
-
-### Learned drop times
-
-Learning works as it does in AutoLL: a time observed on two or more distinct park days is added to the times Autopilot bursts for, and coverage is recorded so the panel can tell "seen 2 of 2 watched days" apart from "seen 0 of 3" and from "not watched yet".
-
-AutoLL-2 additionally implements **demotion** — removing a scheduled time contradicted by local evidence — but it is **disabled**. Coverage is recorded per park day rather than per scheduled drop time, so "covered and never observed" does not yet mean "the drop did not fire": the two counts disagree on retention, span, subject and density. The evidence is gathered and shown; it does not act. See `DEMOTION_ENABLED` in `src/autopilot/learned.ts`.
-
-## Diagnostics
-
-- **Live tier reporting.** Where Disney labels an attraction's tier and that disagrees with the curated table, the disagreement is reported rather than applied. Acting on it would let the tipboard and a booking disagree about the same attraction, so one curated table stays in control.
-- **Local timing.** While Autopilot is running, its status area shows how long the last cycle took and the average across the session. Measured in the browser, never transmitted, and it does not alter the cadence. It times a whole cycle — availability, plans, eligibility and any booking attempt — so a tick that acted is legitimately slower than one that only looked. Failed cycles are excluded, since the cheapest failure here is instant and averaging it in made the number look best when nothing was getting through.
-- **Release manifest.** Each published build carries `autoll3-files.sha256`, a SHA-256 manifest of every deployed payload file, and `autoll3-release.json`, which names all three revisions it was assembled from — the bundle's, the installer pages' on `goofy`, and the runtime module's on `gh-pages`. Both are generated after every overlay and URL rewrite, so they describe what was actually published. The deploy fails if a file an install path needs by name is missing from the manifest.
-- **Curated data invariants.** A weekly workflow re-runs the curated-data and ID-retirement suites, so a hand edit that breaks their invariants is caught without waiting for a push. Both suites are offline by design — they check the committed data against itself — so they cannot tell you Disney has changed an attraction ID. The unknown-attraction notice and live tier reporting in Autopilot are what surface that, from real tipboard responses.
+AutoLL-3 does not add new booking, Autopilot, passkey, plan-check, timeline,
+drop-learning, polling, or attraction-data features beyond AutoLL-2. Refer to
+AutoLL-2 for those features and their operating instructions.
 
 ## Development
 
 ```bash
 npm ci
-npm run checkall      # tests, lint, and typecheck
-npm run test:ci       # CI test suite
-npm run build         # production bundle
-npm start             # development server
-npm run harness       # the screens against fake data, no Disney session
+npm run checkall
+npm run test:ci
+npm run build
 ```
 
-The harness (`harness/`, `vite.harness.config.mts`) serves the real screens over fake clients at <http://localhost:5174>, with a scenario picker for the states worth seeing: the engine running against a fake tipboard, bursting at a drop, stopped after errors, the budget spent, Disney refusing requests, dry run, a future date, a Plan Check full of blockers, and each way a Time Search can end. It is a separate Vite config, so nothing in it can reach the production bundle.
-
-As in AutoLL, `deploy.yml` runs typecheck and tests before it builds, and the deploy job depends on that — a failure serves the previous bundle rather than a broken one. `vite build` does not typecheck, which is why that is not redundant.
-
-The source branch is `main`; inherited installer assets are read from AutoLL-2's `goofy` branch during deployment. GitHub Pages publishes the combined build at <https://mbs1234.github.io/AutoLL-3/>.
-
-See [FORK.md](FORK.md) for project structure and upstream synchronization notes, and [docs/PLAN.md](docs/PLAN.md) for the feature roadmap and research notes.
+See [SECURITY.md](SECURITY.md) for token-handling and release-verification
+notes, and [FORK.md](FORK.md) for the inherited project structure and upstream
+synchronization notes.
 
 ## License and acknowledgments
 
-AutoLL-3 is **GPL-3.0-only**. It is a modified version of **[BG1](https://github.com/joelface/bg1)** by Joel Bruick — the original project and the source of nearly everything underneath these builds — merged onto **[jgeurts/bg1](https://github.com/jgeurts/bg1)**, which restored Lightning Lane booking at Walt Disney World. AutoLL-3 forks **[AutoLL-2](https://github.com/mbs1234/AutoLL-2)**, which carries the fuller acknowledgments.
-
-Thanks also to Len Testa and [TouringPlans](https://touringplans.com/), [ThemeParks.wiki](https://themeparks.wiki/), [Thrill Data](https://www.thrill-data.com/), WDWMagic's drop-tracking observers, BlogMickey, Arialvetica for the original logo, and [IcoMoon](https://icomoon.io/#icons-icomoon) for the icons.
+AutoLL-3 is **GPL-3.0-only** and is a modified AutoLL-2/BG1-derived build.
+See AutoLL-2 and [FORK.md](FORK.md) for the fuller acknowledgments and upstream
+history.
