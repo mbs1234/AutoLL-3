@@ -1,4 +1,4 @@
-import { Booking, isLLMP, LLMP } from '@/api/itinerary';
+import { Booking, LLMP, isLLMP } from '@/api/itinerary';
 
 /** Finds the same entitlement even after its attraction has changed. */
 export function findHeldByEntitlement(
