@@ -74,6 +74,16 @@ export interface TimeSearchDeps {
   commit: (offer: Offer<LLMP>) => Promise<LLMP>;
   /** Silent plans refresh, for settling a move that was accepted. */
   pollPlans: () => Promise<Booking[]>;
+  /**
+   * Locates the reservation after a modification. A same-attraction search
+   * uses the facility/date default; an attraction swap follows the original
+   * entitlement instead, because its facility intentionally changes.
+   */
+  findHeld?: (plans: Booking[], booking: LLMP) => LLMP | undefined;
+  /** A swap is always explicit, even when its offered time is earlier. */
+  confirmEveryMove?: boolean;
+  /** A confirmed swap is one replacement, not an unattended chain of moves. */
+  stopAfterConfirmedMove?: boolean;
 }
 
 /**
@@ -177,11 +187,13 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
      */
     async function readHeld(): Promise<LLMP | undefined> {
       const plans = await depsRef.current.pollPlans();
-      return findExistingLL(
-        plans,
-        depsRef.current.booking.facilityId,
-        parkDate(depsRef.current.booking.start)
-      );
+      return depsRef.current.findHeld
+        ? depsRef.current.findHeld(plans, depsRef.current.booking)
+        : findExistingLL(
+          plans,
+          depsRef.current.booking.facilityId,
+          parkDate(depsRef.current.booking.start)
+        );
     }
 
     async function cycle() {
@@ -219,6 +231,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
           settling = 0;
           guard.confirm();
           setState(s => ({ ...s, held: now.start.time }));
+          if (depsRef.current.stopAfterConfirmedMove) stop('goal-met');
           return;
         }
         // Bounded, because the alternative is a screen that says "Checking..."
@@ -254,7 +267,10 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
 
       // Giving up an earlier reservation is the one move that is not
       // obviously an improvement, so it is offered rather than taken.
-      if (isLaterMove(current.start.time, want)) {
+      if (
+        depsRef.current.confirmEveryMove ||
+        isLaterMove(current.start.time, want)
+      ) {
         if (!guard.begin(want)) return;
         setState(s => ({ ...s, pending: want }));
         return;

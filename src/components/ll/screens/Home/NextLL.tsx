@@ -25,6 +25,7 @@ import AutopilotProvider from '@/providers/AutopilotProvider';
 
 import { HomeTabProps } from '../Home';
 import RefreshButton from '../RefreshButton';
+import { NextLLModifyPicker } from './NextLLModify';
 import ParkSelect from './ParkSelect';
 
 export const NEXTLL = 'NextLL';
@@ -41,15 +42,46 @@ export const NEXTLL = 'NextLL';
 export const NEXTLL_WATCHLIST_KEY = 'autoll3.nextll.watchlist';
 
 export default function NextLLTab({ ref }: HomeTabProps) {
+  return <NextLLChooser ref={ref} />;
+}
+
+/** The first decision keeps booking a new slot distinct from changing a hold. */
+export function NextLLChooser({ ref }: Partial<HomeTabProps> = {}) {
+  const [mode, setMode] = useState<'choose' | 'book' | 'modify'>('choose');
+  if (mode === 'book') {
+    return (
+      <AutopilotProvider
+        watchListKey={NEXTLL_WATCHLIST_KEY}
+        rapid
+        budgeted={false}
+        repeatMoves
+      >
+        <NextLL ref={ref} onBack={() => setMode('choose')} />
+      </AutopilotProvider>
+    );
+  }
+  if (mode === 'modify') {
+    return <NextLLModifyPicker ref={ref} onBack={() => setMode('choose')} />;
+  }
   return (
-    <AutopilotProvider
-      watchListKey={NEXTLL_WATCHLIST_KEY}
-      rapid
-      budgeted={false}
-      repeatMoves
-    >
-      <NextLL ref={ref} />
-    </AutopilotProvider>
+    <Tab title={NEXTLL} ref={ref}>
+      <h2 className="mt-2 text-xl font-semibold">What do you want to do?</h2>
+      <p className="mt-2 text-sm text-gray-600">
+        Find a new Lightning Lane, or improve one you already hold.
+      </p>
+      <Button type="full" className="mt-4" onClick={() => setMode('book')}>
+        Book a new Lightning Lane
+      </Button>
+      <p className="mt-1 text-sm text-gray-600">
+        Takes the first acceptable return time, then keeps trying to improve it.
+      </p>
+      <Button type="full" className="mt-4" onClick={() => setMode('modify')}>
+        Modify a held Lightning Lane
+      </Button>
+      <p className="mt-1 text-sm text-gray-600">
+        Improve a held return time or search for a different attraction.
+      </p>
+    </Tab>
   );
 }
 
@@ -69,7 +101,10 @@ export default function NextLLTab({ ref }: HomeTabProps) {
  * nothing -- and once something is held the window becomes the goal the move
  * step works toward.
  */
-export function NextLL({ ref }: Partial<HomeTabProps> = {}) {
+export function NextLL({
+  ref,
+  onBack,
+}: Partial<HomeTabProps> & { onBack?: () => void } = {}) {
   // Applies the party saved in the LL tab. Only `useSavedParty` calls
   // `ll.setPartyIds`, and it is mounted by `MultiPassList` -- which is not
   // mounted while this tab is showing. Without this, an empty party id set
@@ -202,6 +237,11 @@ export function NextLL({ ref }: Partial<HomeTabProps> = {}) {
     >
       {!enabled ? (
         <>
+          {onBack && (
+            <Button type="small" onClick={onBack}>
+              Choose another action
+            </Button>
+          )}
           {pendingExp && (
             <div className="mt-2 rounded-sm border border-gray-300 p-3">
               <p>

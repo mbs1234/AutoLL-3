@@ -23,7 +23,12 @@ import { DateTime, ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
 import { TODAY } from '@/testing';
 
-import { NEXTLL, NEXTLL_WATCHLIST_KEY, NextLL } from './NextLL';
+import {
+  NEXTLL,
+  NEXTLL_WATCHLIST_KEY,
+  NextLL,
+  NextLLChooser,
+} from './NextLL';
 
 const BZ = '80010114';
 const OFF: PollerStatus = { mode: 'off', consecutiveFailures: 0, polls: 0 };
@@ -70,8 +75,9 @@ function setup({
   enabled: initialEnabled = false,
   targets: initialTargets = [] as WatchTarget[],
   plans = [] as Booking[],
+  chooser = false,
   ...rest
-}: Partial<AutopilotState> & { plans?: Booking[] } = {}) {
+}: Partial<AutopilotState> & { plans?: Booking[]; chooser?: boolean } = {}) {
   const setEnabled = jest.fn();
   const addTarget = jest.fn();
   const removeTarget = jest.fn();
@@ -150,7 +156,7 @@ function setup({
                 }}
               >
                 <Autopilot>
-                  <NextLL />
+                  {chooser ? <NextLLChooser /> : <NextLL />}
                 </Autopilot>
               </ExperiencesContext>
             </PlansContext>
@@ -177,6 +183,24 @@ beforeEach(() => {
 });
 
 describe('NextLL', () => {
+  it('starts by distinguishing a new booking from a held-LL modification', () => {
+    setup({ chooser: true });
+    expect(
+      screen.getByRole('button', { name: 'Book a new Lightning Lane' })
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Modify a held Lightning Lane' })
+    ).toBeVisible();
+  });
+
+  it('keeps the existing new-slot workflow behind its new choice', () => {
+    setup({ chooser: true });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Book a new Lightning Lane' })
+    );
+    expect(screen.getByText('Find it')).toBeVisible();
+  });
+
   // The only way back to the rest of the app. Rendering a bare div instead of
   // a Tab drops the whole footer, which is easy to do and invisible until the
   // screen is open on a phone with nothing to press.
