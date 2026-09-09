@@ -42,7 +42,8 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
     () =>
       experiences
         .filter(
-          (exp): exp is Experience => !!exp.flex && exp.id !== booking.facilityId
+          (exp): exp is Experience =>
+            !!exp.flex && exp.id !== booking.facilityId
         )
         .sort((a, b) => a.name.localeCompare(b.name)),
     [booking.facilityId, experiences]
@@ -130,8 +131,8 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
                 <Time time={search.pending} />?
               </p>
               <p className="mt-1 text-sm">
-                This changes the attraction you hold. It will not be done
-                unless you confirm it.
+                This changes the attraction you hold. It will not be done unless
+                you confirm it.
               </p>
               <Button type="small" className="mt-2" onClick={search.accept}>
                 Replace Lightning Lane
