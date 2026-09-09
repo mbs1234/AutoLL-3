@@ -67,6 +67,15 @@ AutoLL-3 has its own:
 This avoids the accidental cross-loading and shared-state risks of using two
 similar bookmarklet builds on one phone.
 
+### NextLL held-reservation options
+
+NextLL now starts by asking whether to book a new Lightning Lane or modify one
+already held for the selected date. A held reservation can either use the
+full return-time grid to seek a better time for the same attraction, or search
+for a different Multi Pass attraction. Every attraction replacement requires
+an explicit confirmation, and the search stops if its result cannot be safely
+confirmed in Plans.
+
 ### Release and deployment controls
 
 The AutoLL-3 release pipeline is independently verified and published:
@@ -89,9 +98,10 @@ The live release manifest is available at
 
 ## What did not change
 
-AutoLL-3 does not add new booking, Autopilot, passkey, plan-check, timeline,
-drop-learning, polling, or attraction-data features beyond AutoLL-2. Refer to
-AutoLL-2 for those features and their operating instructions.
+Other than the NextLL held-reservation flow above, AutoLL-3 does not add new
+booking, Autopilot, passkey, plan-check, timeline, drop-learning, polling, or
+attraction-data features beyond AutoLL-2. Refer to AutoLL-2 for those features
+and their operating instructions.
 
 ## Development
 
