@@ -1,5 +1,5 @@
-import { APP_NAME } from '@/appIdentity';
 import { AUTH_PERSISTENCE_KEY } from '@/api/auth';
+import { APP_NAME } from '@/appIdentity';
 import kvdb from '@/kvdb';
 import { fireEvent, render, screen } from '@/testing';
 

@@ -30,9 +30,11 @@ export type AuthStatus =
 
 export class ReauthNeeded extends Error {
   name = 'ReauthNeeded';
+  readonly status: AuthStatus;
 
-  constructor(public readonly status: AuthStatus = 'missing') {
+  constructor(status: AuthStatus = 'missing') {
     super(`Auth data ${status}`);
+    this.status = status;
   }
 }
 

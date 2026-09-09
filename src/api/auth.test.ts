@@ -89,6 +89,7 @@ describe('AuthStore', () => {
     jest.useFakeTimers();
     const onUnauthorized = jest.fn();
     store.onUnauthorized = onUnauthorized;
+    setData(Date.now() + 86400_000);
     store.deleteData();
     store.deleteData();
     jest.runAllTimers();

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { AuthStatus, ReauthNeeded, authStore } from '@/api/auth';
 import { InvalidOrigin } from '@/api/client';
@@ -41,6 +41,7 @@ export default function App() {
   const [loginReason, setLoginReason] = useState<AuthStatus>(() =>
     authStore.getStatus()
   );
+  const initialLoginRequired = useRef(loginRequired);
 
   useEffect(() => {
     disableDoubleTapZoom();
@@ -64,14 +65,19 @@ export default function App() {
       setResort(resort);
       DateTime.setTimeZone('America/New_York');
       authStore.setExpectedResort(resort.id);
-      try {
-        authStore.getData();
-        setLoginReason('valid');
-        requireLogin(false);
-      } catch (error) {
-        if (!(error instanceof ReauthNeeded)) throw error;
-        setLoginReason(error.status);
-        requireLogin(true);
+      // If the initial synchronous check already chose the login screen,
+      // retain that decision. A second check here otherwise races it and can
+      // briefly reveal authenticated content before the sign-in sheet.
+      if (!initialLoginRequired.current) {
+        try {
+          authStore.getData();
+          setLoginReason('valid');
+          requireLogin(false);
+        } catch (error) {
+          if (!(error instanceof ReauthNeeded)) throw error;
+          setLoginReason(error.status);
+          requireLogin(true);
+        }
       }
       setContent(
         <ResortContext value={resort}>

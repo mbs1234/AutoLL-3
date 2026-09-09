@@ -36,11 +36,11 @@ describe('LoginForm', () => {
     render(<LoginForm onLogin={onLogin} resort={wdw} />);
     expect(self.OneID).toBeTruthy();
     if (!self.OneID) return;
+    await waitFor(() => expect(launchLogin).toHaveBeenCalled());
     expect(self.OneID.get).toHaveBeenCalledWith({
       clientId: 'TPR-WDW-LBSDK.IOS',
       responderPage: 'https://mbs1234.github.io/AutoLL-3/responder.html',
     });
-    await waitFor(() => expect(launchLogin).toHaveBeenCalled());
 
     const exp = new Date('2050-01-01T00:00:00Z').getTime();
     callbacks.login!({
@@ -55,8 +55,10 @@ describe('LoginForm', () => {
       receivedAt: expect.any(Number),
     });
 
-    act(() => callbacks.close!());
-    expect(screen.getByRole('button', { name: 'Sign in with Disney' })).toBeInTheDocument();
+    act(() => callbacks.close!({}));
+    expect(
+      screen.getByRole('button', { name: 'Sign in with Disney' })
+    ).toBeInTheDocument();
     expect(launchLogin).toHaveBeenCalledTimes(1);
 
     screen.getByTestId('wrapper');
