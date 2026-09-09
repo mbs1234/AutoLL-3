@@ -38,7 +38,7 @@ export const NEXTLL = 'NextLL';
  * have Stop switch it all off. What it does inherit, by being nested, is the
  * park, the booking date, the plans, the tipboard and the login.
  */
-export const NEXTLL_WATCHLIST_KEY = 'autoll2.nextll.watchlist';
+export const NEXTLL_WATCHLIST_KEY = 'autoll3.nextll.watchlist';
 
 export default function NextLLTab({ ref }: HomeTabProps) {
   return (

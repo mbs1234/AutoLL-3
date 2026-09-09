@@ -8,20 +8,20 @@
  * one and looked at what was on screen.
  *
  * The tab strip is where that question is actually asked, so this is where it
- * is answered. It is the human half of the `autoll2.*` storage namespace: that
+ * is answered. It is the human half of the `autoll3.*` storage namespace: that
  * one stops two builds overwriting each other's data, this one stops you
  * mistaking which is which.
  */
-export const APP_NAME = 'AutoLL-2';
+export const APP_NAME = 'AutoLL-3';
 
 /**
  * The name where space is tight.
  *
  * The tab bar has four buttons across a phone's width and has to stay on one
- * line, so the full name does not fit beside them. `aLL-2` keeps the `LL`
+ * line, so the full name does not fit beside them. `aLL-3` keeps the `LL`
  * that every one of these builds is named for and says which this is.
  */
-export const APP_SHORT = 'aLL-2';
+export const APP_SHORT = 'aLL-3';
 
 /**
  * A one-glyph favicon.

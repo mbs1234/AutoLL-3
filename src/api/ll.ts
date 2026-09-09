@@ -503,7 +503,7 @@ export abstract class LLClient extends ApiClient {
   }
 }
 
-export const BOOKINGS_KEY = 'autoll2.ll.bookings';
+export const BOOKINGS_KEY = 'autoll3.ll.bookings';
 
 interface LLTrackerData {
   booked: Experience['id'][];

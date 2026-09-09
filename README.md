@@ -1,22 +1,43 @@
-# AutoLL-2
+# AutoLL-3
 
-AutoLL-2 is the experimental sibling of **[AutoLL](https://github.com/mbs1234/AutoLL)** — an unofficial client for Lightning Lane Multi Pass at Walt Disney World, run as a bookmarklet or userscript from the phone you carry in the park.
+AutoLL-3 is an experimental successor to **[AutoLL](https://github.com/mbs1234/AutoLL)** and **[AutoLL-2](https://github.com/mbs1234/AutoLL-2)** — an unofficial client for Lightning Lane Multi Pass at Walt Disney World, run as a bookmarklet or userscript from the phone you carry in the park.
 
 It does everything AutoLL v1.0 does at Walt Disney World, with the same Autopilot engine, the same NextLL search, the same safety limits and the same corrected attraction data — and nothing else: Disneyland and virtual queues, which AutoLL still carries, are not here. **This README covers only what is different.** For how any of the base features work — installing, the LL/Times/Plans tabs, arming actions, return-time windows, the action budget, dry run, NextLL — read [AutoLL's README](https://github.com/mbs1234/AutoLL#readme). Everything there applies here unchanged unless a section below says otherwise.
 
-**Important:** AutoLL-2 is unofficial, experimental software, and the more experimental of the two builds. It is not affiliated with or endorsed by Disney, may stop working at any time, and is provided without warranty. Keep the official Disney app as the source of truth for your plans and reservations. If you want the build that is meant to be dependable on a trip, use AutoLL.
+**Important:** AutoLL-3 is unofficial, experimental software. It is not affiliated with or endorsed by Disney, may stop working at any time, and is provided without warranty. Keep the official Disney app as the source of truth for your plans and reservations.
 
-**Walt Disney World, Lightning Lane only.** AutoLL-2 runs on `disneyworld.disney.go.com/vas/` and nowhere else. Run from a Disneyland or virtual-queue page, it returns you to the start page, which offers that one destination. Disneyland booking never worked in this fork and virtual queues were not in use, so both were removed rather than carried; see [FORK.md](FORK.md#scope).
+**Walt Disney World, Lightning Lane only.** AutoLL-3 runs on `disneyworld.disney.go.com/vas/` and nowhere else. Run from a Disneyland or virtual-queue page, it returns you to the start page, which offers that one destination. Disneyland booking never worked in this fork and virtual queues were not in use, so both were removed rather than carried; see [FORK.md](FORK.md#scope).
 
 ## Install
 
-Open the [AutoLL-2 setup page](https://mbs1234.github.io/AutoLL-2/) on your phone and follow it. The two install paths — bookmarklet and userscript — work exactly as AutoLL's do.
+Open the [AutoLL-3 setup page](https://mbs1234.github.io/AutoLL-3/) on your phone and follow it. The two install paths — bookmarklet and userscript — work exactly as AutoLL's do.
 
-AutoLL-2 keeps its own `autoll2.*` browser storage and its own `autoll2-` notification tags, both separate from AutoLL's and from BG1's. That means the two builds can be installed side by side without overwriting each other's watch lists, budgets, booking tracking or alerts — and that AutoLL-2 needs its own sign-in and its own setup. Nothing is imported from either.
+AutoLL-3 keeps its own `autoll3.*` browser storage and its own `autoll3-` notification tags, both separate from AutoLL-2, AutoLL and BG1. That means the builds can be installed side by side without overwriting each other's watch lists, budgets, booking tracking or alerts — and AutoLL-3 needs its own sign-in and setup. Nothing is imported from the other builds.
 
 The settings menu names the build, so two builds open at once can be told apart.
 
-## What AutoLL-2 adds
+## What AutoLL-3 adds
+
+### Sign-in and session safety
+
+AutoLL-3 signs in through Disney's OneID page. It stores only the resulting
+Disney user identifier, access token, expiry, issuing resort and a schema
+version; it does not handle a Disney password. Saved results are validated
+before use, tied to the Walt Disney World client, and rejected when they
+expire before 5:00 PM park time. The sign-in screen explains that early-expiry
+case, provides a retry if OneID cannot load, and lets a dismissed Disney sheet
+stay dismissed instead of immediately reopening.
+
+By default the session is retained in browser storage for convenience. In
+**Settings**, choose **Session-only login: On** to keep the current result only
+in memory. You will need to sign in again after a reload or browser restart.
+This is a privacy option, not protection against a malicious script already
+running on the same browser origin. The Settings menu also shows session state.
+
+Concurrent unauthorized responses are collapsed into one return to the
+sign-in screen. Booking-capable calls always use that behavior; the sole
+exception is the documented itinerary refresh path, where the response is
+reported to its caller rather than logging out a healthy foreground session.
 
 | Addition                         | What it is                                                                                                                                                          |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -114,7 +135,7 @@ AutoLL-2 additionally implements **demotion** — removing a scheduled time cont
 
 - **Live tier reporting.** Where Disney labels an attraction's tier and that disagrees with the curated table, the disagreement is reported rather than applied. Acting on it would let the tipboard and a booking disagree about the same attraction, so one curated table stays in control.
 - **Local timing.** While Autopilot is running, its status area shows how long the last cycle took and the average across the session. Measured in the browser, never transmitted, and it does not alter the cadence. It times a whole cycle — availability, plans, eligibility and any booking attempt — so a tick that acted is legitimately slower than one that only looked. Failed cycles are excluded, since the cheapest failure here is instant and averaging it in made the number look best when nothing was getting through.
-- **Release manifest.** Each published build carries `autoll2-files.sha256`, a SHA-256 manifest of every deployed payload file, and `autoll2-release.json`, which names all three revisions it was assembled from — the bundle's, the installer pages' on `goofy`, and the runtime module's on `gh-pages`. Both are generated after every overlay and URL rewrite, so they describe what was actually published. The deploy fails if a file an install path needs by name is missing from the manifest.
+- **Release manifest.** Each published build carries `autoll3-files.sha256`, a SHA-256 manifest of every deployed payload file, and `autoll3-release.json`, which names all three revisions it was assembled from — the bundle's, the installer pages' on `goofy`, and the runtime module's on `gh-pages`. Both are generated after every overlay and URL rewrite, so they describe what was actually published. The deploy fails if a file an install path needs by name is missing from the manifest.
 - **Curated data invariants.** A weekly workflow re-runs the curated-data and ID-retirement suites, so a hand edit that breaks their invariants is caught without waiting for a push. Both suites are offline by design — they check the committed data against itself — so they cannot tell you Disney has changed an attraction ID. The unknown-attraction notice and live tier reporting in Autopilot are what surface that, from real tipboard responses.
 
 ## Development
@@ -132,12 +153,12 @@ The harness (`harness/`, `vite.harness.config.mts`) serves the real screens over
 
 As in AutoLL, `deploy.yml` runs typecheck and tests before it builds, and the deploy job depends on that — a failure serves the previous bundle rather than a broken one. `vite build` does not typecheck, which is why that is not redundant.
 
-The source branch is `main`; the installer assets are maintained on `goofy`. GitHub Pages publishes the combined build at <https://mbs1234.github.io/AutoLL-2/>.
+The source branch is `main`; inherited installer assets are read from AutoLL-2's `goofy` branch during deployment. GitHub Pages publishes the combined build at <https://mbs1234.github.io/AutoLL-3/>.
 
 See [FORK.md](FORK.md) for project structure and upstream synchronization notes, and [docs/PLAN.md](docs/PLAN.md) for the feature roadmap and research notes.
 
 ## License and acknowledgments
 
-AutoLL-2 is **GPL-3.0-only**. It is a modified version of **[BG1](https://github.com/joelface/bg1)** by Joel Bruick — the original project and the source of nearly everything underneath both builds — merged onto **[jgeurts/bg1](https://github.com/jgeurts/bg1)**, which restored Lightning Lane booking at Walt Disney World. AutoLL-2 forks **[AutoLL](https://github.com/mbs1234/AutoLL)**, which carries the fuller acknowledgments.
+AutoLL-3 is **GPL-3.0-only**. It is a modified version of **[BG1](https://github.com/joelface/bg1)** by Joel Bruick — the original project and the source of nearly everything underneath these builds — merged onto **[jgeurts/bg1](https://github.com/jgeurts/bg1)**, which restored Lightning Lane booking at Walt Disney World. AutoLL-3 forks **[AutoLL-2](https://github.com/mbs1234/AutoLL-2)**, which carries the fuller acknowledgments.
 
 Thanks also to Len Testa and [TouringPlans](https://touringplans.com/), [ThemeParks.wiki](https://themeparks.wiki/), [Thrill Data](https://www.thrill-data.com/), WDWMagic's drop-tracking observers, BlogMickey, Arialvetica for the original logo, and [IcoMoon](https://icomoon.io/#icons-icomoon) for the icons.

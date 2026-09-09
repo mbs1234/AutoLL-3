@@ -3,7 +3,7 @@ import { use, useCallback, useEffect, useState } from 'react';
 import ClientsContext from '@/contexts/ClientsContext';
 import kvdb from '@/kvdb';
 
-export const PARTY_IDS_KEY = 'autoll2.genie.partyIds';
+export const PARTY_IDS_KEY = 'autoll3.genie.partyIds';
 
 export default function useSavedParty() {
   const { ll } = use(ClientsContext);

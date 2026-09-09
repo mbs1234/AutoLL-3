@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { ReauthNeeded, authStore } from '@/api/auth';
+import { AuthStatus, ReauthNeeded, authStore } from '@/api/auth';
 import { InvalidOrigin } from '@/api/client';
 import { LLClient } from '@/api/ll';
 import { Resort, loadResort } from '@/api/resort';
@@ -18,7 +18,7 @@ import Merlock from './ll/Merlock';
 export const NEWS_VERSION = 0;
 
 /** Where anyone who ran the bookmarklet on a page it cannot use is sent. */
-const START_PAGE = 'https://mbs1234.github.io/AutoLL-2/start.html';
+const START_PAGE = 'https://mbs1234.github.io/AutoLL-3/start.html';
 
 function disableDoubleTapZoom() {
   document.body.addEventListener('click', () => null);
@@ -38,10 +38,16 @@ export default function App() {
     }
     return false;
   });
+  const [loginReason, setLoginReason] = useState<AuthStatus>(() =>
+    authStore.getStatus()
+  );
 
   useEffect(() => {
     disableDoubleTapZoom();
-    authStore.onUnauthorized = () => requireLogin(true);
+    authStore.onUnauthorized = () => {
+      setLoginReason('expired');
+      requireLogin(true);
+    };
     (async () => {
       // One resort and one product: Walt Disney World Lightning Lane. Any
       // other Disney page the bookmarklet was run from -- Disneyland, a
@@ -57,6 +63,16 @@ export default function App() {
       }
       setResort(resort);
       DateTime.setTimeZone('America/New_York');
+      authStore.setExpectedResort(resort.id);
+      try {
+        authStore.getData();
+        setLoginReason('valid');
+        requireLogin(false);
+      } catch (error) {
+        if (!(error instanceof ReauthNeeded)) throw error;
+        setLoginReason(error.status);
+        requireLogin(true);
+      }
       setContent(
         <ResortContext value={resort}>
           <ClientsContext value={createClients(resort)}>
@@ -72,8 +88,10 @@ export default function App() {
       if (loginRequired) return;
       try {
         authStore.getData();
+        setLoginReason('valid');
         requireLogin(false);
-      } catch {
+      } catch (error) {
+        if (error instanceof ReauthNeeded) setLoginReason(error.status);
         requireLogin(true);
       }
     }
@@ -87,6 +105,7 @@ export default function App() {
     (loginRequired && resort && (
       <LoginForm
         resort={resort}
+        reason={loginReason}
         onLogin={data => {
           authStore.setData(data);
           requireLogin(false);

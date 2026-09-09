@@ -50,7 +50,12 @@ export abstract class ApiClient {
     params?: { [key: string]: string };
     data?: unknown;
     key?: string;
-    ignoreUnauth?: boolean;
+    /**
+     * Only itinerary refresh uses this. A transient 401 there should be
+     * surfaced to its caller rather than logging out a healthy foreground
+     * session; every booking-capable request must retain the default.
+     */
+    ignoreUnauth?: 'itinerary-refresh';
     sensorData?: boolean;
   }): Promise<JsonOK<T>> {
     this.rateLimit.enforce();

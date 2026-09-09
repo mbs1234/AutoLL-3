@@ -2,7 +2,7 @@ import { Experience, FlexExperience } from '@/api/ll';
 import { ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
 
-export const WATCHLIST_KEY = 'autoll2.autopilot.watchlist';
+export const WATCHLIST_KEY = 'autoll3.autopilot.watchlist';
 
 /**
  * Where a build keeps its watch list.

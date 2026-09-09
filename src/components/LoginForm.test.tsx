@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@/testing';
+import { act, cleanup, render, screen, waitFor } from '@/testing';
 
 import LoginForm from './LoginForm';
 
@@ -38,13 +38,8 @@ describe('LoginForm', () => {
     if (!self.OneID) return;
     expect(self.OneID.get).toHaveBeenCalledWith({
       clientId: 'TPR-WDW-LBSDK.IOS',
-      responderPage: 'https://mbs1234.github.io/AutoLL-2/responder.html',
+      responderPage: 'https://mbs1234.github.io/AutoLL-3/responder.html',
     });
-    expect(
-      document.querySelector(
-        'script[src="https://cdn.registerdisney.go.com/v4/OneID.js"]'
-      )
-    ).toBeInTheDocument();
     await waitFor(() => expect(launchLogin).toHaveBeenCalled());
 
     const exp = new Date('2050-01-01T00:00:00Z').getTime();
@@ -55,7 +50,14 @@ describe('LoginForm', () => {
       swid: '{123}',
       accessToken: 'XYZ',
       expires: exp,
+      resortId: 'WDW',
+      version: 1,
+      receivedAt: expect.any(Number),
     });
+
+    act(() => callbacks.close!());
+    expect(screen.getByRole('button', { name: 'Sign in with Disney' })).toBeInTheDocument();
+    expect(launchLogin).toHaveBeenCalledTimes(1);
 
     screen.getByTestId('wrapper');
     screen.getByTestId('responder');

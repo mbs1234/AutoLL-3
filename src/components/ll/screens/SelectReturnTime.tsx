@@ -23,7 +23,7 @@ import Legend from './Home/Legend';
 import RefreshButton from './RefreshButton';
 import TimeSearch from './TimeSearch';
 
-export const FULL_AVAILABILITY_KEY = 'autoll2.ll.fullAvailability';
+export const FULL_AVAILABILITY_KEY = 'autoll3.ll.fullAvailability';
 
 export default function SelectReturnTime<B extends Offer['booking']>({
   offer,

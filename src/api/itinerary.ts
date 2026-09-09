@@ -231,7 +231,7 @@ export class ItineraryClient extends ApiClient {
         'start-date': today,
         'show-friends': 'false',
       },
-      ignoreUnauth: true,
+      ignoreUnauth: 'itinerary-refresh',
     });
     const primaryGuestId = typelessId(loggedInGuestId);
 

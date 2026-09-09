@@ -7,9 +7,9 @@ import { BookingLogEntry } from '@/contexts/AutopilotContext';
 import { ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
 
-export const LOG_KEY = 'autoll2.autopilot.log';
-export const SETTINGS_KEY = 'autoll2.autopilot.settings';
-export const BUDGET_KEY = 'autoll2.autopilot.budget';
+export const LOG_KEY = 'autoll3.autopilot.log';
+export const SETTINGS_KEY = 'autoll3.autopilot.settings';
+export const BUDGET_KEY = 'autoll3.autopilot.budget';
 /** Newest first, capped: the log is a glance at recent activity, not history. */
 export const LOG_LIMIT = 20;
 

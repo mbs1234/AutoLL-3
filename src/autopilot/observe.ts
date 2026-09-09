@@ -23,8 +23,8 @@ import kvdb from '@/kvdb';
  * only ever claimed for days on which the poller was actually running at 15:47.
  */
 
-export const EVENTS_KEY = 'autoll2.autopilot.dropEvents';
-export const COVERAGE_KEY = 'autoll2.autopilot.coverage';
+export const EVENTS_KEY = 'autoll3.autopilot.dropEvents';
+export const COVERAGE_KEY = 'autoll3.autopilot.coverage';
 
 /** How much earlier the next available time must move to count as a drop. */
 export const EARLIER_THRESHOLD_MIN = 15;

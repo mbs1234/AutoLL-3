@@ -23,7 +23,7 @@ import Plans from './Plans';
 import Today from './Today';
 
 const AUTO_REFRESH_MIN_MS = 60_000;
-export const HOME_TAB_KEY = 'autoll2.tab';
+export const HOME_TAB_KEY = 'autoll3.tab';
 
 export interface HomeTabProps {
   ref: React.RefObject<HTMLDivElement | null>;

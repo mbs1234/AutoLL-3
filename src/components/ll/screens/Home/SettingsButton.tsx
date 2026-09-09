@@ -1,4 +1,4 @@
-import { use, useRef, useState } from 'react';
+import { use, useMemo, useRef, useState } from 'react';
 
 import { authStore } from '@/api/auth';
 import { APP_NAME } from '@/appIdentity';
@@ -15,23 +15,39 @@ import PartySelector from '../PartySelector';
 
 export default function SettingsButton() {
   const { goTo } = use(NavContext);
-  const [options] = useState([
-    {
-      text: 'Party Selection',
-      icon: <UserIcon />,
-      action: () => goTo(<PartySelector />),
-    },
-    {
-      text: 'Log Out',
-      icon: <ExitIcon />,
-      action: () => authStore.deleteData(),
-    },
-    // {
-    //   text: 'BG1 News',
-    //   icon: <NewsIcon />,
-    //   action: () => goTo(<News />),
-    // },
-  ]);
+  const sessionStatus = authStore.getStatus();
+  const [sessionOnly, setSessionOnly] = useState(
+    () => authStore.getPersistence() === 'session'
+  );
+  const options = useMemo(
+    () => [
+      {
+        text: 'Party Selection',
+        icon: <UserIcon />,
+        action: () => goTo(<PartySelector />),
+      },
+      {
+        text: 'Log Out',
+        icon: <ExitIcon />,
+        action: () => authStore.deleteData(),
+      },
+      {
+        text: `Session-only login: ${sessionOnly ? 'On' : 'Off'}`,
+        icon: <UserIcon />,
+        action: () => {
+          const next = !sessionOnly;
+          authStore.setPersistence(next ? 'session' : 'persistent');
+          setSessionOnly(next);
+        },
+      },
+      // {
+      //   text: 'BG1 News',
+      //   icon: <NewsIcon />,
+      //   action: () => goTo(<News />),
+      // },
+    ],
+    [goTo, sessionOnly]
+  );
   const [showingMenu, showMenu] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -75,6 +91,12 @@ export default function SettingsButton() {
                 </li>
               );
             })}
+            <li
+              className="px-4 text-center text-sm text-gray-500"
+              aria-label="Session status"
+            >
+              Session: {sessionStatus.replaceAll('-', ' ')}
+            </li>
             {/* Which build this is. More than one bg1-derived build can be
                 installed on the same phone; this used to sit in the tab bar,
                 where five tabs no longer leave it room. */}

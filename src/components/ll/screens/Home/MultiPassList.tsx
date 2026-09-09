@@ -39,7 +39,7 @@ import useSort, { Sorter } from './useSort';
 
 const LP_MIN_STANDBY = 30;
 const LP_MAX_LL_WAIT = 60;
-export const STARRED_KEY = 'autoll2.genie.tipBoard.starred';
+export const STARRED_KEY = 'autoll3.genie.tipBoard.starred';
 const LIGHTNING_PICK = 'Lightning Pick';
 const BOOKED = 'Booked';
 

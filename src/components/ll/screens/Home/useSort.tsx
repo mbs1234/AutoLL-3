@@ -10,7 +10,7 @@ import { parkDate } from '@/datetime';
 import useCoords, { Coords } from '@/hooks/useCoords';
 import kvdb from '@/kvdb';
 
-export const SORT_KEY = 'autoll2.genie.sort';
+export const SORT_KEY = 'autoll3.genie.sort';
 
 export type Sorter = (
   a: FlexExperience,

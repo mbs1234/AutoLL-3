@@ -146,7 +146,7 @@ export default function PlanCheck() {
       </ul>
       <h3>Current party</h3>
       <p className="text-sm text-gray-600">
-        Check whether the guests AutoLL-2 currently sees are eligible in
+        Check whether the guests AutoLL-3 currently sees are eligible in
         general, at {park.name} on this date. Attraction-specific eligibility,
         inventory, and the actual offered time can change and remain protected
         by the final action checks.

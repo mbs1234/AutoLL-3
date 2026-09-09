@@ -1,4 +1,4 @@
-name: Build and deploy AutoLL-2
+name: Build and deploy AutoLL-3
 
 # The app bundle and the static site around it live on two different
 # branches with no shared history:
@@ -39,7 +39,7 @@ concurrency:
 env:
   # Origin this fork is served from. Must match `base` in vite.config.mts
   # and the responderPage URL in src/components/LoginForm.tsx.
-  PAGES_ORIGIN: https://mbs1234.github.io/AutoLL-2
+  PAGES_ORIGIN: https://mbs1234.github.io/AutoLL-3
 
 jobs:
   build:
@@ -56,6 +56,10 @@ jobs:
       - name: Check out static site (goofy)
         uses: actions/checkout@v4
         with:
+          # AutoLL-3 owns main; the inherited installer assets remain in the
+          # reviewed AutoLL-2 source repository until they are independently
+          # maintained here.
+          repository: mbs1234/AutoLL-2
           ref: goofy
           path: goofy-static
 
@@ -67,6 +71,7 @@ jobs:
       - name: Check out base static output (gh-pages)
         uses: actions/checkout@v4
         with:
+          repository: mbs1234/AutoLL-2
           ref: gh-pages
           path: base-static
 
@@ -202,12 +207,12 @@ jobs:
           (
             cd dist
             find . -type f \
-              ! -name autoll2-files.sha256 \
-              ! -name autoll2-release.json \
+              ! -name autoll3-files.sha256 \
+              ! -name autoll3-release.json \
               -printf '%P\n' \
               | LC_ALL=C sort \
               | while IFS= read -r file; do sha256sum "$file"; done \
-              > autoll2-files.sha256
+              > autoll3-files.sha256
             # Every file an install path needs by name. bg1.css and
             # responder.html were missing from this list, and they are the two
             # whose absence breaks the app quietly rather than loudly -- an
@@ -216,13 +221,13 @@ jobs:
                         index.html index.css autoloader.user.js; do
               # Anchored to end of line so a `.map` or a same-named file in a
               # subdirectory cannot satisfy the check for the real one.
-              grep -Eq "  ${file//./\\.}$" autoll2-files.sha256 || {
+              grep -Eq "  ${file//./\\.}$" autoll3-files.sha256 || {
                 echo "::error::$file is absent from the release manifest"
                 exit 1
               }
             done
-            printf '{\n  "application": "AutoLL-2",\n  "sourceRevision": "%s",\n  "installerRevision": "%s",\n  "runtimeModuleRevision": "%s",\n  "fileManifest": "autoll2-files.sha256"\n}\n' \
-              "$GITHUB_SHA" "$goofy_rev" "$base_rev" > autoll2-release.json
+            printf '{\n  "application": "AutoLL-3",\n  "sourceRevision": "%s",\n  "installerRevision": "%s",\n  "runtimeModuleRevision": "%s",\n  "fileManifest": "autoll3-files.sha256"\n}\n' \
+              "$GITHUB_SHA" "$goofy_rev" "$base_rev" > autoll3-release.json
           )
 
       - name: Show what will be deployed

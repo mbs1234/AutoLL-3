@@ -22,6 +22,9 @@ jest.mock('./LoginForm', () => {
         swid: '{MINNIE}',
         accessToken: 'm1nn13',
         expires: new Date(2121, 12, 21, 12, 21, 12).getTime(),
+        resortId: 'WDW',
+        version: 1,
+        receivedAt: Date.now(),
       });
     return <button onClick={onClick}>Log In</button>;
   }
@@ -73,6 +76,9 @@ describe('App', () => {
       swid: '{MINNIE}',
       accessToken: 'm1nn13',
       expires: new Date(2121, 12, 21, 12, 21, 12).getTime(),
+      resortId: 'WDW',
+      version: 1,
+      receivedAt: expect.any(Number),
     });
     await see.screen('LL');
   });
@@ -89,7 +95,7 @@ describe('App', () => {
     renderComponent();
     await waitFor(() => {
       expect(navigate).toHaveBeenCalledWith(
-        'https://mbs1234.github.io/AutoLL-2/start.html'
+        'https://mbs1234.github.io/AutoLL-3/start.html'
       );
     });
   });
@@ -99,7 +105,7 @@ describe('App', () => {
     renderComponent();
     await waitFor(() => {
       expect(navigate).toHaveBeenCalledWith(
-        'https://mbs1234.github.io/AutoLL-2/start.html'
+        'https://mbs1234.github.io/AutoLL-3/start.html'
       );
     });
   });

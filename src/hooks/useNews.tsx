@@ -4,7 +4,7 @@ import FloatingButton from '@/components/FloatingButton';
 import News from '@/components/screens/News';
 import kvdb from '@/kvdb';
 
-export const NEWS_VERSION_KEY = 'autoll2.news.version';
+export const NEWS_VERSION_KEY = 'autoll3.news.version';
 
 export default function useNews(version: number) {
   const [lastSeenVersion, setLastSeenVersion] = useState(() => {

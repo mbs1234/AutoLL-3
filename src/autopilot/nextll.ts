@@ -1,6 +1,6 @@
 import kvdb from '@/kvdb';
 
-export const NEXTLL_PENDING_KEY = 'autoll2.nextll.pending';
+export const NEXTLL_PENDING_KEY = 'autoll3.nextll.pending';
 
 /**
  * What a search was looking for when its screen went away.

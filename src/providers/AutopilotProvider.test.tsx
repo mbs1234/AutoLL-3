@@ -400,7 +400,7 @@ describe('AutopilotProvider', () => {
     await enable();
     await waitFor(() => expect(fireAlert).toHaveBeenCalledTimes(1));
     expect(fireAlert).toHaveBeenCalledWith(
-      expect.objectContaining({ tag: `autoll2-autopilot-${TODAY}-${BZ}` })
+      expect.objectContaining({ tag: `autoll3-autopilot-${TODAY}-${BZ}` })
     );
   });
 
@@ -415,7 +415,7 @@ describe('AutopilotProvider', () => {
     await waitFor(() => expect(fireAlert).toHaveBeenCalledTimes(1));
     expect(fireAlert).toHaveBeenCalledWith(
       expect.objectContaining({
-        tag: `autoll2-autopilot-${TOMORROW}-${BZ}`,
+        tag: `autoll3-autopilot-${TOMORROW}-${BZ}`,
         body: expect.stringContaining('on '),
       })
     );
@@ -2111,7 +2111,7 @@ describe('AutopilotProvider with a second provider mounted inside it', () => {
                     <Probe />
                     {inner && (
                       <AutopilotProvider
-                        watchListKey="autoll2.nextll.watchlist"
+                        watchListKey="autoll3.nextll.watchlist"
                         budgeted={false}
                         repeatMoves
                       >

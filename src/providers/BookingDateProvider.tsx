@@ -5,7 +5,7 @@ import ClientsContext from '@/contexts/ClientsContext';
 import { modifyDate, parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
 
-export const BOOKING_DATE_KEY = 'autoll2.date';
+export const BOOKING_DATE_KEY = 'autoll3.date';
 /**
  * How far ahead the date picker offers, today inclusive.
  *

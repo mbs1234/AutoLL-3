@@ -5,7 +5,7 @@ export default function Disclaimer({ onAccept }: { onAccept: () => void }) {
   return (
     <Screen title="Warning!" theme={{ bg: 'bg-red', text: '', color: '' }}>
       <p>
-        Use at your own risk. AutoLL-2 is highly experimental, for demonstration
+        Use at your own risk. AutoLL-3 is highly experimental, for demonstration
         purposes only, and provided &quot;as is&quot; without warranty of any
         kind. It is in no way endorsed by or associated with the Walt Disney
         Company and could stop working at any time for any reason. To ensure the
