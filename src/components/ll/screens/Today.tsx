@@ -2,6 +2,8 @@ import { use } from 'react';
 
 import { LLMP, isLLMP } from '@/api/itinerary';
 import { describeMode } from '@/autopilot/describe';
+import { checklist } from '@/autopilot/checklist';
+import { requestAlertPermission } from '@/autopilot/alert';
 import { latestActivity } from '@/autopilot/events';
 import { loadPendingSearch } from '@/autopilot/nextll';
 import { NO_REFUSALS } from '@/autopilot/refusal';
@@ -21,6 +23,7 @@ import NavContext from '@/contexts/NavContext';
 import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
 import TabsContext from '@/contexts/TabContext';
+import useSavedParty from '@/hooks/useSavedParty';
 import { parkDate, upcomingTimes } from '@/datetime';
 
 import Activity from './Activity';
@@ -31,6 +34,7 @@ import ParkSelect from './Home/ParkSelect';
 import PlanCheck from './PlanCheck';
 import RefreshButton from './RefreshButton';
 import Timeline from './Timeline';
+import PartySelector from './PartySelector';
 
 export const TODAY = 'Today';
 
@@ -76,6 +80,7 @@ export default function Today({ ref }: HomeTabProps) {
   const { ll } = use(ClientsContext);
   const { goTo } = use(NavContext);
   const { changeTab } = use(TabsContext);
+  const [partyIds] = useSavedParty();
 
   const isToday = bookingDate === parkDate();
   const activity = latestActivity({ bookingLog, lastSkip, lastHit });
@@ -108,6 +113,11 @@ export default function Today({ ref }: HomeTabProps) {
       pending.experienceId)
     : undefined;
   const unknown = unknownExperienceIds?.length ?? 0;
+  const readiness = checklist({
+    partySize: partyIds.size,
+    targets: targetsHere,
+    notifications,
+  });
 
   return (
     <Tab
@@ -160,6 +170,25 @@ export default function Today({ ref }: HomeTabProps) {
           Activity
         </Button>
       </div>
+
+      {!isToday && (
+        <section className="mt-4 rounded-sm bg-gray-100 p-3" aria-label="Pre-trip checklist">
+          <h3>Before your trip</h3>
+          <ul className="mt-2 space-y-2 text-sm">
+            {readiness.map(item => (
+              <li key={item.subject} className="flex items-center justify-between gap-2">
+                <span>{item.done ? '✓' : '○'} {item.text}</span>
+                {!item.done && <Button type="small" onClick={() => {
+                  if (item.subject === 'party') goTo(<PartySelector />);
+                  else if (item.subject === 'targets' || item.subject === 'settings') goTo(<Configure />);
+                  else if (item.subject === 'plan-check') goTo(<PlanCheck />);
+                  else void requestAlertPermission();
+                }}>{item.subject === 'notifications' ? 'Enable' : 'Open'}</Button>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {dryRun && (
         <p className="mt-3 rounded-sm bg-yellow-100 p-2 text-sm font-semibold text-yellow-900">
