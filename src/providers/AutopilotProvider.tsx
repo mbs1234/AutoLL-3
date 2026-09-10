@@ -1261,6 +1261,13 @@ export default function AutopilotProvider({
     if (status.mode === 'stopped') void releaseScreenAwake(wakeLockOwner);
   }, [status.mode, wakeLockOwner]);
 
+  // Kept in the provider so every permission entry point updates the one
+  // context value the rest of the UI reads. Calling this callback from a click
+  // still initiates Notification.requestPermission inside that user gesture.
+  const requestNotifications = useCallback(() => {
+    void requestAlertPermission().then(setNotifications);
+  }, []);
+
   const setEnabled = useCallback(
     (on: boolean) => {
       if (!on) {
@@ -1270,7 +1277,7 @@ export default function AutopilotProvider({
         // autopilot on -- primeAudio synchronously, and the permission request
         // at least called from here.
         primeAudio();
-        void requestAlertPermission().then(setNotifications);
+        requestNotifications();
         // A locking screen backgrounds the page and clamps its timers, which
         // stops the poller as surely as closing it would. Requested from the
         // gesture for the same reason as the two above. Best-effort throughout:
@@ -1309,7 +1316,7 @@ export default function AutopilotProvider({
       }
       setEnabledState(on);
     },
-    [wakeLockOwner]
+    [wakeLockOwner, requestNotifications]
   );
 
   /**
@@ -1517,6 +1524,7 @@ export default function AutopilotProvider({
         togglePasskey,
         passkeyStatus,
         notifications,
+        requestNotifications,
         lastHit,
         bookingLog,
         bookedCount,

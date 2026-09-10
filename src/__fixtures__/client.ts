@@ -32,11 +32,15 @@ export function expectFetch(
       method,
       params,
       data,
-      headers: {
+      // Individual clients may add request-specific headers (for example the
+      // LL client adds its app id and sensor header). This shared helper owns
+      // the authentication contract, while endpoint tests assert their own
+      // additional request semantics.
+      headers: expect.objectContaining({
         'Accept-Language': 'en-US',
         Authorization: `BEARER ${accessToken}`,
         'x-user-id': swid,
-      },
+      }),
     }
   );
 }

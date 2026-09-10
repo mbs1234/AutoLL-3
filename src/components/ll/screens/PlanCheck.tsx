@@ -46,6 +46,7 @@ export default function PlanCheck() {
     avoidOverlaps,
     dryRun,
     passkeyStatus,
+    refillBudget,
   } = use(AutopilotContext);
   // Recomputed only when a fact it reads changes, rather than on every render
   // -- this screen stays mounted while Autopilot polls behind it.
@@ -86,9 +87,8 @@ export default function PlanCheck() {
   function actOn(item: (typeof items)[number]) {
     if (!item.subject) return;
     if (item.subject.kind === 'tipboard') return refreshExperiences();
-    if (item.subject.kind === 'budget') {
-      return goTo(<Configure focus={{ kind: 'setting' }} />);
-    }
+    if (item.subject.kind === 'budget') return refillBudget();
+    if (item.subject.kind === 'targets') return goTo(<Configure />);
     return goTo(<Configure focus={item.subject} />);
   }
 
@@ -171,7 +171,7 @@ export default function PlanCheck() {
                 {item.subject.kind === 'tipboard'
                   ? 'Refresh LL list'
                   : item.subject.kind === 'budget'
-                    ? 'Open budget settings'
+                    ? 'Add more for today'
                     : 'Open Configure'}
               </Button>
             )}

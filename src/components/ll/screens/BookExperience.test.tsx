@@ -139,8 +139,8 @@ describe('BookExperience', () => {
 
   it('performs successful booking', async () => {
     await renderComponent();
-    see.time(offer.start.time);
-    see.time(offer.end.time);
+    see.times(`${offer.start.time}`);
+    see.times(`${offer.end.time}`);
     await clickModify();
     click(mickey.name, 'checkbox');
     await clickConfirm();
@@ -215,17 +215,17 @@ describe('BookExperience', () => {
 
   it('refreshes offer when Refresh button clicked', async () => {
     await renderComponent();
-    see.time(offer.start.time);
+    see.times(`${offer.start.time}`);
     mockOffer(newOffer);
     click('Refresh Offer');
     await loading();
-    see.time(newOffer.start.time);
+    see.times(`${newOffer.start.time}`);
     see.no('Return time has been changed');
   });
 
   it('refreshes offer when someone added to party', async () => {
     await renderComponent();
-    see.time(offer.start.time);
+    see.times(`${offer.start.time}`);
     await clickModify();
     click(mickey.name, 'checkbox');
     await clickConfirm();
@@ -238,7 +238,7 @@ describe('BookExperience', () => {
     await loading();
     see(mickey.name);
     expect(ll.offer).toHaveBeenCalledTimes(2);
-    see.time(newOffer.start.time);
+    see.times(`${newOffer.start.time}`);
   });
 
   it('shows "No Guests Found" when no guests loaded', async () => {
@@ -303,10 +303,10 @@ describe('BookExperience', () => {
     see.no(pluto.name);
   });
 
-  it('flashes error message when booking fails', async () => {
+  it('refreshes an expired offer and reports other booking failures', async () => {
     await renderComponent();
     await mockBook(410);
-    see('Offer expired');
+    expect(ll.offer).toHaveBeenCalledTimes(2);
     await mockBook(0);
     see('Network request failed (no response)');
     await mockBook(-1);

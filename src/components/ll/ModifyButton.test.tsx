@@ -8,16 +8,7 @@ import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
 import RebookingContext, { Rebooking } from '@/contexts/RebookingContext';
 import { ParkTime } from '@/datetime';
-import {
-  TODAY,
-  TOMORROW,
-  click,
-  nav,
-  render,
-  see,
-  setTime,
-  waitFor,
-} from '@/testing';
+import { TODAY, TOMORROW, click, nav, see, setTime, waitFor } from '@/testing';
 
 import ModifyButton from './ModifyButton';
 import BookExperience from './screens/BookExperience';
@@ -126,9 +117,9 @@ describe('ModifyButton', () => {
   it("doesn't show Modify button when auto rebooking or not a modifiable LL", async () => {
     renderResort(<ModifyButtonTest auto />);
     see.no('Modify');
-    render(<ModifyButtonTest booking={bg} />);
+    renderResort(<ModifyButtonTest booking={bg} />);
     see.no('Modify');
-    render(<ModifyButtonTest booking={multiExp} />);
+    renderResort(<ModifyButtonTest booking={multiExp} />);
     see.no('Modify');
   });
 });

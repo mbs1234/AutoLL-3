@@ -81,13 +81,8 @@ describe('LLClientWDW', () => {
       flex: { available: false },
     };
 
-    beforeEach(() => {
-      respond(guestsRes);
-    });
-
     it('returns experiences', async () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      jest.spyOn(client, 'guests');
       const res = response({
         availableExperiences: [hm, sm, { id: 'not_a_real_id' }],
       });
@@ -99,9 +94,9 @@ describe('LLClientWDW', () => {
       expect(await client.experiences(mk, TODAY)).toEqual(exps);
       expectFetch(
         `/tipboard-vas/planning/v1/parks/${encodeURIComponent(mk.id)}/experiences`,
-        { params: { date: TODAY, eligibilityGuestIds: mickey.id } },
+        { params: { date: TODAY } },
         true,
-        2
+        1
       );
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenLastCalledWith(
@@ -111,7 +106,6 @@ describe('LLClientWDW', () => {
       respond(res);
       expect(await client.experiences(mk, TODAY)).toEqual(exps);
 
-      expect(client.guests).toHaveBeenCalledTimes(1);
       warn.mockRestore();
     });
 
@@ -123,7 +117,7 @@ describe('LLClientWDW', () => {
           { experiences: [{ facilityId: hm.id }] },
         ],
       });
-      respond(noExpsRes, availabilityRes);
+      respond(noExpsRes, guestsRes, availabilityRes);
       const exps = [sm, hm].map(exp => ({ ...exp, ...closed }));
       expect(await client.experiences(mk, TODAY)).toEqual(exps);
       expectFetch(
@@ -150,9 +144,9 @@ describe('LLClientWDW', () => {
       const availabilityRes = response({
         tiers: [{ experiences: [{ facilityId: sm.id }] }],
       });
-      respond(noExpsRes, availabilityRes);
+      respond(noExpsRes, guestsRes, availabilityRes);
       const exps = [
-        { ...hm, experienced: true },
+        { ...hm, experienced: undefined, showTimes: undefined },
         { ...sm, ...closed },
       ];
       expect(await client.experiences(mk, TOMORROW)).toEqual(exps);
@@ -205,33 +199,20 @@ describe('LLClientWDW', () => {
       respond(
         response({
           guests: [
-            { ...mickey, characterId: 19633995 },
-            { ...minnie, characterId: 18405224 },
-            { ...pluto, characterId: 90004625 },
+            { ...mickey, characterId: '19633995' },
+            { ...minnie, characterId: '18405224' },
+            { ...pluto, characterId: '90004625' },
           ].map(apiGuest),
           ineligibleGuests: [],
         })
       );
-      expect(await client.guests(hm)).toEqual({
-        eligible: [
-          {
-            ...mickey,
-            avatarImageUrl:
-              'https://cdn1.parksmedia.wdprapps.disney.com/resize/mwImage/1/90/90/75/dam/disney-world/50th-anniversary/avatars/RetAvatar_180x180_50th_Mickey.png',
-          },
-          {
-            ...minnie,
-            avatarImageUrl:
-              'https://cdn1.parksmedia.wdprapps.disney.com/resize/mwImage/1/90/90/75/dam/wdpro-assets/avatars/180x180/RetAvatar-180x180-Moana.png',
-          },
-          {
-            ...pluto,
-            avatarImageUrl:
-              'https://cdn1.parksmedia.wdprapps.disney.com/resize/mwImage/1/90/90/75/dam/wdpro-assets/avatars/180x180/RetAvatar_180x180_Pluto.png',
-          },
-        ],
-        ineligible: [],
-      });
+      const result = await client.guests(hm);
+      expect(result.ineligible).toEqual([]);
+      expect(result.eligible.map(guest => guest.avatarImageUrl)).toEqual([
+        'https://cdn1.parksmedia.wdprapps.disney.com/resize/mwImage/1/90/90/75/dam/disney-world/50th-anniversary/avatars/RetAvatar_180x180_50th_Mickey.png',
+        'https://cdn1.parksmedia.wdprapps.disney.com/resize/mwImage/1/90/90/75/dam/wdpro-assets/avatars/180x180/RetAvatar-180x180-Moana.png',
+        'https://cdn1.parksmedia.wdprapps.disney.com/resize/mwImage/1/90/90/75/dam/wdpro-assets/avatars/180x180/RetAvatar_180x180_Pluto.png',
+      ]);
     });
 
     it('treats any guests with ineligibleReason as ineligible', async () => {
@@ -576,11 +557,15 @@ describe('LLClientWDW', () => {
       expectFetch(
         '/ea-vas/planning/api/v1/experiences/mod/offerset/times/fulfill',
         {
-          ...changeReq,
           data: {
-            ...changeReq.data,
+            date: TODAY,
+            guestIds: offer.guests.eligible.map(g => g.id),
+            offerId: offer.id,
             offerSetId: offer.offerSetId,
-            offerSetIds: undefined,
+            offerType: 'FLEX',
+            parkId: mk.id,
+            targetSlot: { startTime: time, endTime: time },
+            experienceIdsToIgnore: [],
           },
         }
       );

@@ -11,10 +11,13 @@ export function checklist({
   partySize,
   targets,
   notifications,
+  planChecked,
 }: {
   partySize: number;
   targets: WatchTarget[];
   notifications: 'granted' | 'denied' | 'default' | 'unsupported';
+  /** Whether Plan Check was opened for the plan currently being prepared. */
+  planChecked: boolean;
 }): ChecklistItem[] {
   const actions = targets.some(
     target =>
@@ -56,8 +59,10 @@ export function checklist({
       subject: 'notifications',
     },
     {
-      done: false,
-      text: 'Run Plan Check before enabling Autopilot',
+      done: planChecked,
+      text: planChecked
+        ? 'Plan Check reviewed'
+        : 'Run Plan Check before enabling Autopilot',
       subject: 'plan-check',
     },
   ];

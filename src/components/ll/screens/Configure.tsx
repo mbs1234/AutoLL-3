@@ -274,7 +274,9 @@ export default function Configure({
       )}
       {watched.length === 0 ? (
         <p className="text-sm text-gray-600">
-          Nothing selected yet. Pick attractions below.
+          {targetsHere.length > 0 && filterText.trim()
+            ? 'No watched attractions match that filter.'
+            : 'Nothing selected yet. Pick attractions below.'}
         </p>
       ) : (
         <ul className="mt-2 space-y-2">
