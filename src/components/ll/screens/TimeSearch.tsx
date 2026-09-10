@@ -8,8 +8,8 @@ import Button from '@/components/Button';
 import Screen from '@/components/Screen';
 import { Time } from '@/components/Time';
 import ClientsContext from '@/contexts/ClientsContext';
-import PlansContext from '@/contexts/PlansContext';
 import NavContext from '@/contexts/NavContext';
+import PlansContext from '@/contexts/PlansContext';
 
 import Home from './Home';
 
@@ -112,7 +112,11 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
         <>
           <p className="mt-3">
             {search.phase === 'awaiting' ? (
-              <>Waiting for Plans to confirm the move to <Time time={search.guard.requested!} />&hellip; </>
+              <>
+                Waiting for Plans to confirm the move to{' '}
+                <Time time={search.guard.requested!} />
+                &hellip;{' '}
+              </>
             ) : (
               <>Checking&hellip; </>
             )}
@@ -155,7 +159,13 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
           <p className="font-semibold">
             A move to <Time time={search.unresolved} /> did not come back.
           </p>
-          <Button type="small" className="mt-2" onClick={() => goBack({ screen: Home, props: { tabName: 'Plans' } })}>
+          <Button
+            type="small"
+            className="mt-2"
+            onClick={() =>
+              goBack({ screen: Home, props: { tabName: 'Plans' } })
+            }
+          >
             Open Plans
           </Button>
           <p className="mt-1 text-sm">
@@ -168,11 +178,24 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
 
       {search.stop && !search.unresolved && (
         <div className="mt-3 text-sm text-gray-600">
-          <p>{search.stop === 'failed' ? `Stopped after repeated errors${search.lastError ? `: ${search.lastError}` : ''}.` : STOPPED[search.stop]}</p>
+          <p>
+            {search.stop === 'failed'
+              ? `Stopped after repeated errors${search.lastError ? `: ${search.lastError}` : ''}.`
+              : STOPPED[search.stop]}
+          </p>
           {search.stop === 'unconfirmed' && (
             <div className="mt-2 flex gap-2">
-              <Button type="small" onClick={() => goBack({ screen: Home, props: { tabName: 'Plans' } })}>Open Plans</Button>
-              <Button type="small" onClick={search.start}>Keep waiting</Button>
+              <Button
+                type="small"
+                onClick={() =>
+                  goBack({ screen: Home, props: { tabName: 'Plans' } })
+                }
+              >
+                Open Plans
+              </Button>
+              <Button type="small" onClick={search.start}>
+                Keep waiting
+              </Button>
             </div>
           )}
         </div>

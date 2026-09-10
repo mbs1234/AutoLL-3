@@ -101,6 +101,7 @@ export default function Configure({
   }, [removed]);
   // The target just added starts unfolded: adding is when it gets set up.
   const [justAdded, setJustAdded] = useState<string>();
+  const [filterText, setFilterText] = useState('');
 
   // Scoped to the park and date on screen. `targets` is the whole saved list
   // across every park and every date, so looking a row up in it returns
@@ -129,8 +130,14 @@ export default function Configure({
     .filter((exp): exp is Experience => !!exp.flex)
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const watched = watchable.filter(exp => isWatched(exp.id));
-  const unwatched = watchable.filter(exp => !isWatched(exp.id));
+  const matchesFilter = (exp: Experience) =>
+    exp.name.toLowerCase().includes(filterText.trim().toLowerCase());
+  const watched = watchable.filter(
+    exp => isWatched(exp.id) && matchesFilter(exp)
+  );
+  const unwatched = watchable.filter(
+    exp => !isWatched(exp.id) && matchesFilter(exp)
+  );
   const absentTargets =
     experiences.length === 0
       ? []
@@ -249,6 +256,15 @@ export default function Configure({
       )}
 
       <h3>Watching ({targetsHere.length})</h3>
+      <label className="mt-2 block text-sm">
+        <span className="font-semibold">Filter attractions</span>
+        <input
+          className="mt-1 block w-full rounded-sm border border-gray-300 p-2"
+          value={filterText}
+          onChange={event => setFilterText(event.target.value)}
+          placeholder="Type an attraction name"
+        />
+      </label>
       {targets.length > targetsHere.length && (
         <p className="text-xs text-gray-600">
           {targets.length - targetsHere.length} more saved for another park or
@@ -268,7 +284,8 @@ export default function Configure({
                 experience={exp}
                 target={targetFor(exp.id)}
                 defaultOpen={
-                  exp.id === justAdded || exp.id === focus?.experienceId
+                  exp.id === justAdded ||
+                  (focus?.kind === 'target' && exp.id === focus.experienceId)
                 }
                 onRemove={() => {
                   const target = targetFor(exp.id) ?? { experienceId: exp.id };

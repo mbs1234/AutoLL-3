@@ -97,9 +97,9 @@ export function dayTimeline(
         name: lane.name,
         start: lane.start.time,
         endAssumed: !lane.end?.time,
-      // A missing end is unusual, but a marked bar is more useful than making
-      // the held reservation vanish from the timeline. `endAssumed` is what
-      // stops the assumption being presented as fact.
+        // A missing end is unusual, but a marked bar is more useful than making
+        // the held reservation vanish from the timeline. `endAssumed` is what
+        // stops the assumption being presented as fact.
         end:
           lane.end?.time ??
           lane.start.time.add({ minutes: ASSUMED_LENGTH_MIN }),
