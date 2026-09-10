@@ -130,7 +130,12 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
   const stop = useCallback(
     (reason: SearchStop) => {
       runningRef.current = false;
-      setState(s => ({ ...s, running: false, stop: reason, phase: guardRef.current.phase }));
+      setState(s => ({
+        ...s,
+        running: false,
+        stop: reason,
+        phase: guardRef.current.phase,
+      }));
       void releaseScreenAwake(wakeOwner);
     },
     [wakeOwner]
@@ -225,7 +230,12 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         }
         const moved = await depsRef.current.commit(quoted);
         guard.markCommitted();
-        setState(s => ({ ...s, moves: s.moves + 1, held: moved.start.time, phase: guard.phase }));
+        setState(s => ({
+          ...s,
+          moves: s.moves + 1,
+          held: moved.start.time,
+          phase: guard.phase,
+        }));
         return;
       }
 
@@ -316,7 +326,11 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
               guard.release();
             } else {
               guard.markUnknown();
-              setState(s => ({ ...s, unresolved: guard.requested, phase: guard.phase }));
+              setState(s => ({
+                ...s,
+                unresolved: guard.requested,
+                phase: guard.phase,
+              }));
               stop('failed');
               return;
             }

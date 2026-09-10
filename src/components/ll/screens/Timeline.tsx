@@ -7,13 +7,13 @@ import ContextStrip from '@/components/ll/ContextStrip';
 import DayTimeline from '@/components/ll/DayTimeline';
 import AutopilotContext from '@/contexts/AutopilotContext';
 import BookingDateContext from '@/contexts/BookingDateContext';
+import NavContext from '@/contexts/NavContext';
 import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
-import NavContext from '@/contexts/NavContext';
 import { parkDate } from '@/datetime';
 
-import Configure from './Configure';
 import BookingDetails from './BookingDetails';
+import Configure from './Configure';
 
 export const TIMELINE = 'Timeline';
 
@@ -46,7 +46,9 @@ export default function Timeline() {
           targets={targetsToday}
           date={bookingDate}
           onTargetTap={target =>
-            goTo(<Configure focus={{ kind: 'target', experienceId: target.id }} />)
+            goTo(
+              <Configure focus={{ kind: 'target', experienceId: target.id }} />
+            )
           }
           onLaneTap={lane => {
             const booking = lanes.find(item => item.id === lane.id);

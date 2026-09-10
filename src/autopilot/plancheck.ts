@@ -89,8 +89,11 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
     targetApplies(target, input.parkId, input.date)
   );
   const items: PlanCheckItem[] = [];
-  const push = (level: PlanCheckLevel, text: string, subject?: PlanCheckSubject) =>
-    items.push({ level, text, subject });
+  const push = (
+    level: PlanCheckLevel,
+    text: string,
+    subject?: PlanCheckSubject
+  ) => items.push({ level, text, subject });
 
   if (active.length === 0) {
     return [

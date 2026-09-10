@@ -111,21 +111,27 @@ export default function DayTimeline({
           ))}
           {timeline.lanes.map(lane => (
             <Fragment key={lane.id}>
-            <div aria-hidden className="absolute inset-x-0 bg-blue-50" style={protectedStyle(lane)} />
-            <button
-              className="absolute overflow-hidden rounded-sm bg-blue-100 px-1 text-left text-blue-950"
-              style={laneStyle(lane)}
-              onClick={() => onLaneTap?.(lane)}
-              title={`${lane.name}: ${lane.start} to ${lane.end}${
-                lane.endAssumed ? ' (end time unknown)' : ''
-              }`}
-            >
-              <span className="block truncate font-semibold">{lane.name}</span>
-              <span className="block truncate">
-                <Time time={lane.start} />
-                {lane.endAssumed && ' – ?'}
-              </span>
-            </button>
+              <div
+                aria-hidden
+                className="absolute inset-x-0 bg-blue-50"
+                style={protectedStyle(lane)}
+              />
+              <button
+                className="absolute overflow-hidden rounded-sm bg-blue-100 px-1 text-left text-blue-950"
+                style={laneStyle(lane)}
+                onClick={() => onLaneTap?.(lane)}
+                title={`${lane.name}: ${lane.start} to ${lane.end}${
+                  lane.endAssumed ? ' (end time unknown)' : ''
+                }`}
+              >
+                <span className="block truncate font-semibold">
+                  {lane.name}
+                </span>
+                <span className="block truncate">
+                  <Time time={lane.start} />
+                  {lane.endAssumed && ' – ?'}
+                </span>
+              </button>
             </Fragment>
           ))}
         </div>
