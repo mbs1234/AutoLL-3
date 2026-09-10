@@ -12,7 +12,6 @@ import {
 } from '@/autopilot/nextll';
 import { WatchTarget, parseBound, saveWatchList } from '@/autopilot/watchlist';
 import Button from '@/components/Button';
-import Disclosure from '@/components/Disclosure';
 import Tab from '@/components/Tab';
 import { Time } from '@/components/Time';
 import AutopilotContext from '@/contexts/AutopilotContext';
@@ -24,6 +23,7 @@ import useSavedParty from '@/hooks/useSavedParty';
 import AutopilotProvider from '@/providers/AutopilotProvider';
 
 import { HomeTabProps } from '../Home';
+import { NextLLBookingActivity } from '../NextLLActivity';
 import RefreshButton from '../RefreshButton';
 import { NextLLModifyPicker } from './NextLLModify';
 import ParkSelect from './ParkSelect';
@@ -114,12 +114,24 @@ export function NextLL({
   const { experiences, refreshExperiences } = use(ExperiencesContext);
   const { plans } = use(PlansContext);
   const { bookingDate } = use(BookingDateContext);
-  const { enabled, setEnabled, status, targets, replaceTargets, bookingLog } =
-    use(AutopilotContext);
+  const {
+    enabled,
+    setEnabled,
+    status,
+    targets,
+    replaceTargets,
+    sessionLog,
+    skipCounts,
+    lastSkip,
+  } = use(AutopilotContext);
 
   const [choice, setChoice] = useState('');
   const [after, setAfter] = useState('');
   const [before, setBefore] = useState('');
+  // usePoller resets its public status when the search is turned off. Keep the
+  // final count so Activity can still say how much work the completed search
+  // did after Stop returns the form.
+  const [lastPolls, setLastPolls] = useState(0);
   // What an interrupted search was after, read once on mount. Cleared as soon
   // as anything is started or dismissed, so it only ever describes a search
   // that is not running.
@@ -168,6 +180,7 @@ export function NextLL({
         : {}),
     };
     replaceTargets([target]);
+    setLastPolls(0);
     clearPendingSearch();
     setPending(undefined);
     setEnabled(true);
@@ -193,6 +206,9 @@ export function NextLL({
   }
 
   function stop() {
+    // usePoller clears its counters when disabled; retain the completed total
+    // without mirroring every rapid poll into a second render.
+    setLastPolls(status.polls);
     setEnabled(false);
     replaceTargets([]);
     clearPendingSearch();
@@ -384,35 +400,16 @@ export function NextLL({
             it runs. Switching tabs stops the search &mdash; come back and it
             will offer to pick it up again.
           </p>
-
-          {bookingLog.length > 0 && (
-            <Disclosure title="What happened" count={bookingLog.length}>
-              <ul className="text-sm">
-                {bookingLog.map((entry, i) => (
-                  <li key={`${entry.name}-${i}`} className="py-0.5">
-                    <Time time={entry.at} />{' '}
-                    {entry.status === 'booked' ? (
-                      <>
-                        got <Time time={entry.returnTime!} />
-                      </>
-                    ) : entry.status === 'modified' ? (
-                      <>
-                        moved to <Time time={entry.returnTime!} />
-                      </>
-                    ) : entry.status === 'failed' ? (
-                      <span className="text-red-700">
-                        failed{entry.detail ? `: ${entry.detail}` : ''}
-                      </span>
-                    ) : (
-                      entry.status
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </Disclosure>
-          )}
         </>
       )}
+
+      <NextLLBookingActivity
+        active={enabled}
+        polls={Math.max(status.polls, lastPolls)}
+        entries={sessionLog}
+        skipCounts={skipCounts}
+        lastSkip={lastSkip}
+      />
     </Tab>
   );
 }

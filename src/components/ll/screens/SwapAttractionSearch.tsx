@@ -13,6 +13,8 @@ import ClientsContext from '@/contexts/ClientsContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import PlansContext from '@/contexts/PlansContext';
 
+import { NextLLTimeSearchActivity } from './NextLLActivity';
+
 const STOPPED: Record<Exclude<SearchStop, 'failed'>, string> = {
   'goal-met': 'Replacement confirmed in Plans.',
   'nothing-better': 'No replacement is available right now.',
@@ -171,6 +173,10 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
             : STOPPED[search.stop]}
         </p>
       )}
+      <NextLLTimeSearchActivity
+        search={search}
+        requested={search.guard.requested}
+      />
     </Screen>
   );
 }

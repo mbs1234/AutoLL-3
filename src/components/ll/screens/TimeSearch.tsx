@@ -12,6 +12,7 @@ import NavContext from '@/contexts/NavContext';
 import PlansContext from '@/contexts/PlansContext';
 
 import Home from './Home';
+import { NextLLTimeSearchActivity } from './NextLLActivity';
 
 /** What to say when the search ends. `failed` carries an error and is built inline. */
 const STOPPED: Record<Exclude<SearchStop, 'failed'>, string> = {
@@ -200,6 +201,10 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
           )}
         </div>
       )}
+      <NextLLTimeSearchActivity
+        search={search}
+        requested={search.guard.requested}
+      />
     </Screen>
   );
 }

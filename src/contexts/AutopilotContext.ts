@@ -99,6 +99,15 @@ export interface AutopilotState {
   lastHit?: AutopilotHit;
   /** Newest first, capped. Skips are omitted -- they are the common case. */
   bookingLog: BookingLogEntry[];
+  /**
+   * Actions taken by this provider since its current run was started.
+   *
+   * Unlike `bookingLog`, this is not persisted or shared with another
+   * AutopilotProvider. NextLL nests its own provider, so this is what lets its
+   * activity section describe only the quick search in front of the user
+   * rather than mixing in actions from the all-day Autopilot.
+   */
+  sessionLog: BookingLogEntry[];
   bookedCount: number;
   bookingsRemaining: number;
   /** Today's ceiling: the setting plus any refills granted. */
@@ -174,6 +183,7 @@ export default createContext<AutopilotState>({
   notifications: 'unsupported',
   requestNotifications: () => undefined,
   bookingLog: [],
+  sessionLog: [],
   bookedCount: 0,
   bookingsRemaining: DEFAULT_ACTIONS_PER_DAY,
   actionBudget: DEFAULT_ACTIONS_PER_DAY,
