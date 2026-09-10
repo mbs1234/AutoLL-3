@@ -9,6 +9,9 @@ import Screen from '@/components/Screen';
 import { Time } from '@/components/Time';
 import ClientsContext from '@/contexts/ClientsContext';
 import PlansContext from '@/contexts/PlansContext';
+import NavContext from '@/contexts/NavContext';
+
+import Home from './Home';
 
 /** What to say when the search ends. `failed` carries an error and is built inline. */
 const STOPPED: Record<Exclude<SearchStop, 'failed'>, string> = {
@@ -37,6 +40,7 @@ const STOPPED: Record<Exclude<SearchStop, 'failed'>, string> = {
 export default function TimeSearch({ booking }: { booking: LLMP }) {
   const { ll } = use(ClientsContext);
   const { pollPlans } = use(PlansContext);
+  const { goBack } = use(NavContext);
   const [targetText, setTargetText] = useState('');
   const [goal, setGoal] = useState<SearchGoal>({ kind: 'soonest' });
 
@@ -69,7 +73,7 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
         Holding {search.held ? <Time time={search.held} /> : '—'}
       </p>
 
-      {!search.running && !search.unresolved && (
+      {!search.running && !search.unresolved && search.phase === 'idle' && (
         <>
           <p className="mt-3 text-sm text-gray-600">
             This checks every return time on offer, not just the earliest, and
@@ -107,7 +111,11 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
       {search.running && (
         <>
           <p className="mt-3">
-            Checking&hellip;{' '}
+            {search.phase === 'awaiting' ? (
+              <>Waiting for Plans to confirm the move to <Time time={search.guard.requested!} />&hellip; </>
+            ) : (
+              <>Checking&hellip; </>
+            )}
             <span className="text-gray-500">
               ({search.cycles} {search.cycles === 1 ? 'check' : 'checks'},{' '}
               {search.moves} moved)
@@ -147,6 +155,9 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
           <p className="font-semibold">
             A move to <Time time={search.unresolved} /> did not come back.
           </p>
+          <Button type="small" className="mt-2" onClick={() => goBack({ screen: Home, props: { tabName: 'Plans' } })}>
+            Open Plans
+          </Button>
           <p className="mt-1 text-sm">
             It may or may not have applied, and asking again could move the
             reservation twice — so the search stopped. Check Plans to see where
@@ -156,11 +167,15 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
       )}
 
       {search.stop && !search.unresolved && (
-        <p className="mt-3 text-sm text-gray-600">
-          {search.stop === 'failed'
-            ? `Stopped after repeated errors${search.lastError ? `: ${search.lastError}` : ''}.`
-            : STOPPED[search.stop]}
-        </p>
+        <div className="mt-3 text-sm text-gray-600">
+          <p>{search.stop === 'failed' ? `Stopped after repeated errors${search.lastError ? `: ${search.lastError}` : ''}.` : STOPPED[search.stop]}</p>
+          {search.stop === 'unconfirmed' && (
+            <div className="mt-2 flex gap-2">
+              <Button type="small" onClick={() => goBack({ screen: Home, props: { tabName: 'Plans' } })}>Open Plans</Button>
+              <Button type="small" onClick={search.start}>Keep waiting</Button>
+            </div>
+          )}
+        </div>
       )}
     </Screen>
   );

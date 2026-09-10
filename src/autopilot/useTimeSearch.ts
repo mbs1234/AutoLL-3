@@ -10,6 +10,7 @@ import { actionWasRejected } from './autobook';
 import { findExistingLL } from './automodify';
 import {
   CommitGuard,
+  CommitPhase,
   SearchGoal,
   SearchStop,
   bestCandidate,
@@ -62,6 +63,8 @@ export interface TimeSearchState {
   cycles: number;
   moves: number;
   lastError?: string;
+  /** Commit state; awaiting means a successful move is still settling in Plans. */
+  phase: CommitPhase;
 }
 
 export interface TimeSearchDeps {
@@ -110,6 +113,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     held: deps.booking.start.time,
     cycles: 0,
     moves: 0,
+    phase: 'idle',
   });
   // Held in a ref rather than state, and deliberately: StrictMode mounts,
   // cleans up and mounts again, so a guard created inside the effect would
@@ -126,7 +130,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
   const stop = useCallback(
     (reason: SearchStop) => {
       runningRef.current = false;
-      setState(s => ({ ...s, running: false, stop: reason }));
+      setState(s => ({ ...s, running: false, stop: reason, phase: guardRef.current.phase }));
       void releaseScreenAwake(wakeOwner);
     },
     [wakeOwner]
@@ -164,6 +168,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       lastError: undefined,
       cycles: 0,
       moves: 0,
+      phase: guardRef.current.phase,
     }));
     void holdScreenAwake(wakeOwner);
   }, [wakeOwner]);
@@ -220,7 +225,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         }
         const moved = await depsRef.current.commit(quoted);
         guard.markCommitted();
-        setState(s => ({ ...s, moves: s.moves + 1, held: moved.start.time }));
+        setState(s => ({ ...s, moves: s.moves + 1, held: moved.start.time, phase: guard.phase }));
         return;
       }
 
@@ -230,7 +235,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         if (now && guard.requested && +now.start.time === +guard.requested) {
           settling = 0;
           guard.confirm();
-          setState(s => ({ ...s, held: now.start.time }));
+          setState(s => ({ ...s, held: now.start.time, phase: guard.phase }));
           if (depsRef.current.stopAfterConfirmedMove) stop('goal-met');
           return;
         }
@@ -272,7 +277,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         isLaterMove(current.start.time, want)
       ) {
         if (!guard.begin(want)) return;
-        setState(s => ({ ...s, pending: want }));
+        setState(s => ({ ...s, pending: want, phase: guard.phase }));
         return;
       }
       if (!guard.begin(want)) return;
@@ -290,6 +295,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         ...s,
         moves: s.moves + 1,
         held: moved.start.time,
+        phase: guard.phase,
       }));
     }
 
@@ -310,7 +316,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
               guard.release();
             } else {
               guard.markUnknown();
-              setState(s => ({ ...s, unresolved: guard.requested }));
+              setState(s => ({ ...s, unresolved: guard.requested, phase: guard.phase }));
               stop('failed');
               return;
             }
