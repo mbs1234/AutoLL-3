@@ -169,7 +169,7 @@ export default function Today({ ref }: HomeTabProps) {
       <div className="mt-3">
         {freshness !== undefined && (
           <p className="mb-2 text-xs text-gray-600">
-            Plans and LL list updated{' '}
+            Plans and LL availability are current as of{' '}
             {freshness === 0 ? 'just now' : `${freshness} min ago`}.
           </p>
         )}

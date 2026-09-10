@@ -1,6 +1,7 @@
 import { use, useEffect, useMemo, useState } from 'react';
 
 import { Guests } from '@/api/ll';
+import { REFILL_ACTIONS } from '@/autopilot/autobook';
 import { PlanCheckLevel, checkPlan } from '@/autopilot/plancheck';
 import Button from '@/components/Button';
 import Screen from '@/components/Screen';
@@ -171,7 +172,7 @@ export default function PlanCheck() {
                 {item.subject.kind === 'tipboard'
                   ? 'Refresh LL list'
                   : item.subject.kind === 'budget'
-                    ? 'Add more for today'
+                    ? `Add ${REFILL_ACTIONS} actions for today`
                     : 'Open Configure'}
               </Button>
             )}

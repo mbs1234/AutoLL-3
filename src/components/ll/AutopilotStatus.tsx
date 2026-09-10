@@ -1,18 +1,11 @@
 import { CALL_TEXT, RefusalState, refusedCalls } from '@/autopilot/refusal';
 import { MAX_CONSECUTIVE_FAILURES, syncedParkTime } from '@/autopilot/schedule';
+import { MODE_TEXT } from '@/autopilot/status';
 import { PollerStatus } from '@/autopilot/usePoller';
 import Button from '@/components/Button';
 import { Time } from '@/components/Time';
 
 export const AUTOPILOT = 'Autopilot';
-
-const MODE_TEXT: Record<PollerStatus['mode'], string> = {
-  off: 'Off',
-  idle: 'Watching',
-  approach: 'Checking often',
-  burst: 'Checking rapidly',
-  stopped: 'Stopped after repeated errors',
-};
 
 /**
  * What the poller is doing and what is in its way: mode, next drop, timing,
@@ -125,7 +118,7 @@ export default function AutopilotStatus({
             swap again today until you top it up.
           </p>
           <Button type="small" onClick={onRefill}>
-            Add more for today
+            Add 3 actions for today
           </Button>
         </div>
       )}

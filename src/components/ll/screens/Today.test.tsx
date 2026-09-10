@@ -102,7 +102,7 @@ describe('Today', () => {
       status: { mode: 'idle', consecutiveFailures: 0, polls: 3 },
     });
     expect(screen.getByText(/actions are used up/)).toBeVisible();
-    screen.getByText('Add more for today').click();
+    screen.getByText('Add 3 actions for today').click();
     expect(refillBudget).toHaveBeenCalled();
   });
 
@@ -181,7 +181,7 @@ describe('Today', () => {
       experiencesUpdated: now - 3 * 60_000,
       plansUpdated: now,
     });
-    expect(screen.getByText(/updated 3 min ago/)).toBeVisible();
+    expect(screen.getByText(/current as of 3 min ago/)).toBeVisible();
   });
 
   it('lists what is held on the date, with the grace scan', () => {

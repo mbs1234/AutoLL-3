@@ -4,6 +4,7 @@ import TabsContext from '@/contexts/TabContext';
 
 import Screen, { ScreenProps } from './Screen';
 import TabButton from './TabButton';
+import AutopilotStatusRow from './ll/AutopilotStatusRow';
 
 export default function Tab({
   title,
@@ -37,6 +38,7 @@ export default function Tab({
               <TabButton {...tab} key={tab.name} />
             ))}
           </div>
+          <AutopilotStatusRow />
           {footer}
         </>
       }
