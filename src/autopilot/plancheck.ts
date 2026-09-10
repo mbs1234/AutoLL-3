@@ -9,6 +9,7 @@ import { parkDate } from '@/datetime';
 export type PlanCheckLevel = 'blocker' | 'review' | 'ready';
 export type PlanCheckSubject =
   | { kind: 'target'; experienceId: string }
+  | { kind: 'targets' }
   | { kind: 'setting'; setting: 'dryRun' | 'wholeParty' | 'overlaps' }
   | { kind: 'tipboard' }
   | { kind: 'budget' };
@@ -100,7 +101,7 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
       {
         level: 'blocker',
         text: 'No saved targets apply to this park and date.',
-        subject: { kind: 'target', experienceId: '' },
+        subject: { kind: 'targets' },
       },
     ];
   }

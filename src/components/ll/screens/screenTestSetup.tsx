@@ -45,7 +45,9 @@ export type ScreenSetup = Partial<AutopilotState> & {
   experiences?: Experience[];
   watched?: string[];
   unknownExperienceIds?: string[];
+  experiencesUpdated?: number;
   plans?: Booking[];
+  plansUpdated?: number;
   bookingDate?: string;
   ll?: Partial<LLClient>;
 };
@@ -61,7 +63,9 @@ export function renderScreen(
     experiences = [llExperience(BZ), llExperience(DB)],
     watched = [] as string[],
     unknownExperienceIds = [] as string[],
+    experiencesUpdated,
     plans = [] as Booking[],
+    plansUpdated,
     bookingDate = TODAY,
     ll = {},
     status = OFF,
@@ -90,6 +94,7 @@ export function renderScreen(
     setTargetWindow: jest.fn(),
     setTargetRank: jest.fn(),
     togglePasskey: jest.fn(),
+    requestNotifications: jest.fn(),
   };
   const clients = {
     ll: {
@@ -111,6 +116,7 @@ export function renderScreen(
                 pollPlans: async () => plans,
                 loaderElem: null,
                 plansLoaded: true,
+                lastUpdated: plansUpdated,
               }}
             >
               <ExperiencesContext
@@ -119,6 +125,7 @@ export function renderScreen(
                   refreshExperiences: () => {},
                   pollExperiences: async () => [],
                   unknownExperienceIds,
+                  lastUpdated: experiencesUpdated,
                   loaderElem: null,
                 }}
               >

@@ -1,9 +1,9 @@
-import { bookings } from '@/__fixtures__/ll';
+import { bookings, renderResort } from '@/__fixtures__/ll';
 import { Booking } from '@/api/itinerary';
 import PlansContext from '@/contexts/PlansContext';
 import { parkDate } from '@/datetime';
 import NavProvider from '@/providers/NavProvider';
-import { TODAY, render, screen, see, setTime, within } from '@/testing';
+import { TODAY, screen, see, setTime, within } from '@/testing';
 
 import YourDay from './YourDay';
 
@@ -11,7 +11,7 @@ setTime('09:00');
 const refreshPlans = jest.fn();
 
 function renderComponent(plans: Booking[] = bookings, unmodifiable = false) {
-  render(
+  renderResort(
     <PlansContext
       value={{
         plans,

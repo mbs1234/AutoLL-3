@@ -1,7 +1,6 @@
-import { use } from 'react';
+import { use, useEffect, useState } from 'react';
 
 import { LLMP, isLLMP } from '@/api/itinerary';
-import { requestAlertPermission } from '@/autopilot/alert';
 import { checklist } from '@/autopilot/checklist';
 import { describeMode } from '@/autopilot/describe';
 import { latestActivity } from '@/autopilot/events';
@@ -63,6 +62,7 @@ export default function Today({ ref }: HomeTabProps) {
     status,
     targetsHere,
     notifications,
+    requestNotifications,
     lastHit,
     lastSkip,
     bookingLog,
@@ -73,14 +73,29 @@ export default function Today({ ref }: HomeTabProps) {
     refusals,
     passkeyStatus,
   } = use(AutopilotContext);
-  const { experiences, refreshExperiences, unknownExperienceIds, loaderElem } =
-    use(ExperiencesContext);
-  const { plans, refreshPlans } = use(PlansContext);
+  const {
+    experiences,
+    refreshExperiences,
+    unknownExperienceIds,
+    lastUpdated: experiencesUpdated,
+    loaderElem,
+  } = use(ExperiencesContext);
+  const { plans, refreshPlans, lastUpdated: plansUpdated } = use(PlansContext);
   const { park } = use(ParkContext);
   const { bookingDate } = use(BookingDateContext);
   const { ll } = use(ClientsContext);
   const { goTo } = use(NavContext);
   const { changeTab } = use(TabsContext);
+  const [planChecked, setPlanChecked] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  // The underlying data timestamps only change after successful requests. A
+  // lightweight clock lets the wording remain truthful while this tab stays
+  // open, without scheduling any additional network work.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const isToday = bookingDate === parkDate();
   const activity = latestActivity({ bookingLog, lastSkip, lastHit });
@@ -119,7 +134,18 @@ export default function Today({ ref }: HomeTabProps) {
     partySize: kvdb.get<string[]>(PARTY_IDS_KEY)?.length ?? 0,
     targets: targetsHere,
     notifications,
+    planChecked,
   });
+  // This line describes both data sets, so use the older successful fetch;
+  // calling the pair fresh when only one has refreshed would be misleading.
+  const updatedAt = [experiencesUpdated, plansUpdated].filter(
+    (updated): updated is number => updated !== undefined
+  );
+  const lastUpdated = updatedAt.length > 0 ? Math.min(...updatedAt) : undefined;
+  const freshness =
+    lastUpdated === undefined
+      ? undefined
+      : Math.max(0, Math.floor((now - lastUpdated) / 60_000));
 
   return (
     <Tab
@@ -141,6 +167,12 @@ export default function Today({ ref }: HomeTabProps) {
       ref={ref}
     >
       <div className="mt-3">
+        {freshness !== undefined && (
+          <p className="mb-2 text-xs text-gray-600">
+            Plans and LL list updated{' '}
+            {freshness === 0 ? 'just now' : `${freshness} min ago`}.
+          </p>
+        )}
         <Button
           type="full"
           onClick={() => setEnabled(!enabled)}
@@ -162,7 +194,13 @@ export default function Today({ ref }: HomeTabProps) {
         <Button type="small" onClick={() => goTo(<Configure />)}>
           Configure
         </Button>
-        <Button type="small" onClick={() => goTo(<PlanCheck />)}>
+        <Button
+          type="small"
+          onClick={() => {
+            setPlanChecked(true);
+            goTo(<PlanCheck />);
+          }}
+        >
           Plan check
         </Button>
         <Button type="small" onClick={() => goTo(<Timeline />)}>
@@ -199,8 +237,9 @@ export default function Today({ ref }: HomeTabProps) {
                       ) {
                         goTo(<Configure />);
                       } else if (item.subject === 'plan-check') {
+                        setPlanChecked(true);
                         goTo(<PlanCheck />);
-                      } else void requestAlertPermission();
+                      } else requestNotifications();
                     }}
                   >
                     {item.subject === 'notifications' ? 'Enable' : 'Open'}

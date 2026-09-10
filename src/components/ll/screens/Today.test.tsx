@@ -72,6 +72,28 @@ describe('Today', () => {
     expect(screen.getByText(/Home Screen/)).toBeVisible();
   });
 
+  it('requests notifications from the pre-trip checklist', () => {
+    const { requestNotifications } = setup({
+      bookingDate: '2021-10-02',
+      notifications: 'default',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
+    expect(requestNotifications).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks Plan Check reviewed after opening it from the checklist', () => {
+    setup({ bookingDate: '2021-10-02' });
+    const item = screen
+      .getAllByRole('listitem')
+      .find(element => element.textContent?.includes('Run Plan Check'));
+    fireEvent.click(within(item!).getByRole('button', { name: 'Open' }));
+    expect(
+      screen
+        .getAllByRole('listitem')
+        .find(element => element.textContent?.includes('Plan Check reviewed'))
+    ).toHaveTextContent('Plan Check reviewed');
+  });
+
   it('offers a top-up once the day budget is gone, and only while running', () => {
     const { refillBudget } = setup({
       watched: [BZ],
@@ -151,6 +173,15 @@ describe('Today', () => {
     expect(document.querySelector('time[datetime="11:00:00"]')).not.toBeNull();
     expect(screen.getByText('Next drop:')).toBeVisible();
     expect(document.querySelector('time[datetime="11:30:00"]')).not.toBeNull();
+  });
+
+  it('shows the age of the older plan or LL-list refresh', () => {
+    const now = Date.now();
+    setup({
+      experiencesUpdated: now - 3 * 60_000,
+      plansUpdated: now,
+    });
+    expect(screen.getByText(/updated 3 min ago/)).toBeVisible();
   });
 
   it('lists what is held on the date, with the grace scan', () => {

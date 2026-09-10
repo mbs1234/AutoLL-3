@@ -42,6 +42,7 @@ describe('checkPlan', () => {
       expect.objectContaining({
         level: 'blocker',
         text: expect.stringMatching(/No saved targets/),
+        subject: { kind: 'targets' },
       }),
     ]);
   });

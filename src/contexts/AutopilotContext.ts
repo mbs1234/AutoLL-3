@@ -93,6 +93,8 @@ export interface AutopilotState {
   /** Whether Disney has confirmed that the selected party cleared the Tier 1 hold. */
   passkeyStatus: 'off' | 'waiting' | 'unlocked';
   notifications: AlertPermission;
+  /** Ask for notification permission from a user-initiated control. */
+  requestNotifications: () => void;
   /** The most recent alert, for showing what was found without a toast. */
   lastHit?: AutopilotHit;
   /** Newest first, capped. Skips are omitted -- they are the common case. */
@@ -170,6 +172,7 @@ export default createContext<AutopilotState>({
   togglePasskey: () => undefined,
   passkeyStatus: 'off',
   notifications: 'unsupported',
+  requestNotifications: () => undefined,
   bookingLog: [],
   bookedCount: 0,
   bookingsRemaining: DEFAULT_ACTIONS_PER_DAY,

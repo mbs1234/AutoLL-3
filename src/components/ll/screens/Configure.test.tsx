@@ -60,6 +60,15 @@ describe('Configure watch list', () => {
     expect(screen.queryByTitle(`Watch ${NAME}`)).not.toBeInTheDocument();
   });
 
+  it('does not mistake a filter with no matches for an empty watch list', () => {
+    setup({ watched: [BZ] });
+    fireEvent.change(screen.getByLabelText('Filter attractions'), {
+      target: { value: 'does not exist' },
+    });
+    expect(screen.getByText(/No watched attractions match/)).toBeVisible();
+    expect(screen.queryByText(/Nothing selected yet/)).not.toBeInTheDocument();
+  });
+
   // A target used to be seven rows tall and its star removed it in one tap.
   it('folds each target to one line that says what will happen', () => {
     setup({
