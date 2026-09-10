@@ -195,6 +195,30 @@ describe('SelectReturnTime', () => {
     });
   });
 
+  it('shows return times through an after-midnight park close', async () => {
+    await renderComponent(
+      createOffer(TOMORROW, new ParkTime(23, 30), {
+        parkHours: {
+          openTime: new ParkTime(21),
+          closeTime: new ParkTime(1),
+        },
+      }),
+      { 23: [30], 0: [20] }
+    );
+    clickShowAll();
+
+    const buttons = [
+      ...screen.getByTestId('time-buttons').querySelectorAll('button'),
+    ];
+    expect(buttons).toHaveLength(24);
+    expect((buttons[0]!.firstElementChild as HTMLTimeElement).dateTime).toBe(
+      '21:00:00'
+    );
+    expect(
+      (buttons.at(-1)!.firstElementChild as HTMLTimeElement).dateTime
+    ).toBe('00:50:00');
+  });
+
   it('only shows actual show times for shows', async () => {
     const batb = wdw.experience('80010848');
     const available = {

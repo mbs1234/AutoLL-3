@@ -1,4 +1,11 @@
-import { use, useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import {
+  use,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import { Experience } from '@/api/ll';
 import BookingDateContext from '@/contexts/BookingDateContext';
@@ -22,6 +29,23 @@ export default function ExperiencesProvider({
     []
   );
   const [lastUpdated, setLastUpdated] = useState<number>();
+  // A response belongs to the park/date it started under. Requests cannot be
+  // aborted through these clients, so a generation prevents an older one
+  // from repainting the newly selected scope when it eventually resolves.
+  const scopeGeneration = useRef(0);
+  const requestSequence = useRef(0);
+  const publishedSequence = useRef(0);
+
+  // This layout effect must be registered before `useThrottleable` below.
+  // That hook re-runs its callback when the park/date-bound fetch function
+  // changes; advancing the scope first makes that newly triggered request a
+  // member of the new generation rather than immediately making it stale.
+  useLayoutEffect(() => {
+    ++scopeGeneration.current;
+    setExperiences([]);
+    setUnknownExperienceIds([]);
+    setLastUpdated(undefined);
+  }, [park, bookingDate]);
 
   /**
    * The actual fetch, awaitable and free of UI side effects. Rejects if the
@@ -29,6 +53,8 @@ export default function ExperiencesProvider({
    * `refreshExperiences` wraps it in `loadData` for the visible path.
    */
   const fetchExperiences = useCallback(async () => {
+    const generation = scopeGeneration.current;
+    const request = ++requestSequence.current;
     // Live show times are supplementary, so a `shows` failure must not fail
     // the whole refresh. Attaching the handler at the call site, rather than
     // awaiting inside a try block further down, also avoids an unhandled
@@ -41,13 +67,20 @@ export default function ExperiencesProvider({
     const exps = Object.fromEntries(
       (await ll.experiences(park, bookingDate)).map(exp => [exp.id, exp])
     );
+    const unknownIds = [...ll.unknownExperienceIds];
     // Lightning Lane data wins over live show data on key collisions.
     const merged = Object.values({ ...(await showsPromise), ...exps });
-    setExperiences(merged);
-    // Held in state rather than read from the client: the client mutates the
-    // list in place, which would never re-render the warning that shows it.
-    setUnknownExperienceIds(ll.unknownExperienceIds);
-    setLastUpdated(Date.now());
+    if (
+      generation === scopeGeneration.current &&
+      request > publishedSequence.current
+    ) {
+      publishedSequence.current = request;
+      setExperiences(merged);
+      // Held in state rather than read from the client: the client mutates the
+      // list in place, which would never re-render the warning that shows it.
+      setUnknownExperienceIds(unknownIds);
+      setLastUpdated(Date.now());
+    }
     return merged;
   }, [park, bookingDate, ll, liveData]);
 
@@ -58,8 +91,6 @@ export default function ExperiencesProvider({
       loadData(async () => void (await fetchExperiences()));
     }, [fetchExperiences, loadData])
   );
-
-  useLayoutEffect(() => setExperiences([]), [park, bookingDate]);
 
   useEffect(refreshExperiences, [refreshExperiences]);
 

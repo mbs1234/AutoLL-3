@@ -245,7 +245,7 @@ const Experiences = memo(function Experiences({
 
   const todayBookings = plans
     .filter(isLLMP)
-    .filter(b => b.start.date === bookingDate);
+    .filter(b => parkDate(b.start) === bookingDate);
   const bookedIds = new Set(todayBookings.map(b => b.experience.id));
   // Map experience ID to its booking start time
   const bookedTimes = new Map(
@@ -297,16 +297,9 @@ const Experiences = memo(function Experiences({
           if (!groups.has(tier)) groups.set(tier, []);
           groups.get(tier)!.push(exp);
         }
-        // Sort within each group: starred first, then by earliest available
-        for (const exps of groups.values()) {
-          exps.sort(
-            (a, b) =>
-              +!a.starred - +!b.starred ||
-              +!a.lp - +!b.lp ||
-              +(a?.flex?.nextAvailableTime ?? 86400) -
-                +(b?.flex?.nextAvailableTime ?? 86400)
-          );
-        }
+        // `flexExps` already carries the selected sort (after Favorites and
+        // Lightning Picks). Preserve that order while splitting it by tier;
+        // re-sorting here used to make every Sort By choice act like Soonest.
         // Sort groups by tier number (numbered tiers first, then undefined)
         return new Map(
           [...groups].sort(([a], [b]) => (a ?? Infinity) - (b ?? Infinity))

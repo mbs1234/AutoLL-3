@@ -125,16 +125,33 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
   const runningRef = useRef(false);
   /** Set when the user has approved the later move the guard is holding. */
   const acceptedRef = useRef(false);
+  /**
+   * True only after `commit()` has actually been called and until its outcome
+   * is classified. A `committing` guard can also mean that a quoted slot is
+   * waiting for approval or still being prepared; Stop may safely release
+   * those locks, but it must preserve one whose request has left the device.
+   */
+  const commitInFlightRef = useRef(false);
   const wakeOwner = useRef({}).current;
 
   const stop = useCallback(
     (reason: SearchStop) => {
       runningRef.current = false;
+      acceptedRef.current = false;
+      const guard = guardRef.current;
+      if (guard.phase === 'committing' && !commitInFlightRef.current) {
+        guard.release();
+      }
+      const stoppedReason =
+        reason === 'stopped' && guard.phase === 'awaiting'
+          ? 'unconfirmed'
+          : reason;
       setState(s => ({
         ...s,
         running: false,
-        stop: reason,
-        phase: guardRef.current.phase,
+        stop: stoppedReason,
+        pending: undefined,
+        phase: guard.phase,
       }));
       void releaseScreenAwake(wakeOwner);
     },
@@ -185,6 +202,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     let barren = 0;
     let settling = 0;
     let offer: Offer<LLMP> | undefined;
+    const stopped = () => cancelled || !runningRef.current;
 
     /**
      * The reservation as Disney currently reports it.
@@ -218,23 +236,33 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         acceptedRef.current = false;
         setState(s => ({ ...s, pending: undefined }));
         const current = await readHeld();
+        if (stopped()) return;
         if (!current) {
           guard.release();
           return;
         }
         const fresh = await depsRef.current.createOffer(current);
+        if (stopped()) return;
         const quoted = await depsRef.current.changeTime(fresh, want);
+        if (stopped()) return;
         if (+quoted.start.time !== +want) {
           guard.decline(want);
           return;
         }
+        commitInFlightRef.current = true;
         const moved = await depsRef.current.commit(quoted);
         guard.markCommitted();
+        commitInFlightRef.current = false;
         setState(s => ({
           ...s,
           moves: s.moves + 1,
           held: moved.start.time,
           phase: guard.phase,
+          // Stop cannot recall a request already sent. If it landed while the
+          // search was stopping, hand the screen to the existing Plans
+          // confirmation recovery instead of leaving an awaiting guard with
+          // no visible way to resume it.
+          ...(!runningRef.current ? { stop: 'unconfirmed' as const } : {}),
         }));
         return;
       }
@@ -242,6 +270,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       // Settle a committed move before deciding anything else.
       if (guard.phase === 'awaiting') {
         const now = await readHeld();
+        if (stopped()) return;
         if (now && guard.requested && +now.start.time === +guard.requested) {
           settling = 0;
           guard.confirm();
@@ -260,6 +289,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       if (!guard.idle) return;
 
       const current = await readHeld();
+      if (stopped()) return;
       if (!current) return;
       if (!current.modifiable) return stop('not-modifiable');
       setState(s => ({ ...s, held: current.start.time }));
@@ -269,7 +299,9 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       // `times()` is scoped to the offer that produced it, so a grid outlives
       // nothing.
       offer = await depsRef.current.createOffer(current);
+      if (stopped()) return;
       const times = await depsRef.current.getTimes(offer);
+      if (stopped()) return;
       const want = bestCandidate(goal, current.start.time, times, {
         exclude: guard.declined,
       });
@@ -292,6 +324,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       }
       if (!guard.begin(want)) return;
       const quoted = await depsRef.current.changeTime(offer, want);
+      if (stopped()) return;
       // Disney answers with the nearest slot it can rather than refusing, so
       // a different time is a decline, not an error -- and it is remembered,
       // or the loop asks for it again every cycle.
@@ -299,13 +332,16 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         guard.decline(want);
         return;
       }
+      commitInFlightRef.current = true;
       const moved = await depsRef.current.commit(quoted);
       guard.markCommitted();
+      commitInFlightRef.current = false;
       setState(s => ({
         ...s,
         moves: s.moves + 1,
         held: moved.start.time,
         phase: guard.phase,
+        ...(!runningRef.current ? { stop: 'unconfirmed' as const } : {}),
       }));
     }
 
@@ -322,8 +358,9 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
           // or may not have applied, and nothing that arrives later can
           // settle it.
           if (guard.phase === 'committing') {
-            if (actionWasRejected(error)) {
+            if (!commitInFlightRef.current || actionWasRejected(error)) {
               guard.release();
+              setState(s => ({ ...s, phase: guard.phase }));
             } else {
               guard.markUnknown();
               setState(s => ({
@@ -335,6 +372,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
               return;
             }
           }
+          commitInFlightRef.current = false;
           // No offer available right now is an ordinary outcome mid-day, not
           // a fault: it must not burn the failure budget.
           const fatal =
@@ -349,6 +387,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
             return;
           }
         }
+        if (stopped()) return;
         setState(s => ({ ...s, cycles: s.cycles + 1 }));
         await sleep(CYCLE_MS);
       }

@@ -15,7 +15,7 @@ export const COOLDOWN_SECONDS = 5;
 export class RateLimit {
   protected lastRequestTime = 0;
   protected requestCount = 0;
-  protected limitExceededTime = 0;
+  protected limitExceededTime: number | undefined;
 
   constructor(protected requestsPerSecond = 0) {}
 
@@ -31,11 +31,11 @@ export class RateLimit {
     // call, so the blast radius was the whole API surface. That is survivable
     // for a human tapping a button, but not for a background poller, where a
     // trip at 6:59 would silently forfeit a 7:00 drop.
-    if (this.limitExceededTime > 0) {
+    if (this.limitExceededTime !== undefined) {
       if (now - this.limitExceededTime < COOLDOWN_SECONDS) {
         throw new RateLimitExceeded();
       }
-      this.limitExceededTime = 0;
+      this.limitExceededTime = undefined;
       this.lastRequestTime = now;
       this.requestCount = 0;
     }

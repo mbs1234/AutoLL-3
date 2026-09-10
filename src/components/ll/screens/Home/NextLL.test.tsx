@@ -21,7 +21,7 @@ import PlansContext from '@/contexts/PlansContext';
 import TabsContext from '@/contexts/TabContext';
 import { DateTime, ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
-import { TODAY } from '@/testing';
+import { TODAY, TOMORROW } from '@/testing';
 
 import { NEXTLL, NEXTLL_WATCHLIST_KEY, NextLL, NextLLChooser } from './NextLL';
 
@@ -50,15 +50,15 @@ function llExperience(id: string): Experience {
 }
 
 /** A held Multi Pass for BZ at the given hour. */
-function heldAt(hour: number): Booking {
+function heldAt(hour: number, date = TODAY): Booking {
   return {
     type: 'LL',
     subtype: 'MP',
     id: 'ent-1',
     facilityId: BZ,
     name: 'Held',
-    start: new DateTime(TODAY, new ParkTime(hour)),
-    end: new DateTime(TODAY, new ParkTime(hour + 1)),
+    start: new DateTime(date, new ParkTime(hour)),
+    end: new DateTime(date, new ParkTime(hour + 1)),
     cancellable: true,
     modifiable: true,
     guests: [{ id: 'g1', name: 'A' }],
@@ -194,6 +194,16 @@ describe('NextLL', () => {
       screen.getByRole('button', { name: 'Book a new Lightning Lane' })
     );
     expect(screen.getByText('Find it')).toBeVisible();
+  });
+
+  it('lists an after-midnight reservation under its park day', () => {
+    setup({ chooser: true, plans: [heldAt(2, TOMORROW)] });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Modify a held Lightning Lane' })
+    );
+    expect(
+      screen.getByRole('button', { name: 'Modify this Lightning Lane' })
+    ).toBeVisible();
   });
 
   // The only way back to the rest of the app. Rendering a bare div instead of

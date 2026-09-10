@@ -45,6 +45,12 @@ describe('ParkTime', () => {
       expect(t.add({ hours: -1 })).toEqual(new ParkTime(9, 47, 12));
     });
 
+    it('wraps subtraction across midnight', () => {
+      expect(new ParkTime(0, 10).add({ minutes: -40 })).toEqual(
+        new ParkTime(23, 30)
+      );
+    });
+
     it('returns same PlainTime if zero duration added', () => {
       expect(t.add({ hours: 0, minutes: 0, seconds: 0 })).toBe(t);
     });

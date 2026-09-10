@@ -278,18 +278,18 @@ function fullAvailabilityTimes(
   let firstTime = floor10Min(times[0]![0]!);
   if (offerTime < firstTime) firstTime = floor10Min(offerTime);
   const { openTime } = offer.parkHours;
-  const firstHour = Math.max(
-    (parkDate(offer.start) === parkDate() ? DateTime.now().time : openTime)
-      .hour,
-    openTime.hour
-  );
+  const now = DateTime.now().time;
+  const firstHour =
+    parkDate(offer.start) === parkDate() && +now > +openTime
+      ? now.hour
+      : openTime.hour;
   const closeTime = ParkTime.from(offer.parkHours.closeTime);
-  const lastHour = closeTime.hour - 1;
+  const lastHour = (closeTime.hour + 23) % 24;
   const newTimes: { hour: number; times: Map<ParkTime, AvailabilityCode> }[] =
     [];
   let isFullHour = false;
 
-  for (let h = firstHour; h <= lastHour; h = (h + 1) % 24) {
+  for (let h = firstHour; +new ParkTime(h) < +closeTime; h = (h + 1) % 24) {
     const hourStart = new ParkTime(h);
     const hourEnd = new ParkTime(h, 59);
     const hourOverlaps = overlaps.filter(

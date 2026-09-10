@@ -1,5 +1,6 @@
 import {
   booking,
+  createBooking,
   hm,
   jc,
   liveData,
@@ -17,7 +18,16 @@ import { ParkTime, formatTime } from '@/datetime';
 import kvdb from '@/kvdb';
 import ExperiencesProvider from '@/providers/ExperiencesProvider';
 import NavProvider from '@/providers/NavProvider';
-import { TODAY, click, loading, screen, see, setTime, within } from '@/testing';
+import {
+  TODAY,
+  TOMORROW,
+  click,
+  loading,
+  screen,
+  see,
+  setTime,
+  within,
+} from '@/testing';
 
 import MultiPassList, { STARRED_KEY } from './MultiPassList';
 
@@ -71,6 +81,32 @@ async function goBack() {
 
 const inExp = (exp: Experience) => within(see(exp.name).closest('li')!);
 
+function renderList(plans = [booking]) {
+  return renderResort(
+    <BookingDateContext
+      value={{ bookingDate: TODAY, setBookingDate: () => {} }}
+    >
+      <ParkContext value={{ park: mk, setPark: () => {} }}>
+        <PlansContext
+          value={{
+            plans,
+            plansLoaded: true,
+            refreshPlans: () => {},
+            pollPlans: async () => [],
+            loaderElem: null,
+          }}
+        >
+          <ExperiencesProvider>
+            <NavProvider>
+              <MultiPassList ref={{ current: null }} />
+            </NavProvider>
+          </ExperiencesProvider>
+        </PlansContext>
+      </ParkContext>
+    </BookingDateContext>
+  );
+}
+
 describe('MultiPassList', () => {
   ll.experiences.mockResolvedValue([
     { ...hm },
@@ -84,29 +120,7 @@ describe('MultiPassList', () => {
   it('shows LL availability', async () => {
     setTime('09:00');
     kvdb.set(STARRED_KEY, [bz.id]);
-    renderResort(
-      <BookingDateContext
-        value={{ bookingDate: TODAY, setBookingDate: () => {} }}
-      >
-        <ParkContext value={{ park: mk, setPark: () => {} }}>
-          <PlansContext
-            value={{
-              plans: [booking],
-              plansLoaded: true,
-              refreshPlans: () => {},
-              pollPlans: async () => [],
-              loaderElem: null,
-            }}
-          >
-            <ExperiencesProvider>
-              <NavProvider>
-                <MultiPassList ref={{ current: null }} />
-              </NavProvider>
-            </ExperiencesProvider>
-          </PlansContext>
-        </ParkContext>
-      </BookingDateContext>
-    );
+    renderList();
     await loading();
     expect(ll.experiences).toHaveBeenCalledTimes(1);
     see.no(LIGHTNING_PICK_INFO);
@@ -154,5 +168,29 @@ describe('MultiPassList', () => {
     await see.screen('Lightning Lane');
     await loading();
     see(sm.name);
+  });
+
+  it('uses park day when marking an after-midnight reservation as booked', async () => {
+    setTime('23:00');
+    ll.experiences.mockResolvedValueOnce([hm]);
+    renderList([
+      createBooking(hm, { date: TOMORROW, startTime: new ParkTime(2) }),
+    ]);
+    await loading();
+
+    inExp(hm).getByTitle(BOOKED_INFO);
+    inExp(hm).getByTime('02:00:00');
+  });
+
+  it('honours the selected sort within a tier group', async () => {
+    setTime('09:00');
+    kvdb.set(STARRED_KEY, []);
+    ll.experiences.mockResolvedValueOnce([sm, db, hm]);
+    renderList([]);
+    await loading();
+
+    click('Sort By');
+    click('Standby');
+    expect(getExperiences()).toEqual(names([sm, hm, db]));
   });
 });

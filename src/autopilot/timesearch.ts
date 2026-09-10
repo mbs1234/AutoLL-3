@@ -169,13 +169,13 @@ export class CommitGuard {
   /**
    * Whether a run may begin.
    *
-   * `awaiting` qualifies and `unknown` does not, and the difference is what
-   * can still be learned. An awaiting move only needs Plans to catch up, so a
-   * restarted run picks the wait back up and decides nothing until it does.
-   * An unknown one has no such answer coming.
+   * `idle` and `awaiting` qualify; `committing` and `unknown` do not. An
+   * awaiting move only needs Plans to catch up, so a restarted run picks the
+   * wait back up and decides nothing until it does. A committing request is
+   * still in flight, while an unknown one has no answer coming at all.
    */
   get startable(): boolean {
-    return this.#phase !== 'unknown';
+    return this.#phase === 'idle' || this.#phase === 'awaiting';
   }
 
   /** Take the lock. False when anything is already in flight or unresolved. */

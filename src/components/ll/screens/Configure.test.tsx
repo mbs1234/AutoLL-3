@@ -45,13 +45,13 @@ describe('Configure watch list', () => {
 
   it('adds a target', () => {
     const { addTarget } = setup();
-    screen.getByTitle(`Watch ${NAME}`).click();
+    fireEvent.click(screen.getByTitle(`Watch ${NAME}`));
     expect(addTarget).toHaveBeenCalledWith({ experienceId: BZ });
   });
 
   it('removes a target from inside its card', () => {
     const { removeTarget } = setup({ watched: [BZ] });
-    screen.getByTitle(`Stop watching ${NAME}`).click();
+    fireEvent.click(screen.getByTitle(`Stop watching ${NAME}`));
     expect(removeTarget).toHaveBeenCalledWith(BZ);
   });
 
