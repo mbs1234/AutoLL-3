@@ -109,6 +109,8 @@ function setup({
               setTargetsState(next);
             },
             bookingLog: [],
+            sessionLog: [],
+            skipCounts: {},
             bookedCount: 0,
             bookingsRemaining: 10,
             ...rest,
@@ -309,6 +311,41 @@ describe('NextLL', () => {
     expect(
       screen.getByText(/still looking for something earlier/)
     ).toBeVisible();
+  });
+
+  it('shows activity from this NextLL search without mixing in Autopilot', () => {
+    setup({
+      enabled: true,
+      status: RUNNING,
+      bookingLog: [
+        {
+          name: 'Autopilot-only entry',
+          at: new ParkTime(8),
+          status: 'booked',
+        },
+      ],
+      sessionLog: [
+        {
+          name,
+          at: new ParkTime(9, 5),
+          status: 'booked',
+          returnTime: new ParkTime(11),
+        },
+      ],
+      skipCounts: { 'offer-outside-window': 3 },
+      lastSkip: {
+        name,
+        reason: 'offer-outside-window',
+        at: new ParkTime(9, 4),
+      },
+      targets: [{ experienceId: BZ }],
+    });
+    fireEvent.click(screen.getByText('Activity'));
+    expect(screen.getByText(/7 checks in this search/)).toBeVisible();
+    expect(screen.getByText(/booked/)).toBeVisible();
+    expect(screen.getByText(/Latest check:/)).toHaveTextContent(name);
+    expect(screen.getAllByText(/outside the window/)).toHaveLength(2);
+    expect(screen.queryByText('Autopilot-only entry')).not.toBeInTheDocument();
   });
 
   // The goal being met is the one moment the screen should feel finished.

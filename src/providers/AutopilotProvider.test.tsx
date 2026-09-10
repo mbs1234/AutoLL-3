@@ -97,6 +97,7 @@ function Probe() {
     setDryRun,
     setRequireWholeParty,
     lastSkip,
+    sessionLog,
   } = use(AutopilotContext);
   return (
     <div>
@@ -118,6 +119,7 @@ function Probe() {
       <span data-testid="lastSkip">
         {lastSkip ? `${lastSkip.name}: ${lastSkip.reason}` : ''}
       </span>
+      <span data-testid="sessionLog">{sessionLog.length}</span>
       <span data-testid="refused">
         {refusedCalls(refusals ?? NO_REFUSALS, syncedParkTime()).join(',')}
       </span>
@@ -1234,6 +1236,7 @@ describe('AutopilotProvider persistence and diagnostics', () => {
     // What the next mount will read back.
     await waitFor(() => expect(loadBookingLog()).toHaveLength(1));
     expect(loadBookingLog()[0]).toMatchObject({ status: 'booked' });
+    expect(screen.getByTestId('sessionLog')).toHaveTextContent('1');
   });
 
   it('exposes why nothing was booked', async () => {

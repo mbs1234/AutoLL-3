@@ -76,6 +76,12 @@ for a different Multi Pass attraction. Every attraction replacement requires
 an explicit confirmation, and the search stops if its result cannot be safely
 confirmed in Plans.
 
+Each NextLL search also has a folded **Activity** section. New-booking searches
+show only that search's bookings, moves, and reasons an offer was skipped;
+held-reservation searches show their completed checks, changes, pending
+confirmation, and terminal error state. The all-day Autopilot log remains
+separate.
+
 ### Release and deployment controls
 
 The AutoLL-3 release pipeline is independently verified and published:

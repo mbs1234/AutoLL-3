@@ -29,6 +29,7 @@ const state: AutopilotState = {
   notifications: 'granted',
   requestNotifications: () => {},
   bookingLog: [],
+  sessionLog: [],
   bookedCount: 0,
   bookingsRemaining: 2,
   actionBudget: 3,

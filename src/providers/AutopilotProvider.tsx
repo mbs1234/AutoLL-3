@@ -193,6 +193,10 @@ export default function AutopilotProvider({
   // The day's log survives a reload; the on/off state deliberately does not.
   const [bookingLog, setBookingLog] =
     useState<BookingLogEntry[]>(loadBookingLog);
+  // Not persisted: each mounted provider owns its own run. This is especially
+  // important for NextLL, whose nested provider shares the day's persistent
+  // booking log with Autopilot but needs to explain only its own quick search.
+  const [sessionLog, setSessionLog] = useState<BookingLogEntry[]>([]);
   const [settings, setSettings] = useState(loadSettings);
   const [skipCounts, setSkipCounts] = useState<Record<string, number>>({});
   const [lastSkip, setLastSkip] = useState<Skip>();
@@ -406,53 +410,48 @@ export default function AutopilotProvider({
       name: string,
       outcome: AutoBookOutcome | ModifyOutcome | SwapOutcome | DryRunOutcome
     ) => {
-      setBookingLog(prev =>
-        [
-          {
-            name,
-            at: syncedParkTime(),
-            ...(outcome.status === 'booked'
+      const entry: BookingLogEntry = {
+        name,
+        at: syncedParkTime(),
+        ...(outcome.status === 'booked'
+          ? {
+              status: 'booked' as const,
+              returnTime: outcome.returnTime,
+              reason: 'eligible guests and an acceptable return time',
+            }
+          : outcome.status === 'modified'
+            ? {
+                status: 'modified' as const,
+                fromTime: outcome.from,
+                returnTime: outcome.to,
+                reason: 'a meaningfully earlier acceptable return time',
+              }
+            : outcome.status === 'swapped'
               ? {
-                  status: 'booked' as const,
-                  returnTime: outcome.returnTime,
-                  reason: 'eligible guests and an acceptable return time',
+                  status: 'swapped' as const,
+                  replacedName: outcome.replaced.name,
+                  fromTime: outcome.replaced.time,
+                  returnTime: outcome.to,
+                  // Not "the lowest-ranked": chooseSwapVictim sorts
+                  // non-Tier-1 candidates first and only then by rank,
+                  // preferring to give up something easier to claim again.
+                  reason: `a higher-priority target replaced ${outcome.replaced.name}`,
                 }
-              : outcome.status === 'modified'
+              : outcome.status === 'dry-run'
                 ? {
-                    status: 'modified' as const,
-                    fromTime: outcome.from,
-                    returnTime: outcome.to,
-                    reason: 'a meaningfully earlier acceptable return time',
+                    status: 'dry-run' as const,
+                    detail: outcome.kind,
+                    returnTime: outcome.returnTime,
                   }
-                : outcome.status === 'swapped'
-                  ? {
-                      status: 'swapped' as const,
-                      replacedName: outcome.replaced.name,
-                      fromTime: outcome.replaced.time,
-                      returnTime: outcome.to,
-                      // Not "the lowest-ranked": chooseSwapVictim sorts
-                      // non-Tier-1 candidates first and only then by rank,
-                      // preferring to give up something easier to claim
-                      // again. Naming the reservation is both accurate and
-                      // more use than describing the rule.
-                      reason: `a higher-priority target replaced ${outcome.replaced.name}`,
-                    }
-                  : outcome.status === 'dry-run'
-                    ? {
-                        status: 'dry-run' as const,
-                        detail: outcome.kind,
-                        returnTime: outcome.returnTime,
-                      }
-                    : outcome.status === 'failed'
-                      ? { status: 'failed' as const, detail: outcome.error }
-                      : {
-                          status: 'skipped' as const,
-                          detail: outcome.reason,
-                        }),
-          },
-          ...prev,
-        ].slice(0, 20)
-      );
+                : outcome.status === 'failed'
+                  ? { status: 'failed' as const, detail: outcome.error }
+                  : {
+                      status: 'skipped' as const,
+                      detail: outcome.reason,
+                    }),
+      };
+      setBookingLog(prev => [entry, ...prev].slice(0, 20));
+      setSessionLog(prev => [entry, ...prev].slice(0, 20));
     },
     []
   );
@@ -1306,6 +1305,7 @@ export default function AutopilotProvider({
         // clear the cache on its own first poll.
         entitlementsRef.current = undefined;
         setBookedCount(0);
+        setSessionLog([]);
         setBookingsRemaining(ledgerRef.current.remaining);
         budgetSkipRef.current = false;
         setSkipCounts({});
@@ -1531,6 +1531,7 @@ export default function AutopilotProvider({
         requestNotifications,
         lastHit,
         bookingLog,
+        sessionLog,
         bookedCount,
         // From the ledger, not `maxPerSession - bookedCount`: an unsettled
         // attempt also holds a slot, and recomputing would overstate what is
