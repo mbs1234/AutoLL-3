@@ -11,9 +11,12 @@ import ClientsContext from '@/contexts/ClientsContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
+import NavContext from '@/contexts/NavContext';
 import { formatDate } from '@/datetime';
 import useDataLoader from '@/hooks/useDataLoader';
 import { RateLimitExceeded } from '@/ratelimit';
+
+import Configure from './Configure';
 
 const STYLE: Record<PlanCheckLevel, string> = {
   blocker: 'bg-red-100 text-red-900',
@@ -32,8 +35,9 @@ export default function PlanCheck() {
   const { park } = use(ParkContext);
   const { bookingDate } = use(BookingDateContext);
   const { ll } = use(ClientsContext);
-  const { experiences } = use(ExperiencesContext);
+  const { experiences, refreshExperiences } = use(ExperiencesContext);
   const { plans } = use(PlansContext);
+  const { goTo } = use(NavContext);
   const { loadData, loaderElem } = useDataLoader();
   const {
     targets,
@@ -77,6 +81,16 @@ export default function PlanCheck() {
     ]
   );
   const blockers = items.filter(item => item.level === 'blocker').length;
+  const reviews = items.filter(item => item.level === 'review').length;
+
+  function actOn(item: (typeof items)[number]) {
+    if (!item.subject) return;
+    if (item.subject.kind === 'tipboard') return refreshExperiences();
+    if (item.subject.kind === 'budget') {
+      return goTo(<Configure focus={{ kind: 'setting' }} />);
+    }
+    return goTo(<Configure focus={item.subject} />);
+  }
 
   const [party, setParty] = useState<Guests>();
   const [checking, setChecking] = useState(false);
@@ -133,6 +147,17 @@ export default function PlanCheck() {
           ? `${blockers} item${blockers === 1 ? '' : 's'} to fix`
           : 'Plan review'}
       </h3>
+      <p
+        className={`mb-2 rounded-sm p-2 text-sm ${
+          blockers ? STYLE.blocker : reviews ? STYLE.review : STYLE.ready
+        }`}
+      >
+        {blockers
+          ? `${blockers} blocker${blockers === 1 ? '' : 's'} need attention.`
+          : reviews
+            ? `${reviews} item${reviews === 1 ? '' : 's'} to review.`
+            : 'Ready to run within the current safeguards.'}
+      </p>
       <ul className="space-y-2">
         {items.map(item => (
           <li
@@ -141,6 +166,15 @@ export default function PlanCheck() {
           >
             <span className="font-semibold">{LABEL[item.level]}:</span>{' '}
             {item.text}
+            {item.subject && (
+              <Button type="small" className="mt-2" onClick={() => actOn(item)}>
+                {item.subject.kind === 'tipboard'
+                  ? 'Refresh LL list'
+                  : item.subject.kind === 'budget'
+                    ? 'Open budget settings'
+                    : 'Open Configure'}
+              </Button>
+            )}
           </li>
         ))}
       </ul>

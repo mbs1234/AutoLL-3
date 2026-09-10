@@ -9,7 +9,11 @@ import AutopilotContext from '@/contexts/AutopilotContext';
 import BookingDateContext from '@/contexts/BookingDateContext';
 import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
+import NavContext from '@/contexts/NavContext';
 import { parkDate } from '@/datetime';
+
+import Configure from './Configure';
+import BookingDetails from './BookingDetails';
 
 export const TIMELINE = 'Timeline';
 
@@ -19,6 +23,7 @@ export default function Timeline() {
   const { park } = use(ParkContext);
   const { plans } = use(PlansContext);
   const { targets } = use(AutopilotContext);
+  const { goTo } = use(NavContext);
   const targetsToday = targets.filter(target =>
     targetApplies(target, park.id, bookingDate)
   );
@@ -36,7 +41,18 @@ export default function Timeline() {
           watched at {park.name}.
         </p>
       ) : (
-        <DayTimeline lanes={lanes} targets={targetsToday} date={bookingDate} />
+        <DayTimeline
+          lanes={lanes}
+          targets={targetsToday}
+          date={bookingDate}
+          onTargetTap={target =>
+            goTo(<Configure focus={{ kind: 'target', experienceId: target.id }} />)
+          }
+          onLaneTap={lane => {
+            const booking = lanes.find(item => item.id === lane.id);
+            if (booking) goTo(<BookingDetails booking={booking} />);
+          }}
+        />
       )}
     </Screen>
   );

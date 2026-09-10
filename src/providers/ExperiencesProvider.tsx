@@ -21,6 +21,7 @@ export default function ExperiencesProvider({
   const [unknownExperienceIds, setUnknownExperienceIds] = useState<string[]>(
     []
   );
+  const [lastUpdated, setLastUpdated] = useState<number>();
 
   /**
    * The actual fetch, awaitable and free of UI side effects. Rejects if the
@@ -46,6 +47,7 @@ export default function ExperiencesProvider({
     // Held in state rather than read from the client: the client mutates the
     // list in place, which would never re-render the warning that shows it.
     setUnknownExperienceIds(ll.unknownExperienceIds);
+    setLastUpdated(Date.now());
     return merged;
   }, [park, bookingDate, ll, liveData]);
 
@@ -68,6 +70,7 @@ export default function ExperiencesProvider({
         refreshExperiences,
         pollExperiences: fetchExperiences,
         unknownExperienceIds,
+        lastUpdated,
         loaderElem,
       }}
     >
