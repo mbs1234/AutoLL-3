@@ -264,6 +264,9 @@ function setupBooking({
   bookingDate = TODAY,
   // Holds the offer request open, for the gate between offer and book.
   offerDelay = undefined as Promise<void> | undefined,
+  // Holds the availability request open, for scope/cancellation tests before
+  // any alerting or booking decision has been made.
+  experiencesDelay = undefined as Promise<void> | undefined,
 } = {}) {
   const guests = jest.fn(async () => {
     if (guestsStatus !== undefined) {
@@ -313,6 +316,10 @@ function setupBooking({
     polled = next;
   };
   const pollPlans = jest.fn(async () => polled);
+  const pollExperiences = jest.fn(async () => {
+    if (experiencesDelay) await experiencesDelay;
+    return experiences;
+  });
   function Tree({ date }: { date: string }) {
     return (
       <BookingDateContext
@@ -339,7 +346,7 @@ function setupBooking({
               value={{
                 experiences: [],
                 refreshExperiences: () => {},
-                pollExperiences: async () => experiences,
+                pollExperiences,
                 loaderElem: null,
               }}
             >
@@ -370,6 +377,7 @@ function setupBooking({
     pollPlans,
     offeredIds,
     offerOptions,
+    pollExperiences,
     setPolledPlans,
     /** Move the app onto another booking date, as the LL tab's picker does. */
     setBookingDate: (date: string) => view.rerender(<Tree date={date} />),
@@ -2296,6 +2304,25 @@ describe('AutopilotProvider acting on a plan that changed mid-tick', () => {
     eligible: [{ id: 'g1', name: 'A' }],
     ineligible: [{ id: 'g2', name: 'B', ineligibleReason: 'TOO_EARLY' }],
   };
+
+  it('does not alert from an availability response for the previous date', async () => {
+    saveWatchList([{ experienceId: BZ }]);
+    let release!: () => void;
+    const held = new Promise<void>(resolve => (release = resolve));
+    const { pollExperiences, setBookingDate } = setupBooking({
+      experiencesDelay: held,
+    });
+    await enable();
+    await waitFor(() => expect(pollExperiences).toHaveBeenCalledTimes(1));
+
+    await act(async () => setBookingDate(TOMORROW));
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+
+    expect(fireAlert).not.toHaveBeenCalled();
+  });
 
   it('does not book after the booking date moves under it', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);

@@ -34,6 +34,7 @@ import {
   screen,
   see,
   setTime,
+  waitFor,
 } from '@/testing';
 
 import RebookingHeader from '../RebookingHeader';
@@ -123,7 +124,11 @@ async function renderComponent({
       </BookingDateProvider>
     </PlansProvider>
   );
-  if (!screen) await loading();
+  if (screen) {
+    await waitFor(() => expect(itinerary.plans).toHaveBeenCalled());
+  } else {
+    await loading();
+  }
 }
 
 describe('BookExperience', () => {

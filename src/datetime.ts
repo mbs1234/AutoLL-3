@@ -51,9 +51,14 @@ export class ParkTime {
     if (secondsToAdd === 0) return this;
     const newTimeInSeconds =
       this.hour * 3600 + this.minute * 60 + this.second + secondsToAdd;
-    const hour = Math.floor(newTimeInSeconds / 3600) % 24;
-    const minute = Math.floor((newTimeInSeconds % 3600) / 60);
-    const second = newTimeInSeconds % 60;
+    // JavaScript's remainder keeps the sign of the dividend, so `% 86400`
+    // alone leaves a negative value when subtracting across midnight. The
+    // constructor then clamps every negative field to zero, turning 00:10 -
+    // 40 minutes into 00:00 instead of 23:30.
+    const wrapped = ((newTimeInSeconds % 86400) + 86400) % 86400;
+    const hour = Math.floor(wrapped / 3600);
+    const minute = Math.floor((wrapped % 3600) / 60);
+    const second = wrapped % 60;
     return new ParkTime(hour, minute, second);
   }
 

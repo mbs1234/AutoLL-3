@@ -1,7 +1,6 @@
 import { COOLDOWN_SECONDS, RateLimit, RateLimitExceeded } from '@/ratelimit';
 
 jest.useFakeTimers();
-jest.advanceTimersByTime(1000);
 
 const REQS_PER_SEC = 5;
 
@@ -11,6 +10,13 @@ function exceed(limit: RateLimit) {
 }
 
 describe('RateLimit', () => {
+  it('enforces the cooldown even during the first second', () => {
+    const limit = new RateLimit(REQS_PER_SEC);
+    exceed(limit);
+    jest.advanceTimersByTime(1000);
+    expect(() => limit.enforce()).toThrow(RateLimitExceeded);
+  });
+
   it('throws RateLimitExceeded when appropriate', async () => {
     const limit = new RateLimit(REQS_PER_SEC);
     for (let i = 0; i < REQS_PER_SEC; ++i) limit.enforce();

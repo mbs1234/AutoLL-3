@@ -8,6 +8,7 @@ import BookingListing from '@/components/ll/BookingListing';
 import BookingDateContext from '@/contexts/BookingDateContext';
 import NavContext from '@/contexts/NavContext';
 import PlansContext from '@/contexts/PlansContext';
+import { parkDate } from '@/datetime';
 
 import { HomeTabProps } from '../Home';
 import RefreshButton from '../RefreshButton';
@@ -23,7 +24,7 @@ export function NextLLModifyPicker({
   const { goTo } = use(NavContext);
   const held = plans.filter(
     (booking): booking is LLMP =>
-      isLLMP(booking) && booking.start.date === bookingDate
+      isLLMP(booking) && parkDate(booking.start) === bookingDate
   );
   const modifiable = held.filter(booking => booking.modifiable);
   const locked = held.filter(booking => !booking.modifiable);

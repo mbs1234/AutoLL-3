@@ -1,7 +1,7 @@
 import { AUTH_PERSISTENCE_KEY } from '@/api/auth';
 import { APP_NAME } from '@/appIdentity';
 import kvdb from '@/kvdb';
-import { fireEvent, render, screen } from '@/testing';
+import { act, fireEvent, render, screen } from '@/testing';
 
 import SettingsButton from './SettingsButton';
 
@@ -34,7 +34,7 @@ describe('SettingsButton', () => {
     fireEvent.click(screen.getByTitle('Settings Menu'));
     expect(screen.getByText('Session-only login: Off')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Session-only login: Off'));
-    jest.runAllTimers();
+    act(() => jest.runAllTimers());
     expect(kvdb.get(AUTH_PERSISTENCE_KEY)).toBe('session');
     jest.useRealTimers();
   });

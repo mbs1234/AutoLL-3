@@ -487,6 +487,10 @@ export default function AutopilotProvider({
 
       // Let this reject: the poller needs the failure to drive backoff.
       const experiences = await pollExperiences();
+      // A park/date switch or Stop can happen during that request. Nothing
+      // from the old scope should update learning, alerts, or diagnostics;
+      // the next tick will use the current provider callback and scope.
+      if (stale()) return;
 
       // Learn from what just came back. Only on the current park day: a future
       // date's tipboard changes with cancellations, which are not drops, and its

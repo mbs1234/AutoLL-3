@@ -361,6 +361,7 @@ describe('CommitGuard phases that survive a restart', () => {
   it('is startable while awaiting, and not while unknown', () => {
     const guard = new CommitGuard();
     guard.begin(at(11));
+    expect(guard.startable).toBe(false);
     guard.markCommitted();
     expect(guard.startable).toBe(true);
     guard.markUnknown();

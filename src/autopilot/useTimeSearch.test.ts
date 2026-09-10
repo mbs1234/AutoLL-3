@@ -18,6 +18,16 @@ jest.useFakeTimers();
 const BZ = '80010114';
 const at = (h: number, m = 0) => new ParkTime(h, m);
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function booking(time: ParkTime, rest: Partial<LLMP> = {}): LLMP {
   return {
     type: 'LL',
@@ -161,6 +171,70 @@ describe('useTimeSearch', () => {
     await runCycles(2);
     expect(deps.commit).toHaveBeenCalled();
     expect(result.current.moves).toBe(1);
+  });
+
+  it('does not commit when Stop is pressed while a quoted time is loading', async () => {
+    const quote = deferred<Offer<LLMP>>();
+    const changeTime = jest.fn(() => quote.promise);
+    const { result, deps } = setup({ quoted: changeTime });
+    act(() => result.current.start());
+    await waitFor(() => expect(changeTime).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.cancel());
+    expect(result.current.guard.phase).toBe('idle');
+    await act(async () => quote.resolve(offerAt(at(11))));
+
+    expect(deps.commit).not.toHaveBeenCalled();
+    expect(result.current.running).toBe(false);
+  });
+
+  it('releases an unaccepted move on Stop so a search can restart', async () => {
+    const { result } = setup({ confirmEveryMove: true });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.pending).toBeDefined());
+    expect(result.current.guard.phase).toBe('committing');
+
+    act(() => result.current.cancel());
+    expect(result.current.guard.phase).toBe('idle');
+    expect(result.current.phase).toBe('idle');
+    expect(result.current.pending).toBeUndefined();
+
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.pending).toBeDefined());
+    expect(result.current.running).toBe(true);
+  });
+
+  it('preserves the guard when Stop lands after commit has started', async () => {
+    const committed = deferred<LLMP>();
+    const commit = jest.fn(() => committed.promise);
+    const { result } = setup({ commit });
+    act(() => result.current.start());
+    await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.cancel());
+    expect(result.current.guard.phase).toBe('committing');
+    await act(async () => committed.resolve(booking(at(11))));
+
+    expect(result.current.guard.phase).toBe('awaiting');
+    expect(result.current.running).toBe(false);
+    expect(result.current.stop).toBe('unconfirmed');
+  });
+
+  it('releases the visible guard when a stopped commit is rejected', async () => {
+    const committed = deferred<LLMP>();
+    const commit = jest.fn(() => committed.promise);
+    const { result } = setup({ commit });
+    act(() => result.current.start());
+    await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.cancel());
+    await act(async () =>
+      committed.reject(new RequestError({ ok: false, status: 410, data: {} }))
+    );
+
+    expect(result.current.guard.phase).toBe('idle');
+    expect(result.current.phase).toBe('idle');
+    expect(result.current.running).toBe(false);
   });
 
   // Disney answers with the nearest slot it can rather than refusing, so a
@@ -308,6 +382,18 @@ describe('useTimeSearch restarting mid-settle', () => {
   function stubbornPlans(oldTime: ParkTime) {
     return jest.fn(async () => [booking(oldTime)]);
   }
+
+  it('offers confirmation recovery when stopped while Plans is settling', async () => {
+    const { result } = setup({
+      plans: stubbornPlans(at(15)),
+    });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.guard.phase).toBe('awaiting'));
+
+    act(() => result.current.cancel());
+    expect(result.current.stop).toBe('unconfirmed');
+    expect(result.current.guard.phase).toBe('awaiting');
+  });
 
   it('does not decide again before Plans confirms a committed move', async () => {
     const commit = jest.fn(async () => booking(at(11)));
