@@ -1,5 +1,10 @@
 import { LLMP } from '@/api/itinerary';
-import { TimedBooking, clashablePlans, windowClash } from '@/autopilot/overlap';
+import {
+  TimedBooking,
+  clashWindow,
+  clashablePlans,
+  windowClash,
+} from '@/autopilot/overlap';
 import { WatchTarget } from '@/autopilot/watchlist';
 import { ParkTime } from '@/datetime';
 
@@ -19,6 +24,8 @@ export interface TimelineLane {
   /** Column to draw in, so simultaneous holds do not cover each other. */
   column: number;
   columns: number;
+  protectedFrom: ParkTime;
+  protectedTo: ParkTime;
 }
 
 export interface TimelineTarget {
@@ -83,17 +90,23 @@ export function dayTimeline(
     (lane): lane is LLMP & { start: { time: ParkTime } } => !!lane.start?.time
   );
   const laneRows = drawable
-    .map(lane => ({
-      id: lane.id,
-      name: lane.name,
-      start: lane.start.time,
-      endAssumed: !lane.end?.time,
+    .map(lane => {
+      const { from, to } = clashWindow(lane);
+      return {
+        id: lane.id,
+        name: lane.name,
+        start: lane.start.time,
+        endAssumed: !lane.end?.time,
       // A missing end is unusual, but a marked bar is more useful than making
       // the held reservation vanish from the timeline. `endAssumed` is what
       // stops the assumption being presented as fact.
-      end:
-        lane.end?.time ?? lane.start.time.add({ minutes: ASSUMED_LENGTH_MIN }),
-    }))
+        end:
+          lane.end?.time ??
+          lane.start.time.add({ minutes: ASSUMED_LENGTH_MIN }),
+        protectedFrom: from,
+        protectedTo: to,
+      };
+    })
     .sort((a, b) => +a.start - +b.start);
   const packedLanes = pack(
     laneRows.map(row => ({ ...row, start: +row.start, end: +row.end }))

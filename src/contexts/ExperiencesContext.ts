@@ -36,6 +36,7 @@ interface ExperiencesState {
    * Optional so the many places that stub this context need not be touched.
    */
   unknownExperienceIds?: string[];
+  lastUpdated?: number;
   loaderElem: ReturnType<typeof useDataLoader>['loaderElem'];
 }
 
@@ -44,5 +45,6 @@ export default createContext<ExperiencesState>({
   refreshExperiences: () => undefined,
   pollExperiences: () => Promise.resolve([]),
   unknownExperienceIds: [],
+  lastUpdated: undefined,
   loaderElem: null,
 });

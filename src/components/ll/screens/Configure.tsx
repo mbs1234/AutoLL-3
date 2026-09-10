@@ -61,7 +61,11 @@ function BudgetInput({
  * its actions, window and rank, and the list to add from. Turning Autopilot
  * on, and everything it reports while running, is the Today tab's.
  */
-export default function Configure() {
+export default function Configure({
+  focus,
+}: {
+  focus?: { kind: 'target'; experienceId: string } | { kind: 'setting' };
+} = {}) {
   const {
     targets,
     targetsHere,
@@ -263,7 +267,9 @@ export default function Configure() {
               <TargetCard
                 experience={exp}
                 target={targetFor(exp.id)}
-                defaultOpen={exp.id === justAdded}
+                defaultOpen={
+                  exp.id === justAdded || exp.id === focus?.experienceId
+                }
                 onRemove={() => {
                   const target = targetFor(exp.id) ?? { experienceId: exp.id };
                   removeTarget(exp.id);

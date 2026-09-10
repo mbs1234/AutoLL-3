@@ -20,6 +20,7 @@ interface PlansState {
   pollPlans: () => Promise<Booking[]>;
   loaderElem: ReturnType<typeof useDataLoader>['loaderElem'];
   plansLoaded?: boolean;
+  lastUpdated?: number;
 }
 
 export default createContext<PlansState>({
@@ -27,4 +28,5 @@ export default createContext<PlansState>({
   refreshPlans: () => undefined,
   pollPlans: () => Promise.resolve([]),
   loaderElem: null,
+  lastUpdated: undefined,
 });

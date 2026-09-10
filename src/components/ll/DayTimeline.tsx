@@ -1,3 +1,5 @@
+import { Fragment } from 'react';
+
 import { LLMP } from '@/api/itinerary';
 import {
   TimelineLane,
@@ -32,6 +34,11 @@ function laneStyle(lane: TimelineLane) {
   };
 }
 
+function protectedStyle(lane: TimelineLane) {
+  const { top, height } = bar(lane.protectedFrom, lane.protectedTo);
+  return { top: `${top}%`, height: `${height}%` };
+}
+
 function targetStyle(target: TimelineTarget) {
   const { top, height } = bar(target.after, target.before);
   return {
@@ -57,10 +64,14 @@ export default function DayTimeline({
   lanes,
   targets,
   date,
+  onLaneTap,
+  onTargetTap,
 }: {
   lanes: LLMP[];
   targets: WatchTarget[];
   date: string;
+  onLaneTap?: (lane: TimelineLane) => void;
+  onTargetTap?: (target: TimelineTarget) => void;
 }) {
   const timeline = dayTimeline(lanes, targets, date);
   if (timeline.lanes.length === 0 && timeline.targets.length === 0) return null;
@@ -99,10 +110,12 @@ export default function DayTimeline({
             />
           ))}
           {timeline.lanes.map(lane => (
-            <div
-              key={lane.id}
-              className="absolute overflow-hidden rounded-sm bg-blue-100 px-1 text-blue-950"
+            <Fragment key={lane.id}>
+            <div aria-hidden className="absolute inset-x-0 bg-blue-50" style={protectedStyle(lane)} />
+            <button
+              className="absolute overflow-hidden rounded-sm bg-blue-100 px-1 text-left text-blue-950"
               style={laneStyle(lane)}
+              onClick={() => onLaneTap?.(lane)}
               title={`${lane.name}: ${lane.start} to ${lane.end}${
                 lane.endAssumed ? ' (end time unknown)' : ''
               }`}
@@ -112,7 +125,8 @@ export default function DayTimeline({
                 <Time time={lane.start} />
                 {lane.endAssumed && ' – ?'}
               </span>
-            </div>
+            </button>
+            </Fragment>
           ))}
         </div>
         <div className="relative h-[480px] border-l border-gray-200">
@@ -127,7 +141,7 @@ export default function DayTimeline({
             const covered = target.covered.length > 0;
             const bad = covered || target.impossible;
             return (
-              <div
+              <button
                 key={target.id}
                 className={`absolute overflow-hidden rounded-sm border px-1 ${
                   bad
@@ -139,6 +153,7 @@ export default function DayTimeline({
                         : 'border-gray-300 bg-gray-50 text-gray-700'
                 }`}
                 style={targetStyle(target)}
+                onClick={() => onTargetTap?.(target)}
                 title={`${target.name}: ${
                   target.bounded
                     ? `${target.after} to ${target.before}`
@@ -170,7 +185,7 @@ export default function DayTimeline({
                   target.clashes.length > 0 && (
                     <span className="block truncate">crosses a held plan</span>
                   )}
-              </div>
+              </button>
             );
           })}
         </div>

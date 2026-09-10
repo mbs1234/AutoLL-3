@@ -15,6 +15,7 @@ export default function PlansProvider({
   const { loadData, loaderElem } = useDataLoader();
   const [plans, setPlans] = useState<Booking[]>([]);
   const [plansLoaded, setPlansLoaded] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<number>();
 
   /**
    * The actual fetch, awaitable and free of UI side effects. Rejects on
@@ -25,6 +26,7 @@ export default function PlansProvider({
     const fetched = await itinerary.plans();
     setPlans(fetched);
     setPlansLoaded(true);
+    setLastUpdated(Date.now());
     // Returned as well as stored: `plans` will not reflect this until the next
     // render, so a background caller acting within the same tick needs the
     // value directly.
@@ -47,6 +49,7 @@ export default function PlansProvider({
       value={{
         plans,
         plansLoaded,
+        lastUpdated,
         refreshPlans,
         pollPlans: fetchPlans,
         loaderElem,

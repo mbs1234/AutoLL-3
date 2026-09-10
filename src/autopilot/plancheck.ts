@@ -7,10 +7,16 @@ import { WatchTarget, targetApplies } from '@/autopilot/watchlist';
 import { parkDate } from '@/datetime';
 
 export type PlanCheckLevel = 'blocker' | 'review' | 'ready';
+export type PlanCheckSubject =
+  | { kind: 'target'; experienceId: string }
+  | { kind: 'setting'; setting: 'dryRun' | 'wholeParty' | 'overlaps' }
+  | { kind: 'tipboard' }
+  | { kind: 'budget' };
 
 export interface PlanCheckItem {
   level: PlanCheckLevel;
   text: string;
+  subject?: PlanCheckSubject;
 }
 
 export interface PlanCheckInput {
@@ -83,14 +89,15 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
     targetApplies(target, input.parkId, input.date)
   );
   const items: PlanCheckItem[] = [];
-  const push = (level: PlanCheckLevel, text: string) =>
-    items.push({ level, text });
+  const push = (level: PlanCheckLevel, text: string, subject?: PlanCheckSubject) =>
+    items.push({ level, text, subject });
 
   if (active.length === 0) {
     return [
       {
         level: 'blocker',
         text: 'No saved targets apply to this park and date.',
+        subject: { kind: 'target', experienceId: '' },
       },
     ];
   }
@@ -104,14 +111,16 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
   if (!tipboardLoaded) {
     push(
       'review',
-      'The tipboard for this park and date has not loaded, so per-attraction checks were skipped. Refresh the LL list and check again.'
+      'The tipboard for this park and date has not loaded, so per-attraction checks were skipped. Refresh the LL list and check again.',
+      { kind: 'tipboard' }
     );
   }
 
   if (input.dryRun) {
     push(
       'review',
-      'Dry run is on. Autopilot will evaluate and log every action but book, move, and swap nothing.'
+      'Dry run is on. Autopilot will evaluate and log every action but book, move, and swap nothing.',
+      { kind: 'setting', setting: 'dryRun' }
     );
   }
 
@@ -126,7 +135,8 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
   if (armedAtAll.length > 0 && input.bookingsRemaining <= 0) {
     push(
       'blocker',
-      'Today’s Autopilot action budget is exhausted. Add more actions before enabling it.'
+      'Today’s Autopilot action budget is exhausted. Add more actions before enabling it.',
+      { kind: 'budget' }
     );
   }
 
@@ -140,19 +150,22 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
       missing.add(target.experienceId);
       push(
         'blocker',
-        `${name} is not on the loaded tipboard, so it cannot be watched or acted on.`
+        `${name} is not on the loaded tipboard, so it cannot be watched or acted on.`,
+        { kind: 'target', experienceId: target.experienceId }
       );
     }
     if (acts(target) && target.paused) {
       push(
         'review',
-        `${name} has an action armed but is paused; it will alert only until resumed.`
+        `${name} has an action armed but is paused; it will alert only until resumed.`,
+        { kind: 'target', experienceId: target.experienceId }
       );
     }
     if (target.after && target.before && +target.after > +target.before) {
       push(
         'blocker',
-        `${name} has an impossible return window: its earliest time is after its latest time.`
+        `${name} has an impossible return window: its earliest time is after its latest time.`,
+        { kind: 'target', experienceId: target.experienceId }
       );
     }
   }
@@ -179,7 +192,8 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
       if (covered) {
         push(
           'blocker',
-          `${name}’s entire return window falls inside the protected time around ${covered.name}, so every time it allows would be refused. Widen the window or turn off Avoid clashes.`
+          `${name}’s entire return window falls inside the protected time around ${covered.name}, so every time it allows would be refused. Widen the window or turn off Avoid clashes.`,
+          { kind: 'target', experienceId: target.experienceId }
         );
         continue;
       }
@@ -189,7 +203,8 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
       if (overlapping) {
         push(
           'review',
-          `${name}’s return window overlaps the protected time around ${overlapping.name}. Part of the window is still usable.`
+          `${name}’s return window overlaps the protected time around ${overlapping.name}. Part of the window is still usable.`,
+          { kind: 'target', experienceId: target.experienceId }
         );
       }
     }
@@ -216,13 +231,15 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
   if (!input.requireWholeParty && armedAtAll.length > 0) {
     push(
       'review',
-      'Whole party only is off. An eligible subset of the saved party may receive a Lightning Lane.'
+      'Whole party only is off. An eligible subset of the saved party may receive a Lightning Lane.',
+      { kind: 'setting', setting: 'wholeParty' }
     );
   }
   if (!input.avoidOverlaps && armedAtAll.length > 0) {
     push(
       'review',
-      'Avoid clashes is off. Autopilot may take a return time that overlaps an existing plan.'
+      'Avoid clashes is off. Autopilot may take a return time that overlaps an existing plan.',
+      { kind: 'setting', setting: 'overlaps' }
     );
   }
 
