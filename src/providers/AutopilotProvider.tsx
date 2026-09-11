@@ -327,9 +327,9 @@ export default function AutopilotProvider({
       // the same way as `persistBudget`, for the same reason: a backgrounded
       // tab settling something after the real day has turned must not write
       // yesterday's locks into today's bucket.
-      () => {
+      released => {
         if (parkDate() === budgetDateRef.current) {
-          saveLocks(ledgerRef.current.attemptedKeys());
+          saveLocks(ledgerRef.current.attemptedKeys(), released);
         }
       }
     )
@@ -857,9 +857,15 @@ export default function AutopilotProvider({
           // Held for good, unless this is a rejection whose wait has run out.
           const retryAt = retryAtRef.current.get(`${kind}:${experience.id}`);
           if (retryAt === undefined || Date.now() < retryAt) {
-            if (retryAt !== undefined) {
-              bumpSkip('waiting-to-retry', experience.name);
-            }
+            // Both cases are reported. A lock with no retry token used to
+            // `continue` in silence, which is the worst way for this to fail:
+            // a lock adopted from the day's shared copy on a fresh mount looks
+            // exactly like nothing being available, and the screen sits on
+            // "checking" for the rest of the day naming no reason.
+            bumpSkip(
+              retryAt === undefined ? 'already-attempted' : 'waiting-to-retry',
+              experience.name
+            );
             continue;
           }
           retryAtRef.current.delete(`${kind}:${experience.id}`);

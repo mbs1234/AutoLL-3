@@ -11,15 +11,18 @@ import { setTime } from '@/testing';
 import {
   BUDGET_KEY,
   DEFAULT_SETTINGS,
+  LOCKS_KEY,
   LOG_KEY,
   LOG_LIMIT,
   SETTINGS_KEY,
   loadBookingLog,
   loadBudget,
+  loadLocks,
   loadSettings,
   sanitizeBudget,
   saveBookingLog,
   saveBudget,
+  saveLocks,
   saveSettings,
 } from './storage';
 
@@ -191,5 +194,68 @@ describe('the day budget', () => {
       value: { spent: 9, granted: 3 },
     });
     expect(loadBudget()).toEqual({ spent: 0, granted: 0 });
+  });
+});
+
+describe("the day's action locks", () => {
+  it('starts empty', () => {
+    expect(loadLocks()).toEqual([]);
+  });
+
+  it('round-trips a lock', () => {
+    saveLocks(['book:A']);
+    expect(loadLocks()).toEqual(['book:A']);
+  });
+
+  // The union is what stops a slower write from one instance dropping a lock
+  // another instance took in the meantime.
+  it('keeps a lock this writer does not hold', () => {
+    saveLocks(['book:A']);
+    saveLocks(['book:B']);
+    expect(loadLocks().sort()).toEqual(['book:A', 'book:B']);
+  });
+
+  it('discards a non-array and a non-string entry', () => {
+    kvdb.setDaily(LOCKS_KEY, 'nonsense');
+    expect(loadLocks()).toEqual([]);
+    kvdb.setDaily(LOCKS_KEY, ['book:A', 7, null, 'modify:B']);
+    expect(loadLocks()).toEqual(['book:A', 'modify:B']);
+  });
+
+  it('ignores locks from another park day', () => {
+    kvdb.set(LOCKS_KEY, { date: '2020-01-01', value: ['book:A'] });
+    expect(loadLocks()).toEqual([]);
+  });
+
+  // The regression. Until `remove` existed the write was the union alone, so a
+  // release could never be recorded: the key came straight back on the next
+  // read and autopilot refused to act on that attraction for the rest of the
+  // day. Cancel a Lightning Lane by hand and the earlier one that drops an
+  // hour later would never be taken.
+  it('removes a released lock instead of preserving it', () => {
+    saveLocks(['book:A', 'modify:B']);
+    saveLocks(['modify:B'], ['book:A']);
+    expect(loadLocks()).toEqual(['modify:B']);
+  });
+
+  it('removes a released lock the stored copy holds and this writer does not', () => {
+    saveLocks(['book:A']);
+    saveLocks([], ['book:A']);
+    expect(loadLocks()).toEqual([]);
+  });
+
+  it('leaves other locks alone when one is released', () => {
+    saveLocks(['book:A', 'book:B', 'swap:C']);
+    saveLocks(['book:B', 'swap:C'], ['book:A']);
+    expect(loadLocks().sort()).toEqual(['book:B', 'swap:C']);
+  });
+
+  // Re-locking wins over releasing in the same write. `markAttempted` clears
+  // the key from the ledger's released set for this reason, so the two lists
+  // cannot disagree in practice -- but the write must not resurrect a release
+  // either way.
+  it('drops a key that is both held and released', () => {
+    saveLocks(['book:A'], ['book:A']);
+    expect(loadLocks()).toEqual([]);
   });
 });

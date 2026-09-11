@@ -685,3 +685,117 @@ describe("the day's allowance", () => {
     expect(capped.remaining).toBe(0);
   });
 });
+
+/**
+ * Sharing locks with another instance -- a second tab, or the provider NextLL
+ * nests inside the app's own -- and letting a release survive the trip.
+ *
+ * `onAttemptChange` is the persister's hook. Adding is inferred from
+ * `attemptedKeys()`, but a release has to be *stated*, or a union-only write
+ * can never let a lock go: it comes straight back on the next
+ * `adoptAttempted` and the attraction is dead for the park day.
+ */
+describe('AutoBookLedger shared locks', () => {
+  /** A ledger plus the release lists its persister was handed, in order. */
+  function watched(budget = DEFAULT_ACTIONS_PER_DAY) {
+    const removals: (readonly string[] | undefined)[] = [];
+    const ledger = new AutoBookLedger(
+      budget,
+      0,
+      () => undefined,
+      released => removals.push(released)
+    );
+    return { ledger, removals };
+  }
+
+  /** Every key the persister was told to drop, flattened. */
+  const dropped = (removals: (readonly string[] | undefined)[]) =>
+    removals.flatMap(r => [...(r ?? [])]);
+
+  it('reports a lock it took as its own', () => {
+    const { ledger } = watched();
+    ledger.markAttempted(BZ, 'book');
+    expect(ledger.attemptedKeys()).toEqual([`book:${BZ}`]);
+    expect(ledger.ownedKeys()).toEqual([`book:${BZ}`]);
+  });
+
+  // Adoption is how another instance's lock gets here, and it is not this
+  // instance's to withdraw.
+  it('does not claim an adopted lock as its own', () => {
+    const { ledger } = watched();
+    ledger.adoptAttempted([`book:${BZ}`]);
+    expect(ledger.hasAttempted(BZ)).toBe(true);
+    expect(ledger.ownedKeys()).toEqual([]);
+  });
+
+  it('states the key when an attempt is released by hand', () => {
+    const { ledger, removals } = watched();
+    ledger.markAttempted(BZ, 'modify');
+    ledger.releaseAttempt(BZ, 'modify');
+    expect(dropped(removals)).toContain(`modify:${BZ}`);
+    expect(ledger.ownedKeys()).toEqual([]);
+  });
+
+  // The regression this block exists for. `resolveBook` settling a
+  // cancellation used to call `notify()` alone, so the release never reached
+  // storage: the lock survived, the next mount adopted it, and the rebooking
+  // the release branch exists to permit never happened.
+  it('states the key when a cancellation settles the lock', () => {
+    const { ledger, removals } = watched();
+    ledger.markAttempted(BZ);
+    ledger.markBooked(BZ);
+    ledger.resolveBook(BZ, true);
+    for (let i = 0; i < CONFIRM_ABSENT_POLLS; ++i) {
+      ledger.resolveBook(BZ, false);
+    }
+    expect(ledger.hasAttempted(BZ)).toBe(false);
+    expect(dropped(removals)).toContain(`book:${BZ}`);
+  });
+
+  // reset() is called on every enable, and clearing `attempted` alone left the
+  // shared copy intact -- so the first tick of the new run adopted every lock
+  // straight back and the reset did nothing.
+  it('withdraws its own locks on reset', () => {
+    const { ledger, removals } = watched();
+    ledger.markAttempted(BZ, 'book');
+    ledger.markAttempted('OTHER', 'swap');
+    removals.length = 0;
+    ledger.reset();
+    expect(dropped(removals).sort()).toEqual([`book:${BZ}`, 'swap:OTHER']);
+    expect(ledger.ownedKeys()).toEqual([]);
+  });
+
+  it('leaves an adopted lock in the shared copy on reset', () => {
+    const { ledger, removals } = watched();
+    ledger.adoptAttempted([`book:${BZ}`]);
+    removals.length = 0;
+    ledger.reset();
+    expect(dropped(removals)).toEqual([]);
+  });
+
+  // A release is remembered so a stale read cannot resurrect it...
+  it('refuses to re-adopt a lock it released', () => {
+    const { ledger } = watched();
+    ledger.markAttempted(BZ, 'book');
+    ledger.releaseAttempt(BZ, 'book');
+    ledger.adoptAttempted([`book:${BZ}`]);
+    expect(ledger.hasAttempted(BZ)).toBe(false);
+  });
+
+  // ...but locking it again deliberately has to lift that memory, or the
+  // refusal outlives the decision that caused it. Once this instance has let
+  // the lock go again -- here by a reset -- a lock another instance is
+  // genuinely holding must still be adoptable, and a stale `released` entry
+  // would silently ignore it and let both instances act on the attraction.
+  it('lifts the release when the same action is locked again', () => {
+    const { ledger } = watched();
+    ledger.markAttempted(BZ, 'book');
+    ledger.releaseAttempt(BZ, 'book');
+    ledger.markAttempted(BZ, 'book');
+    expect(ledger.ownedKeys()).toEqual([`book:${BZ}`]);
+    ledger.reset();
+    ledger.adoptAttempted([`book:${BZ}`]);
+    expect(ledger.hasAttempted(BZ)).toBe(true);
+    expect(ledger.ownedKeys()).toEqual([]);
+  });
+});

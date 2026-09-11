@@ -210,15 +210,31 @@ export function saveBudget(budget: DailyBudget): void {
  * second tab or a nested provider (NextLL nests one inside the app's own) can
  * see what another instance has already attempted today.
  *
- * Day-scoped, like the budget. Written as the union of what is already
- * stored and what this instance holds -- see `AutoBookLedger.adoptAttempted`
- * for why a lock is never removed this way, only added.
+ * Day-scoped, like the budget. Written as the union of what is already stored
+ * and what this instance holds, so a lock another instance took is never lost
+ * to a slower write from this one.
+ *
+ * `remove` is what makes that union releasable. Adding is safe to infer -- a
+ * key present in either copy is a lock somebody holds -- but a release cannot
+ * be, because absence from `keys` is indistinguishable from an instance that
+ * simply never held it. Without an explicit list the write was add-only, so
+ * every release was undone by the next mount reading the day's locks back:
+ * cancel a Lightning Lane by hand and autopilot would refuse to rebook that
+ * attraction for the rest of the park day. Only the instance that took a lock
+ * passes it here -- see `AutoBookLedger.ownedKeys`.
  */
 export function loadLocks(): string[] {
   const stored = kvdb.getDaily<string[]>(LOCKS_KEY);
   return Array.isArray(stored) ? stored.filter(k => typeof k === 'string') : [];
 }
 
-export function saveLocks(keys: readonly string[]): void {
-  kvdb.setDaily<string[]>(LOCKS_KEY, [...new Set([...loadLocks(), ...keys])]);
+export function saveLocks(
+  keys: readonly string[],
+  remove: readonly string[] = []
+): void {
+  const dropped = new Set(remove);
+  kvdb.setDaily<string[]>(
+    LOCKS_KEY,
+    [...new Set([...loadLocks(), ...keys])].filter(k => !dropped.has(k))
+  );
 }

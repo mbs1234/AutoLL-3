@@ -27,7 +27,9 @@ import {
   DEFAULT_SETTINGS,
   loadBookingLog,
   loadBudget,
+  loadLocks,
   saveBudget,
+  saveLocks,
   saveSettings,
 } from '@/autopilot/storage';
 import { releaseScreenAwake, wakeLockHeld } from '@/autopilot/wakelock';
@@ -2454,5 +2456,70 @@ describe('AutopilotProvider acting on a plan that changed mid-tick', () => {
     });
     expect(offer).not.toHaveBeenCalled();
     expect(book).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The day's shared action locks, across instances.
+ *
+ * They exist so a second tab or the provider NextLL nests inside the app's own
+ * cannot act on the same attraction twice. The hazard is the other direction:
+ * the write used to be add-only, so a lock could never be let go, and a fresh
+ * mount adopted a released one straight back -- which disabled that attraction
+ * for the rest of the park day while the screen named no reason.
+ */
+describe('AutopilotProvider shared action locks', () => {
+  it('publishes a lock it takes', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book } = setupBooking();
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(loadLocks()).toEqual([`book:${BZ}`]);
+  });
+
+  // A lock left in the day's copy by an earlier instance still blocks acting:
+  // that is the whole point of sharing them.
+  it('adopts a lock another instance left behind', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    saveLocks([`book:${BZ}`]);
+    const { book } = setupBooking();
+    await enable();
+    await runTicks(3);
+    expect(book).not.toHaveBeenCalled();
+  });
+
+  // ...but it must say so. This used to `continue` in silence, which is
+  // indistinguishable on screen from nothing being available.
+  it('names the adopted lock as the reason it did nothing', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    saveLocks([`book:${BZ}`]);
+    setupBooking();
+    await enable();
+    await runTicks(3);
+    expect(screen.getByTestId('lastSkip')).toHaveTextContent(
+      new RegExp(`^${wdw.experience(BZ).name}: already-attempted$`)
+    );
+  });
+
+  // The regression, end to end: switching autopilot off and on is how a person
+  // says "try again". It has to clear the day's copy of this instance's own
+  // locks, or the first tick of the new run reads them back and the run is
+  // dead before it starts.
+  it('clears its own locks from the day copy when switched on again', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book } = setupBooking();
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(loadLocks()).toEqual([`book:${BZ}`]);
+    // Off, then disarmed so the new run has nothing to re-book, then on:
+    // `reset()` runs on the way in. Disarming is what makes the withdrawal
+    // observable on its own -- left armed, the new run books again and takes a
+    // fresh lock, which is correct but hides what is being tested.
+    await enable();
+    await act(async () => {
+      screen.getByText('unarm BZ').click();
+    });
+    await enable();
+    expect(loadLocks()).toEqual([]);
   });
 });
