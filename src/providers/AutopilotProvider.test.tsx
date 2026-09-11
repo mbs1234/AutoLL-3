@@ -21,6 +21,7 @@ import { NO_REFUSALS, refusedCalls } from '@/autopilot/refusal';
 import {
   BURST_INTERVAL_MS,
   IDLE_INTERVAL_MS,
+  MAX_CONSECUTIVE_FAILURES,
   syncedParkTime,
 } from '@/autopilot/schedule';
 import {
@@ -1860,6 +1861,38 @@ describe('AutopilotProvider refusals', () => {
     expect(screen.getByTestId('refused')).toHaveTextContent('eligibility');
   });
 
+  // The banner is the one signal for deciding whether booking still works, so
+  // it lying in the reassuring direction is the expensive way for it to be
+  // wrong. `observeAction` clears a run on any non-403, but only for a call it
+  // is told about, and eligibility was reported solely from the failure path --
+  // so the panel latched on for the session and sat over the top of every
+  // booking the run went on to make.
+  it('stops reporting eligibility once it succeeds again', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    setTime('09:00');
+    const { guests } = setupBooking({ guestsStatus: 403 });
+    await enable();
+    await runTicks(4);
+    expect(screen.getByTestId('refused')).toHaveTextContent('eligibility');
+    // Disney's filter lifts.
+    guests.mockImplementation(async () => party as unknown);
+    await runTicks(2);
+    expect(screen.getByTestId('refused')).not.toHaveTextContent('eligibility');
+  });
+
+  // The offer and booking calls are never made when eligibility is what failed,
+  // so recording their status put a refusal against `book` on the strength of a
+  // request that never went out, and the banner named the wrong call.
+  it('does not blame booking for a refused eligibility call', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    setTime('09:00');
+    setupBooking({ guestsStatus: 403 });
+    await enable();
+    await runTicks(4);
+    expect(screen.getByTestId('refused')).toHaveTextContent('eligibility');
+    expect(screen.getByTestId('refused')).not.toHaveTextContent('book');
+  });
+
   // 410 is a ride selling out from under you -- the common case at a drop.
   it('does not report an ordinary failure as a refusal', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
@@ -2229,6 +2262,46 @@ describe('AutopilotProvider passkey', () => {
     available(PASSKEY, new ParkTime(11)),
     { ...available(TIER_ONE, new ParkTime(11)), tier: 1 } as FlexExperience,
   ];
+
+  // The probe was the one bare `await` left in the tick, so a `guests` endpoint
+  // refusing persistently rejected `onTick` every time: eight consecutive
+  // failures and the poller stopped and scheduled nothing, taking watching,
+  // alerting and drop learning down with it. Those are the parts a refusal is
+  // supposed to leave working.
+  it('keeps polling when the eligibility endpoint refuses the probe', async () => {
+    armed();
+    const { pollExperiences } = setupBooking({
+      experiences: withTierOne(),
+      plans: [heldPasskey()],
+      experiencedIds: [PASSKEY],
+      guestsStatus: 403,
+    });
+    await enable();
+    const before = pollExperiences.mock.calls.length;
+    // Comfortably past MAX_CONSECUTIVE_FAILURES. Shielded, every tick succeeds
+    // and lands on the idle cadence; unshielded, the growing backoff means the
+    // later advances do not reach a tick at all, which is what the poll count
+    // below detects.
+    await runTicks(MAX_CONSECUTIVE_FAILURES + 6);
+    expect(screen.getByTestId('mode')).not.toHaveTextContent('stopped');
+    // Still actually polling, not merely reporting a mode.
+    expect(pollExperiences.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  // Failing closed: lifting the hold needs Disney's agreement, and a refused
+  // request is not agreement.
+  it('leaves the Tier 1 hold on when the probe cannot be read', async () => {
+    armed();
+    setupBooking({
+      experiences: withTierOne(),
+      plans: [heldPasskey()],
+      experiencedIds: [PASSKEY],
+      guestsStatus: 403,
+    });
+    await enable();
+    await runTicks(3);
+    expect(screen.getByTestId('passkey')).toHaveTextContent('waiting');
+  });
 
   it('does not unlock for a passkey that is only booked', async () => {
     armed();

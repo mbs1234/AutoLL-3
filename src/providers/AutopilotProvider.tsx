@@ -899,8 +899,19 @@ export default function AutopilotProvider({
         if (stale()) break;
 
         let outcome: AutoBookOutcome | ModifyOutcome | SwapOutcome;
+        // Which call the failure below came from, so a refused eligibility
+        // fetch is not also reported against a `book` that never went out.
+        let eligibilityFailed = false;
         try {
           const guests = await guestsFor(experience.id, date);
+          // A success clears this call's run. `observeAction` does the clearing,
+          // but only for a call it is told about, and eligibility was reported
+          // solely from the catch below -- so once the panel appeared it stayed
+          // for the rest of the session, over the top of every booking the run
+          // went on to make. That is the one signal for deciding whether
+          // booking still works, so it lying in the reassuring direction is the
+          // expensive way for it to be wrong.
+          recordRefusal('eligibility', undefined, nowTime);
 
           // Asked again, because eligibility is a round trip and the check
           // above is only as fresh as the moment it ran. Stopping autopilot,
@@ -1056,6 +1067,7 @@ export default function AutopilotProvider({
           // call the booking path makes, so it is where a refusal lands first.
           const httpStatus = (error as { response?: { status?: number } })
             ?.response?.status;
+          eligibilityFailed = true;
           recordRefusal('eligibility', httpStatus, nowTime);
           console.error(error);
           outcome = {
@@ -1068,7 +1080,11 @@ export default function AutopilotProvider({
         // Anything the helpers returned settles their own call. A success clears
         // that call's run; only an unbroken run of refusals reads as "this is not
         // working" rather than "this went wrong a few times today".
-        if (outcome.status !== 'skipped') {
+        // Not when eligibility is what failed: the offer and booking calls were
+        // never made, so recording their status here put a refusal against
+        // `book` on the strength of a request that never went out, and the
+        // banner named the wrong call.
+        if (outcome.status !== 'skipped' && !eligibilityFailed) {
           recordRefusal(
             kind === 'book' ? 'book' : 'offer',
             outcome.status === 'failed' ? outcome.httpStatus : undefined,
@@ -1240,8 +1256,28 @@ export default function AutopilotProvider({
       } else if (passkeyUnlockedForRef.current === date) {
         setPasskeyStatus('unlocked');
       } else if (redeemedPasskey && tierOne) {
-        const guests = await guestsFor(tierOne.id, date);
-        if (tierLimitLifted(guests)) {
+        // Shielded exactly as the plans poll above is, and for the same reason.
+        // This probe only lifts a display hold, so it has no business spending
+        // the poller's failure budget -- and it was the one bare `await` left in
+        // the tick. A `guests` endpoint refusing persistently made `onTick`
+        // reject every tick until `MAX_CONSECUTIVE_FAILURES`, at which point the
+        // poller stopped and scheduled nothing; the effect keys on `enabled`
+        // alone, so nothing restarted it. Watching, alerting and drop learning
+        // died with it -- precisely what a refusal is supposed to leave working.
+        //
+        // A failure reads as "not lifted", so the Tier 1 hold fails closed:
+        // lifting it requires Disney's own agreement, which we did not get.
+        let guests: Guests | undefined;
+        try {
+          guests = await guestsFor(tierOne.id, date);
+          recordRefusal('eligibility', undefined, syncedParkTime());
+        } catch (error) {
+          const httpStatus = (error as { response?: { status?: number } })
+            ?.response?.status;
+          recordRefusal('eligibility', httpStatus, syncedParkTime());
+          console.error(error);
+        }
+        if (guests && tierLimitLifted(guests)) {
           passkeyUnlockedForRef.current = date;
           cacheRef.current.clear();
           setPasskeyStatus('unlocked');
