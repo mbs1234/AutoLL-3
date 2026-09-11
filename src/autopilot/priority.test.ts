@@ -16,9 +16,12 @@ const at = (h: number, m = 0) => new ParkTime(h, m);
 const exp = (id: string, rest: Partial<Experience> = {}) =>
   ({ id, name: id, ...rest }) as Experience;
 
-const hit = (experience: Experience): WatchHit =>
+const hit = (
+  experience: Experience,
+  target: Partial<WatchHit['target']> = {}
+): WatchHit =>
   ({
-    target: { experienceId: experience.id, autoBook: true },
+    target: { experienceId: experience.id, autoBook: true, ...target },
     experience,
     returnTime: at(11),
   }) as WatchHit;
@@ -85,6 +88,85 @@ describe('orderByPriority()', () => {
       hit(exp('ranked', { priority: 4.1 })),
     ]);
     expect(ordered.map(h => h.experience.id)).toEqual(['ranked', 'none']);
+  });
+
+  /**
+   * The two ordering keys this fork added, both ahead of the built-in priority.
+   *
+   * Neither had a test: deleting either left the whole suite green, and the
+   * suite is what gates the deploy. This is the comparator that decides which
+   * attraction autopilot attempts first, and the first booking constrains what
+   * the next can be -- so a silent change of order here is a silent change to
+   * every action of the day.
+   */
+  it('puts a user-set rank ahead of the built-in priority', () => {
+    const ordered = orderByPriority([
+      hit(exp('best-by-data', { priority: 1 })),
+      hit(exp('ranked-by-user', { priority: 4 }), { rank: 1 }),
+    ]);
+    expect(ordered.map(h => h.experience.id)).toEqual([
+      'ranked-by-user',
+      'best-by-data',
+    ]);
+  });
+
+  it('orders two user-set ranks by the lower number', () => {
+    const ordered = orderByPriority([
+      hit(exp('c'), { rank: 3 }),
+      hit(exp('a'), { rank: 1 }),
+      hit(exp('b'), { rank: 2 }),
+    ]);
+    expect(ordered.map(h => h.experience.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('falls back to the built-in priority for an unranked target', () => {
+    const ordered = orderByPriority([
+      hit(exp('unranked-worse', { priority: 3 })),
+      hit(exp('unranked-better', { priority: 1 })),
+      hit(exp('ranked', { priority: 4 }), { rank: 2 }),
+    ]);
+    expect(ordered.map(h => h.experience.id)).toEqual([
+      'ranked',
+      'unranked-better',
+      'unranked-worse',
+    ]);
+  });
+
+  // The passkey exists to be redeemed early so Disney lifts the one-Tier-1
+  // limit, which is worth nothing if it is not booked first.
+  it('puts the passkey first when asked', () => {
+    const ordered = orderByPriority(
+      [
+        hit(exp('headliner', { priority: 1, tier: 1 })),
+        hit(exp('passkey', { priority: 4 }), { passkey: true }),
+      ],
+      true
+    );
+    expect(ordered.map(h => h.experience.id)).toEqual(['passkey', 'headliner']);
+  });
+
+  it('leaves the passkey in priority order when not asked', () => {
+    const ordered = orderByPriority([
+      hit(exp('headliner', { priority: 1, tier: 1 })),
+      hit(exp('passkey', { priority: 4 }), { passkey: true }),
+    ]);
+    expect(ordered.map(h => h.experience.id)).toEqual(['headliner', 'passkey']);
+  });
+
+  // Passkey outranks a user rank: the rank orders the day's plan, the passkey
+  // decides what has to happen before the plan is possible at all.
+  it('puts the passkey ahead even of a user-set rank', () => {
+    const ordered = orderByPriority(
+      [
+        hit(exp('ranked-first'), { rank: 1 }),
+        hit(exp('passkey', { priority: 4 }), { passkey: true }),
+      ],
+      true
+    );
+    expect(ordered.map(h => h.experience.id)).toEqual([
+      'passkey',
+      'ranked-first',
+    ]);
   });
 
   it('does not mutate the input', () => {

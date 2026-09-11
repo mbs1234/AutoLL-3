@@ -1,7 +1,7 @@
 import { Booking } from '@/api/itinerary';
 import { DateTime, ParkTime } from '@/datetime';
 
-import { clashWindow, overlappingPlans } from './overlap';
+import { clashWindow, overlappingPlans, windowClash } from './overlap';
 
 const DATE = '2026-12-10';
 const at = (h: number, m = 0) => new ParkTime(h, m);
@@ -116,5 +116,97 @@ describe('overlappingPlans()', () => {
     expect(
       overlappingPlans(at(18, 30), plans, { date: DATE, ignoreIds: ['d1'] })
     ).toEqual([]);
+  });
+});
+
+/**
+ * The predicate `avoidOverlaps` relies on, which had no test at all: the suite
+ * imported `clashWindow` and `overlappingPlans` and never this.
+ *
+ * Its contract is "strict at both edges" -- a window that only touches the edge
+ * of a plan's protected span is the adjacent case, not the clashing one -- and
+ * `covers` separates "some of this window is usable" from "none of it is". An
+ * off-by-one either books a Lightning Lane that clashes with a dining
+ * reservation or refuses a window that was fine, and nothing would have caught
+ * either.
+ */
+describe('windowClash()', () => {
+  // A 19:00 dining reservation with no end protects 18:20 to 20:00.
+  const dinner = dining('d', at(19)) as Parameters<typeof windowClash>[1];
+
+  it('reports no clash for a window entirely before the span', () => {
+    const { overlaps, covers } = windowClash(
+      { after: at(16), before: at(17) },
+      dinner
+    );
+    expect(overlaps).toBe(false);
+    expect(covers).toBe(false);
+  });
+
+  it('reports no clash for a window entirely after the span', () => {
+    expect(
+      windowClash({ after: at(20, 30), before: at(21) }, dinner).overlaps
+    ).toBe(false);
+  });
+
+  // Both edges strict: touching is adjacent, not clashing.
+  it('treats a window ending exactly at the span start as adjacent', () => {
+    expect(
+      windowClash({ after: at(17), before: at(18, 20) }, dinner).overlaps
+    ).toBe(false);
+  });
+
+  it('treats a window starting exactly at the span end as adjacent', () => {
+    expect(
+      windowClash({ after: at(20), before: at(21) }, dinner).overlaps
+    ).toBe(false);
+  });
+
+  // One minute inside either edge is a clash.
+  it('clashes one minute inside the span start', () => {
+    expect(
+      windowClash({ after: at(17), before: at(18, 21) }, dinner).overlaps
+    ).toBe(true);
+  });
+
+  it('clashes one minute inside the span end', () => {
+    expect(
+      windowClash({ after: at(19, 59), before: at(21) }, dinner).overlaps
+    ).toBe(true);
+  });
+
+  it('reports a partial overlap as usable', () => {
+    const { overlaps, covers } = windowClash(
+      { after: at(17), before: at(19) },
+      dinner
+    );
+    expect(overlaps).toBe(true);
+    expect(covers).toBe(false);
+  });
+
+  // Nothing in the window is bookable, which reads very differently to a
+  // person than "some of it is".
+  it('reports a window inside the span as covered', () => {
+    const { overlaps, covers } = windowClash(
+      { after: at(18, 30), before: at(19, 30) },
+      dinner
+    );
+    expect(overlaps).toBe(true);
+    expect(covers).toBe(true);
+  });
+
+  it('treats a window exactly equal to the span as covered', () => {
+    expect(
+      windowClash({ after: at(18, 20), before: at(20) }, dinner).covers
+    ).toBe(true);
+  });
+
+  it('reports a window wider than the span as not covered', () => {
+    const { overlaps, covers } = windowClash(
+      { after: at(17), before: at(21) },
+      dinner
+    );
+    expect(overlaps).toBe(true);
+    expect(covers).toBe(false);
   });
 });

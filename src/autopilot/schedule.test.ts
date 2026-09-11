@@ -47,6 +47,26 @@ describe('cadence()', () => {
     expect(c.intervalMs).toBe(TOMORROW_INTERVAL_MS);
   });
 
+  // The band's edges, which nothing pinned: it runs 07:00 to 21:59, and
+  // shrinking it to 09:00-19:59 left every existing assertion passing. These
+  // are the hours in which autopilot watches for the next day's booking window
+  // to open, so narrowing it silently stops pre-booking early and late.
+  it('watches from 07:00, the first hour of the band', () => {
+    expect(cadence({ now: at(7), tomorrow: true }).mode).toBe('approach');
+  });
+
+  it('does not watch at 06:59, just before the band', () => {
+    expect(cadence({ now: at(6, 59), tomorrow: true }).mode).toBe('idle');
+  });
+
+  it('still watches at 21:59, the last minute of the band', () => {
+    expect(cadence({ now: at(21, 59), tomorrow: true }).mode).toBe('approach');
+  });
+
+  it('stops watching at 22:00, just past the band', () => {
+    expect(cadence({ now: at(22), tomorrow: true }).mode).toBe('idle');
+  });
+
   it('does not keep a tomorrow watch warm overnight', () => {
     expect(cadence({ now: at(23), tomorrow: true }).mode).toBe('idle');
   });
