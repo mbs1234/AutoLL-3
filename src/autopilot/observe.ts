@@ -25,6 +25,7 @@ import kvdb from '@/kvdb';
 
 export const EVENTS_KEY = 'autoll3.autopilot.dropEvents';
 export const COVERAGE_KEY = 'autoll3.autopilot.coverage';
+export const WATCHED_KEY = 'autoll3.autopilot.watched-days';
 
 /** How much earlier the next available time must move to count as a drop. */
 export const EARLIER_THRESHOLD_MIN = 15;
@@ -58,6 +59,11 @@ export type Snapshot = Map<
     temporarilyDown?: boolean;
     /** Whether the standby queue is open, which is what "reopened" means. */
     standbyOpen?: boolean;
+    /**
+     * The attraction's declared refill spans, carried so drop detection can
+     * exclude them. See `detectDropEvents`.
+     */
+    refillWindows?: { start: ParkTime; end: ParkTime }[];
   }
 >;
 
@@ -80,6 +86,7 @@ export function snapshotOf(experiences: Experience[]): Snapshot {
       available: !!exp.flex.available,
       next: exp.flex.nextAvailableTime,
       standbyOpen: !!exp.standby?.available,
+      ...(exp.refillWindows ? { refillWindows: exp.refillWindows } : {}),
       ...(exp.standby?.unavailableReason === 'TEMPORARILY_DOWN'
         ? { temporarilyDown: true }
         : {}),
@@ -141,7 +148,55 @@ export function detectReopenings(
  *
  * Watched attractions are also the only ones the schedule is ever consulted
  * for, so nothing actionable is lost.
+ *
+ * `watchedIds` cannot be the whole bound, though, and the comment above quietly
+ * assumed it was. A refill window is only declared for an attraction somebody
+ * watches, so the very churn this describes -- six-second sampling across a
+ * multi-hour span -- happens inside the bound rather than outside it. Jungle
+ * Cruise and Haunted Mansion both declare 11:00-14:30, which is around 2,100
+ * polls of ordinary refill jitter, and two park days of it was enough to promote
+ * that into permanent midday burst bands: the API hammered and the action budget
+ * spent, for minutes that were never drops.
+ *
+ * So a flip inside a declared refill window is not learned from. That is what
+ * the window means: inventory returns across this span by design, and a span is
+ * not a series of drop instants. The cadence already polls it faster on its own
+ * account, so nothing is lost there either.
  */
+/**
+ * How old the previous availability snapshot may be and still be diffed against.
+ *
+ * Generous on purpose: it has to clear the slowest legitimate cadence plus the
+ * backoff a few failures introduce, or an ordinary rough patch would keep
+ * discarding usable baselines and learning would never accumulate. Anything
+ * beyond it is a gap rather than an interval.
+ */
+export const SNAPSHOT_STALE_MS = 5 * 60_000;
+
+/**
+ * Whether the previous snapshot is recent enough to diff against.
+ *
+ * Drop detection is a diff between consecutive polls, so it only means anything
+ * if the two are about one interval apart. The baseline used to be cleared only
+ * when autopilot was switched on, so any gap -- a booking-date switch, a phone
+ * that backgrounded and clamped its timers, a failure streak riding the backoff
+ * up to a minute -- left it stale, and the first poll afterwards reported every
+ * change accumulated across the whole gap as drops at that one minute. All of it
+ * then fed the learned times, which is how one interruption could invent a drop
+ * schedule.
+ */
+export function baselineUsable(takenAt: number | undefined, now: number) {
+  return takenAt !== undefined && now - takenAt <= SNAPSHOT_STALE_MS;
+}
+
+/** Whether this moment falls inside one of the attraction's refill spans. */
+export function inRefillWindow(
+  windows: { start: ParkTime; end: ParkTime }[] | undefined,
+  now: ParkTime
+): boolean {
+  return (windows ?? []).some(w => +now >= +w.start && +now <= +w.end);
+}
+
 export function detectDropEvents(
   prev: Snapshot,
   next: Snapshot,
@@ -153,6 +208,7 @@ export function detectDropEvents(
   const events: DropEvent[] = [];
   for (const [experienceId, n] of next) {
     if (watchedIds && !watchedIds.has(experienceId)) continue;
+    if (inRefillWindow(n.refillWindows, now)) continue;
     const p = prev.get(experienceId);
     if (!p) continue;
     if (!p.available && n.available) {
@@ -270,7 +326,8 @@ export function summarizeDrops(
   events: DropEvent[],
   coverage: Coverage,
   schedule: ReadonlyMap<string, ParkTime[]>,
-  coverageParkId?: string
+  coverageParkId?: string,
+  watchedByDay: WatchedByDay = {}
 ): DropSummary[] {
   const byExp = new Map<string, { minutes: number; date: string }[]>();
   for (const event of events) {
@@ -331,7 +388,12 @@ export function summarizeDrops(
       const coveredDates = Object.entries(coverage).filter(
         ([key, buckets]) =>
           (!coverageParkId || key.startsWith(`${coverageParkId}:`)) &&
-          (buckets.includes(bucket) || buckets.includes(bucket + 1))
+          (buckets.includes(bucket) || buckets.includes(bucket + 1)) &&
+          // Only a day this attraction was actually armed on counts. Otherwise
+          // the silence that `detectDropEvents` guarantees for an unwatched
+          // attraction was read as evidence that its built-in drop time is
+          // wrong.
+          (watchedByDay[key] ?? []).includes(experienceId)
       );
       return {
         time,
@@ -383,4 +445,58 @@ export function loadCoverage(): Coverage {
 
 export function saveCoverage(coverage: Coverage): void {
   kvdb.set<Coverage>(COVERAGE_KEY, coverage);
+}
+
+/**
+ * Which attractions were armed while the poller was running, per scoped park day.
+ *
+ * Coverage alone says the poller was *looking*; it says nothing about what it was
+ * looking at. `detectDropEvents` only records events for watched attractions, so
+ * an attraction that was never armed has no observations by construction -- and
+ * `summarizeDrops` was reading that silence as evidence against its built-in drop
+ * times, printing "never seen in N watched days" in red for a ride nobody was
+ * watching. The screen's own copy promises absence is only reported for times it
+ * was actually watching, so the display was contradicting itself.
+ *
+ * Stored under its own key, so existing coverage data needs no migration. A day
+ * with no entry here degrades to "not watched yet" for that attraction, which
+ * understates rather than misleads.
+ */
+export type WatchedByDay = Record<string, string[]>;
+
+export function loadWatchedDays(): WatchedByDay {
+  const stored = kvdb.get<WatchedByDay>(WATCHED_KEY);
+  if (!stored || typeof stored !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(stored).flatMap(([key, ids]) =>
+      Array.isArray(ids)
+        ? [[key, ids.filter(id => typeof id === 'string')]]
+        : []
+    )
+  );
+}
+
+export function saveWatchedDays(watched: WatchedByDay): void {
+  kvdb.set<WatchedByDay>(WATCHED_KEY, watched);
+}
+
+/** Add these ids to the day's record, pruned to the same span as coverage. */
+export function recordWatched(
+  watched: WatchedByDay,
+  key: string,
+  ids: Iterable<string>
+): { watched: WatchedByDay; changed: boolean } {
+  const existing = watched[key] ?? [];
+  const merged = [...new Set([...existing, ...ids])].sort();
+  if (merged.length === existing.length) return { watched, changed: false };
+  const next: WatchedByDay = { ...watched, [key]: merged };
+  const keep = new Set(
+    [...new Set(Object.keys(next).map(coverageDate))]
+      .sort()
+      .slice(-MAX_COVERAGE_DAYS)
+  );
+  for (const k of Object.keys(next)) {
+    if (!keep.has(coverageDate(k))) delete next[k];
+  }
+  return { watched: next, changed: true };
 }
