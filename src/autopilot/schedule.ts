@@ -208,6 +208,23 @@ export function cadence({
  * credentials generates noise and gets nowhere. Stopping surfaces the problem
  * instead of hiding it behind an endless retry.
  */
+/**
+ * How long one poll may take before it is abandoned as wedged.
+ *
+ * The loop is deliberately sequential: one tick at a time, the next scheduled
+ * only when the last returns. A promise that neither resolves nor rejects
+ * therefore parked it forever -- no failure counted, so no backoff, no failure
+ * ceiling, and a status display frozen on whatever mode it was in. The
+ * eight-second client timeout does not cover every path there: a captive portal
+ * or a dropped connection can leave a fetch hanging, and the dynamic import of
+ * the sensor-data module has no timeout at all.
+ *
+ * Twice the idle interval, so an unusually slow but working tick is never
+ * mistaken for a wedged one. Exceeding it counts as a failure, which is what
+ * lets the existing backoff and the failure ceiling do their job.
+ */
+export const TICK_DEADLINE_MS = 2 * IDLE_INTERVAL_MS;
+
 export const MAX_CONSECUTIVE_FAILURES = 8;
 export const BACKOFF_BASE_MS = 2000;
 export const BACKOFF_CAP_MS = 60_000;

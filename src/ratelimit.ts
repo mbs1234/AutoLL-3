@@ -1,5 +1,16 @@
+/**
+ * The `name` a thrown `RateLimitExceeded` reports, as a string.
+ *
+ * Exported separately because `RateLimitExceeded.name` is the *class's* name,
+ * which the production build minifies -- `class Kr extends Error` in the
+ * shipped bundle -- while the instance property below is a string literal and
+ * survives. Keying a message map on the class name therefore matched in jest
+ * and never in the bundle, which is the one build anyone uses.
+ */
+export const RATE_LIMIT_EXCEEDED = 'RateLimitExceeded';
+
 export class RateLimitExceeded extends Error {
-  readonly name = 'RateLimitExceeded';
+  readonly name = RATE_LIMIT_EXCEEDED;
 }
 
 /**
