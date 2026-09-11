@@ -42,14 +42,19 @@ import {
   Coverage,
   DropSummary,
   Snapshot,
+  WatchedByDay,
   appendDropEvents,
+  baselineUsable,
   coverageKey,
   detectDropEvents,
   detectReopenings,
   loadCoverage,
   loadDropEvents,
+  loadWatchedDays,
   recordCoverage,
+  recordWatched,
   saveCoverage,
+  saveWatchedDays,
   snapshotOf,
   summarizeDrops,
 } from '@/autopilot/observe';
@@ -347,6 +352,26 @@ export default function AutopilotProvider({
   // Drop learning: the previous tipboard state, plus what the poller has seen
   // and when it was looking. Events and coverage accumulate across visits.
   const snapshotRef = useRef<Snapshot>(new Map());
+  /**
+   * When the baseline in `snapshotRef` was taken, on the drift-corrected clock.
+   *
+   * Drop detection is a diff against the previous poll, which is only meaningful
+   * if the two polls are one interval apart. The baseline used to be cleared
+   * solely on enable, so any gap in polling -- a booking-date switch, a phone
+   * that backgrounded and clamped its timers, a failure streak riding the
+   * backoff up to a minute -- left it stale, and the first poll afterwards
+   * reported every change accumulated across the whole gap as drops at that one
+   * minute. All of it then fed the learned times.
+   */
+  const snapshotAtRef = useRef<number | undefined>(undefined);
+  /**
+   * Which attractions were armed while the poller ran, per scoped park day.
+   *
+   * Coverage says the poller was looking; this says what it was looking at.
+   * Without it, the silence `detectDropEvents` guarantees for an unwatched
+   * attraction was read as evidence against its built-in drop times.
+   */
+  const watchedDaysRef = useRef<WatchedByDay>(loadWatchedDays());
   const coverageRef = useRef<Coverage>(loadCoverage());
   const [dropSummaries, setDropSummaries] = useState<DropSummary[]>(() => {
     // Whatever was learned on earlier visits, before today's first poll.
@@ -609,24 +634,30 @@ export default function AutopilotProvider({
       // times would be filed under the wrong day.
       if (forToday) {
         const observedAt = syncedParkTime();
+        const observedMs = syncedNow();
         const obsDate = date;
         const next = snapshotOf(experiences);
         const watchedIds = new Set(
           activeTargets.map(target => target.experienceId)
         );
-        const reopened = detectReopenings(
-          snapshotRef.current,
-          next,
-          watchedIds
-        );
+        // A diff is only meaningful between two consecutive polls. Past the
+        // staleness bound the previous snapshot describes a different moment, so
+        // this poll becomes the new baseline and nothing is inferred from the
+        // gap -- rather than reporting everything that changed across it as a
+        // drop at this one minute.
+        const baseline = baselineUsable(snapshotAtRef.current, observedMs)
+          ? snapshotRef.current
+          : new Map();
+        const reopened = detectReopenings(baseline, next, watchedIds);
         const events = detectDropEvents(
-          snapshotRef.current,
+          baseline,
           next,
           observedAt,
           obsDate,
           watchedIds
         );
         snapshotRef.current = next;
+        snapshotAtRef.current = observedMs;
         for (const id of reopened) {
           const experience = experiences.find(exp => exp.id === id);
           if (!experience) continue;
@@ -645,12 +676,28 @@ export default function AutopilotProvider({
           coverageRef.current = cov.coverage;
           saveCoverage(cov.coverage);
         }
-        // Recompute only when something is new -- a drop, or a first look at a
-        // 5-minute window -- never on the ordinary tick.
-        if (events.length > 0 || cov.changed) {
+        const seen = recordWatched(
+          watchedDaysRef.current,
+          coverageKey(park.id, obsDate),
+          watchedIds
+        );
+        if (seen.changed) {
+          watchedDaysRef.current = seen.watched;
+          saveWatchedDays(seen.watched);
+        }
+        // Recompute only when something is new -- a drop, a first look at a
+        // 5-minute window, or a newly armed attraction -- never on the ordinary
+        // tick.
+        if (events.length > 0 || cov.changed || seen.changed) {
           const all = appendDropEvents(events);
           setDropSummaries(
-            summarizeDrops(all, coverageRef.current, park.dropSchedule, park.id)
+            summarizeDrops(
+              all,
+              coverageRef.current,
+              park.dropSchedule,
+              park.id,
+              watchedDaysRef.current
+            )
           );
         }
       }
@@ -1498,6 +1545,7 @@ export default function AutopilotProvider({
         // Fresh baseline: the first poll of a run sees everything as "new", and
         // that must read as a baseline rather than a drop.
         snapshotRef.current = new Map();
+        snapshotAtRef.current = undefined;
         passkeyUnlockedForRef.current = undefined;
         setPasskeyStatus('off');
       }

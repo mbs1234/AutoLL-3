@@ -10,8 +10,10 @@ import {
   EVENTS_KEY,
   MAX_COVERAGE_DAYS,
   MAX_EVENTS,
+  SNAPSHOT_STALE_MS,
   Snapshot,
   appendDropEvents,
+  baselineUsable,
   coverageBucket,
   coverageDate,
   coverageKey,
@@ -22,10 +24,12 @@ import {
   loadCoverage,
   loadDropEvents,
   recordCoverage,
+  recordWatched,
   saveCoverage,
   snapshotOf,
   summarizeDrops,
 } from './observe';
+import { BACKOFF_CAP_MS, IDLE_INTERVAL_MS } from './schedule';
 
 const at = (h: number, m = 0) => new ParkTime(h, m);
 const D1 = '2026-09-01';
@@ -33,7 +37,14 @@ const D2 = '2026-09-02';
 const D3 = '2026-09-03';
 
 const snap = (
-  entries: [string, { available: boolean; next?: ParkTime }][]
+  entries: [
+    string,
+    {
+      available: boolean;
+      next?: ParkTime;
+      refillWindows?: { start: ParkTime; end: ParkTime }[];
+    },
+  ][]
 ): Snapshot => new Map(entries);
 
 const exp = (id: string, flex?: Experience['flex']) =>
@@ -338,7 +349,10 @@ describe('summarizeDrops()', () => {
     const [s] = summarizeDrops(
       [ev('a', D1, '09:48'), ev('a', D2, '09:47')],
       coverage,
-      new Map([['a', [at(9, 47), at(15, 47)]]])
+      new Map([['a', [at(9, 47), at(15, 47)]]]),
+      undefined,
+      // Coverage says the poller was looking; this says what it was looking at.
+      { [D1]: ['a'], [D2]: ['a'], [D3]: ['a'] }
     );
     expect(s!.scheduled).toEqual([
       { time: at(9, 47), observedDays: 2, coveredDays: 2 },
@@ -369,7 +383,8 @@ describe('summarizeDrops()', () => {
         [coverageKey('mk', D2)]: [coverageBucket(at(9, 47))],
       },
       new Map([['a', [at(9, 47)]]]),
-      'mk'
+      'mk',
+      { [coverageKey('epcot', D1)]: ['a'], [coverageKey('mk', D2)]: ['a'] }
     );
     expect(s!.scheduled[0]).toMatchObject({ coveredDays: 1 });
   });
@@ -503,5 +518,180 @@ describe('recordCoverage() pruning', () => {
     expect(dates).toHaveLength(MAX_COVERAGE_DAYS);
     expect(dates.at(-1)).toBe(day(MAX_COVERAGE_DAYS + 5));
     expect(dates[0]).toBe(day(6));
+  });
+});
+
+/**
+ * Absence is only evidence where the attraction was actually armed.
+ *
+ * `detectDropEvents` records events for watched attractions only, so an
+ * attraction nobody armed has no observations by construction. Reading that
+ * silence as evidence printed "never seen in N watched days" in red against the
+ * built-in drop times of rides nobody was watching -- and the screen's own copy
+ * promises the opposite.
+ */
+describe('summarizeDrops() coverage attribution', () => {
+  const schedule = new Map([['a', [at(9, 47)]]]);
+  const coverage: Coverage = { [D1]: [coverageBucket(at(9, 47))] };
+
+  it('claims no coverage for an attraction that was never armed', () => {
+    const [s] = summarizeDrops([], coverage, schedule, undefined, {
+      [D1]: ['something-else'],
+    });
+    expect(s!.scheduled[0]).toMatchObject({
+      observedDays: 0,
+      coveredDays: 0,
+    });
+  });
+
+  it('counts a day the attraction was armed on', () => {
+    const [s] = summarizeDrops([], coverage, schedule, undefined, {
+      [D1]: ['a'],
+    });
+    expect(s!.scheduled[0]).toMatchObject({
+      observedDays: 0,
+      coveredDays: 1,
+    });
+  });
+
+  // Old stored coverage has no companion record, and guessing would reinstate
+  // the false claim. Degrading to "not watched yet" understates instead.
+  it('claims no coverage when nothing is recorded for the day', () => {
+    const [s] = summarizeDrops([], coverage, schedule);
+    expect(s!.scheduled[0]).toMatchObject({ coveredDays: 0 });
+  });
+});
+
+describe('recordWatched()', () => {
+  it('records what was armed for a park day', () => {
+    const { watched, changed } = recordWatched({}, D1, ['a', 'b']);
+    expect(changed).toBe(true);
+    expect(watched[D1]).toEqual(['a', 'b']);
+  });
+
+  it('merges without duplicating', () => {
+    const first = recordWatched({}, D1, ['a']);
+    const second = recordWatched(first.watched, D1, ['a', 'b']);
+    expect(second.watched[D1]).toEqual(['a', 'b']);
+  });
+
+  it('reports no change when nothing is new', () => {
+    const first = recordWatched({}, D1, ['a']);
+    expect(recordWatched(first.watched, D1, ['a']).changed).toBe(false);
+  });
+
+  it('keeps the same span of park days as coverage', () => {
+    let watched = {};
+    for (let i = 0; i < MAX_COVERAGE_DAYS + 5; ++i) {
+      const date = `2026-10-${String(i + 1).padStart(2, '0')}`;
+      watched = recordWatched(watched, coverageKey('mk', date), ['a']).watched;
+    }
+    expect(Object.keys(watched)).toHaveLength(MAX_COVERAGE_DAYS);
+  });
+});
+
+/**
+ * A refill window is a span where inventory returns by design, so the churn
+ * inside it is not a drop.
+ *
+ * `watchedIds` cannot bound this: a refill window is only ever declared for an
+ * attraction somebody watches, so the churn is inside the bound. Jungle Cruise
+ * and Haunted Mansion both declare 11:00-14:30, which at the approach cadence is
+ * around 2,100 polls, and two park days of that jitter was enough to promote it
+ * into permanent midday burst bands -- the API hammered and the action budget
+ * spent on minutes that were never drops.
+ */
+describe('detectDropEvents() inside a refill window', () => {
+  const window = [{ start: at(11), end: at(14, 30) }];
+
+  it('ignores an attraction appearing inside the window', () => {
+    const events = detectDropEvents(
+      snap([['a', { available: false, refillWindows: window }]]),
+      snap([['a', { available: true, next: at(15), refillWindows: window }]]),
+      at(12, 30),
+      D1
+    );
+    expect(events).toEqual([]);
+  });
+
+  it('ignores the next time jumping earlier inside the window', () => {
+    const events = detectDropEvents(
+      snap([['a', { available: true, next: at(19), refillWindows: window }]]),
+      snap([['a', { available: true, next: at(15), refillWindows: window }]]),
+      at(12, 30),
+      D1
+    );
+    expect(events).toEqual([]);
+  });
+
+  // A real scheduled drop outside the span is still learned from.
+  it('still records a flip before the window opens', () => {
+    const events = detectDropEvents(
+      snap([['a', { available: false, refillWindows: window }]]),
+      snap([['a', { available: true, next: at(15), refillWindows: window }]]),
+      at(9, 47),
+      D1
+    );
+    expect(events).toHaveLength(1);
+  });
+
+  it('still records a flip after the window closes', () => {
+    const events = detectDropEvents(
+      snap([['a', { available: false, refillWindows: window }]]),
+      snap([['a', { available: true, next: at(18), refillWindows: window }]]),
+      at(15, 47),
+      D1
+    );
+    expect(events).toHaveLength(1);
+  });
+
+  // Both bounds inclusive, matching how `cadence` treats the same span.
+  it('treats the window edges as inside it', () => {
+    for (const edge of [at(11), at(14, 30)]) {
+      expect(
+        detectDropEvents(
+          snap([['a', { available: false, refillWindows: window }]]),
+          snap([['a', { available: true, refillWindows: window }]]),
+          edge,
+          D1
+        )
+      ).toEqual([]);
+    }
+  });
+
+  it('leaves an attraction with no declared window alone', () => {
+    const events = detectDropEvents(
+      snap([['a', { available: false }]]),
+      snap([['a', { available: true, next: at(15) }]]),
+      at(12, 30),
+      D1
+    );
+    expect(events).toHaveLength(1);
+  });
+});
+
+describe('baselineUsable()', () => {
+  it('refuses a baseline that was never taken', () => {
+    expect(baselineUsable(undefined, 1_000_000)).toBe(false);
+  });
+
+  it('accepts one from the last poll', () => {
+    expect(baselineUsable(1_000_000, 1_000_000 + 45_000)).toBe(true);
+  });
+
+  it('accepts one at the staleness bound', () => {
+    expect(baselineUsable(0, SNAPSHOT_STALE_MS)).toBe(true);
+  });
+
+  // The gap case: a backgrounded phone, a booking-date switch, a failure streak.
+  it('refuses one from beyond the bound', () => {
+    expect(baselineUsable(0, SNAPSHOT_STALE_MS + 1)).toBe(false);
+  });
+
+  // Wide enough that ordinary backoff never discards a usable baseline.
+  it('clears the slowest cadence with room for backoff', () => {
+    expect(SNAPSHOT_STALE_MS).toBeGreaterThan(
+      IDLE_INTERVAL_MS + BACKOFF_CAP_MS
+    );
   });
 });
