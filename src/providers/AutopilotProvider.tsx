@@ -126,6 +126,14 @@ import { now as syncedNow } from '@/timesync';
 export const PLANS_EVERY_N_TICKS = 10;
 
 /**
+ * How often to check whether the park day has turned under a mounted provider.
+ *
+ * A minute is far finer than the once-a-day event it watches for, and the
+ * callback is a string comparison that almost always changes nothing.
+ */
+export const PARK_DAY_CHECK_MS = 60_000;
+
+/**
  * How long a rejected action waits before it may be tried again.
  *
  * Only `repeatMoves` retries at all, and the wait is what makes retrying safe
@@ -383,6 +391,11 @@ export default function AutopilotProvider({
     saveWatchList(targets, watchListKey);
   }, [targets, watchListKey]);
   useEffect(() => {
+    // Guarded like `persistBudget`, for the same reason. `setDaily` stamps the
+    // date at write time, so a tab that crossed 4am republished yesterday's
+    // entries under today -- and a reload then showed last night's bookings as
+    // this morning's. The rollover effect below is what clears them properly.
+    if (parkDate() !== budgetDateRef.current) return;
     saveBookingLog(bookingLog);
   }, [bookingLog]);
   useEffect(() => {
@@ -394,6 +407,50 @@ export default function AutopilotProvider({
   useEffect(() => {
     applyBudget();
   }, [settings.maxActionsPerDay, applyBudget]);
+
+  /**
+   * Roll this provider onto a new park day without a remount.
+   *
+   * Everything day-scoped here was read once at mount, and this provider does
+   * not remount: a phone tab that backgrounds overnight was still holding
+   * yesterday at 7am. `persistBudget` and the log write above refuse to write
+   * in that state, which stops the staleness being recorded as fact but leaves
+   * the tab acting on it -- the day's spend, its locks and its activity log all
+   * belonged to yesterday, so two instances could each spend a full allowance
+   * and neither would count.
+   *
+   * The run is stopped rather than carried across. Yesterday's assumptions do
+   * not hold on a new park day, and `enabled` is deliberately not persisted
+   * anywhere else either, so a deliberate tap to start the new day is the
+   * consistent thing to require. Nobody is booking Lightning Lanes at 4am;
+   * booking windows open at 7.
+   */
+  useEffect(() => {
+    const follow = () => {
+      const today = parkDate();
+      if (today === budgetDateRef.current) return;
+      budgetDateRef.current = today;
+      const fresh = loadBudget();
+      budgetTodayRef.current = fresh;
+      grantedRef.current = fresh.granted;
+      budgetSkipRef.current = false;
+      ledgerRef.current.startNewDay(fresh.spent);
+      setBookedCount(ledgerRef.current.bookedCount);
+      setBookingsRemaining(ledgerRef.current.remaining);
+      setBookingLog(loadBookingLog());
+      setSkipCounts({});
+      setLastSkip(undefined);
+      setEnabledState(false);
+    };
+    const timer = setInterval(follow, PARK_DAY_CHECK_MS);
+    document.addEventListener('visibilitychange', follow);
+    window.addEventListener('focus', follow);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', follow);
+      window.removeEventListener('focus', follow);
+    };
+  }, []);
 
   // Unmount is the one path that bypasses `setEnabled(false)`, and a wake lock
   // outliving the screen that requested it would keep the phone awake with

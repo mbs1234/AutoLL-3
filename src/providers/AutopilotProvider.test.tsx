@@ -45,6 +45,7 @@ import { DateTime, ParkTime } from '@/datetime';
 import { TODAY, TOMORROW, setTime } from '@/testing';
 
 import AutopilotProvider, {
+  PARK_DAY_CHECK_MS,
   PLANS_EVERY_N_TICKS,
   RETRY_AFTER_MS,
 } from './AutopilotProvider';
@@ -2594,5 +2595,73 @@ describe('AutopilotProvider shared action locks', () => {
     });
     await enable();
     expect(loadLocks()).toEqual([]);
+  });
+});
+
+/**
+ * Crossing 4am under a mounted provider.
+ *
+ * Everything day-scoped here was read once at mount, and this provider does not
+ * remount: a phone tab that backgrounds overnight was still holding yesterday
+ * at 7am. `persistBudget` and the log write refuse to write in that state, which
+ * kept the staleness out of storage but left the tab acting on it -- yesterday's
+ * spend, yesterday's locks, yesterday's activity log.
+ */
+describe('AutopilotProvider park-day rollover', () => {
+  // Each of these leaves the clock in the next park day, so it has to be put
+  // back or the following test starts on the wrong day.
+  beforeEach(() => setTime('09:00'));
+
+  /** Move the clock into the next park day and let the check fire. */
+  async function crossRollover() {
+    jest.setSystemTime(new Date(`${TOMORROW}T07:00-0400`));
+    await act(async () => {
+      jest.advanceTimersByTime(PARK_DAY_CHECK_MS + 1000);
+    });
+  }
+
+  it('stops the run rather than carrying it into the new day', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    setupBooking();
+    await enable();
+    expect(screen.getByTestId('mode')).not.toHaveTextContent('off');
+    await crossRollover();
+    // `enabled` false puts the poller back to 'off'.
+    expect(screen.getByTestId('mode')).toHaveTextContent('off');
+  });
+
+  // The allowance genuinely renews on a new park day, unlike an off/on toggle.
+  it('renews the action budget', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book } = setupBooking();
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    const spentRemaining = Number(screen.getByTestId('remaining').textContent);
+    await crossRollover();
+    expect(Number(screen.getByTestId('remaining').textContent)).toBeGreaterThan(
+      spentRemaining
+    );
+  });
+
+  // A lock exists to stop a second action on an attraction *today*.
+  it('clears the day-scoped action locks', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book } = setupBooking();
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(loadLocks()).toEqual([`book:${BZ}`]);
+    await crossRollover();
+    // Day-scoped storage reads empty for the new day, and the ledger agrees.
+    expect(loadLocks()).toEqual([]);
+  });
+
+  it('clears the activity log rather than restamping it under the new day', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book } = setupBooking();
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(loadBookingLog().length).toBeGreaterThan(0);
+    await crossRollover();
+    expect(loadBookingLog()).toEqual([]);
   });
 });
