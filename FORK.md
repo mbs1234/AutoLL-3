@@ -29,8 +29,10 @@ Three separate gaps, worth understanding before touching the build:
 
 ## How this fork resolves them
 
-`.github/workflows/deploy.yml` builds `main`, overlays the static pages
-from `goofy`, rewrites upstream URLs, and deploys to Pages:
+`.github/workflows/deploy.yml` builds `main`, overlays the static pages from
+`mbs1234/AutoLL-2@goofy` and the runtime module from `mbs1234/AutoLL-2@gh-pages`,
+rewrites upstream URLs, and deploys to Pages. Both are separate public
+repositories, which is why the default `GITHUB_TOKEN` can read them:
 
 ```
 main (source) ──► npm run build ──► dist/
@@ -129,35 +131,28 @@ token).
 
 ## Testing
 
-Upstream ships a **red test suite**. Verified against a clean worktree of
-upstream `mickey` (f1f022a): 8 suites / 11 tests fail there, and the same 8
-suites failed here. `src/api/ll.test.ts` additionally cannot load upstream at
-all — its Disneyland block imported the unpublished `./diu` — so its stale
-failures were invisible until this fork's stub made the file runnable. That
-block went with Disneyland support; the Walt Disney World half keeps its
-genuinely stale fixtures, e.g. `experiences()` reads
-`data.availableExperiences`, which the test's mocked response no longer
-provides.
+Upstream shipped a **red test suite**, and this section used to describe living
+with it: eight suites excluded from CI, four of them genuinely failing, and a
+`npm test` that was expected to report 27 failures. None of that is true any
+more. The excluded suites were either repaired or removed outright with the
+Disneyland and virtual-queue code, `jest.ci.config.js` had emptied out to the
+point where it excluded nothing, and both commands ran the same tests. It has
+been deleted; `test:ci` is now `jest --ci` over everything.
+
+That mattered more than bookkeeping. A maintainer hitting a red suite on a park
+morning would have read this page, found that `npm test` legitimately fails and
+that the suite in question was one of the known-broken ones, and dispatched with
+`skip_checks: true` over a real regression.
 
 | Command | Scope | Status |
 | --- | --- | --- |
-| `npm run test:ci` | excludes upstream's broken suites | **green** (80 suites / 938 tests) |
-| `npm test` | everything | 4 suites / 27 tests fail (pre-existing), 1002 total |
+| `npm run test:ci` | everything, CI reporter | **green** (107 suites / 1241 tests) |
+| `npm test` | the same tests | **green** |
 | `npm run lint` | | green |
 | `npm run typecheck` | | green |
+| `npm run build` | | green |
 
-Four of the eight exclusions are now stale. As of the counts above, only
-`api/ll.test.ts`, `ll/ModifyButton.test.tsx`, `screens/BookExperience.test.tsx`
-and `screens/YourDay.test.tsx` still fail; `BookExperience/OfferDetails`,
-`BookingDetails`, `Home` and `Home/MultiPassList` all pass in the full run and
-could be gated on. That includes the two named below as the reason the
-Autopilot UI carries its own tests, so un-excluding them would be a real gain
-rather than bookkeeping. Left alone here deliberately — widening what gates a
-publish is its own change, made on purpose rather than in passing.
-
-CI gates on `test:ci` so it stays a real signal; the full suite also runs, as
-`continue-on-error`, to keep the pre-existing count visible. The exclusion list
-lives in `jest.ci.config.js` — delete an entry if that suite gets repaired.
+There is one suite and one number. If it is red, something is broken.
 
 **Seeing a screen.** The bundle only runs injected into a logged-in Disney
 page, so until 2026-09-07 a screen could be seen in a park or in a jest render
@@ -176,15 +171,14 @@ named, or stay wired for it to hold.
 `vite build` is why it is needed: esbuild strips types without checking them,
 so `tsc --noEmit` is the only typechecker either repo has, and until this was
 added a type error reached the phone. `npm run lint` deliberately does not
-gate — most red checks here have been formatting alone, the bundle is fine in
-every one of them, and with no local toolchain a prettier nit would otherwise
-cost a push and a round trip just to publish.
+gate — most red checks here have been formatting alone, and the bundle is fine
+in every one of them. That reasoning was stronger when there was no local
+toolchain and a prettier nit cost a push and a round trip; `npm run lint:fix`
+now runs on the development machine.
 
 Dispatching `deploy.yml` with `skip_checks: true` publishes without the gate.
-It exists for a park morning with a red unrelated test and nothing else.
-Note two of the excluded suites (`Home.test.tsx`, `Home/MultiPassList.test.tsx`)
-cover screens this fork modified, so the Autopilot UI carries its own tests
-(`screens/Autopilot.test.tsx`) rather than relying on the stale ones.
+It exists for a park morning with a red unrelated test and nothing else — and
+now that no suite is expected to be red, reach for it correspondingly less.
 
 ## Scope
 
@@ -256,17 +250,26 @@ Design rules that hold throughout, and that a future change should keep:
 - **Never commit an offer without re-checking its real time.** The tipboard
   time you matched on and the offer Disney returns can differ; booking, moving
   and swapping all re-verify before committing, and moving additionally refuses
-  ever to trade down.
+  ever to trade down. What counts as "the offer" is everything Disney returned,
+  not just the time: the party it covers is re-checked against `requireWholeParty`
+  here too, and a move measures its improvement against the reservation named in
+  the offer's own itinerary rather than the plans snapshot the tick began with.
 - **Mark attempts before the request goes out.** A timed-out request may have
   succeeded server-side; retrying is the dangerous option.
 - **Only a literal `true` arms anything** when reading persisted flags. The one
   exception is `avoidOverlaps`, which defaults on and so needs a literal
   `false` -- the asymmetry follows the cost of guessing wrong.
 - **Resort data is checked, not assumed.** `src/api/resortData.test.ts` scans
-  each entry against the `// <Park> - <Type>` section it is declared under, and
-  pins the facility ids that went stale in 2026. It lives outside
-  `src/api/data/` on purpose: `loadResort` dynamic-imports `./data/${id}.ts`
-  with a variable, so Rollup bundles every `.ts` in that directory.
+  each entry against both halves of the `// <Park> - <Type>` section it is
+  declared under, pins the facility ids that went stale in 2026, requires every
+  Tier 1 entry to carry a `priority`, and requires one ride served under several
+  facility ids to rank the same under each. The last two exist because
+  `comparePriority` reads a missing priority as Infinity: Millennium Falcon
+  shipped without one and was therefore offered up as the preferred swap victim,
+  and Soarin's three film ids disagreed, so the same queue ranked a band lower on
+  two days out of three. It lives outside `src/api/data/` on purpose:
+  `loadResort` dynamic-imports `./data/${id}.ts` with a variable, so Rollup
+  bundles every `.ts` in that directory.
 - **On/off never persists;** per-attraction arming does. That asymmetry is
   what makes persisted arming safe.
 

@@ -21,19 +21,43 @@ import { ResortData } from './resort';
  * else notices, since the tipboard corrects `park` on the way through but
  * `Itinerary.experienceData()` does not.
  */
-function sectionsByExperienceId(file: string): Map<string, string> {
+function sectionsByExperienceId(
+  file: string
+): Map<string, { park: string; kind: string }> {
   const src = readFileSync(join(__dirname, 'data', file), 'utf8');
-  const sections = new Map<string, string>();
+  const sections = new Map<string, { park: string; kind: string }>();
   let park = '';
+  let kind = '';
   for (const line of src.split('\n')) {
-    const section = /^ {2}\/\/ (.+?) - \w+$/.exec(line);
-    if (section?.[1]) park = section[1];
-    else if (/^ {2}\/\/ Ignored$/.test(line)) park = '';
+    const section = /^ {2}\/\/ (.+?) - (\w+)$/.exec(line);
+    if (section?.[1] && section[2]) {
+      park = section[1];
+      kind = section[2];
+    } else if (/^ {2}\/\/ Ignored$/.test(line)) {
+      park = '';
+      kind = '';
+    }
     const entry = /^ {2}(\d+): \{$/.exec(line);
-    if (entry?.[1] && park) sections.set(entry[1], park);
+    if (entry?.[1] && park) sections.set(entry[1], { park, kind });
   }
   return sections;
 }
+
+/**
+ * The `type` each `// <Park> - <Type>` heading promises of the entries under it.
+ *
+ * The heading's second word was captured and thrown away, so only the park half
+ * was ever checked -- and FORK.md described this test as scanning entries against
+ * the whole heading. One entry disagreed: Little Mermaid - A Musical Adventure is
+ * a stage show, correctly `type: 'E'`, filed under Hollywood Studios'
+ * Attractions. It has been moved rather than exempted.
+ */
+const SECTION_TYPE: Record<string, string> = {
+  Attractions: 'A',
+  Entertainment: 'E',
+  Characters: 'C',
+  Holiday: 'H',
+};
 
 describe.each([['wdw.ts', wdw as unknown as ResortData]])(
   '%s',
@@ -91,12 +115,23 @@ describe.each([['wdw.ts', wdw as unknown as ResortData]])(
     });
 
     it('puts every experience in a land belonging to its section park', () => {
-      const wrong = [...sections].flatMap(([id, park]) => {
+      const wrong = [...sections].flatMap(([id, { park }]) => {
         const exp = data.experiences[id];
         if (!exp || exp.land.park.name === park) return [];
         return [
           `${id} ${exp.name}: ${park} section, ${exp.land.park.name} land`,
         ];
+      });
+      expect(wrong).toEqual([]);
+    });
+
+    // The other half of the heading, which was captured and discarded.
+    it('gives every experience the type its section heading promises', () => {
+      const wrong = [...sections].flatMap(([id, { kind }]) => {
+        const exp = data.experiences[id];
+        const expected = SECTION_TYPE[kind];
+        if (!exp || !expected || exp.type === expected) return [];
+        return [`${id} ${exp.name}: ${kind} section, type '${exp.type}'`];
       });
       expect(wrong).toEqual([]);
     });
