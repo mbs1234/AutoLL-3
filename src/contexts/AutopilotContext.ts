@@ -26,6 +26,15 @@ export interface BookingLogEntry {
   replacedName?: string;
   /** Error message, skip reason, or for a dry run the action rehearsed. */
   detail?: string;
+  /**
+   * How many consecutive identical failures this row stands for.
+   *
+   * Absent or 1 means the one occurrence. A refusal regime produces the same
+   * failure on every tick, and the log holds twenty rows -- so without this the
+   * day's real bookings were pushed out by copies of one error within a minute
+   * of bursting.
+   */
+  repeated?: number;
   /** Plain-language explanation of why a completed action was acceptable. */
   reason?: string;
 }

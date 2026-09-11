@@ -108,6 +108,67 @@ describe('booking log persistence', () => {
   });
 });
 
+describe('booking log merging', () => {
+  // NextLL nests an AutopilotProvider inside the app's own, so there are
+  // routinely two instances holding two copies of the day's log. The write used
+  // to be wholesale from state loaded at mount, so whichever screen wrote last
+  // erased the other's record of a real booking.
+  it("keeps an entry this writer's copy never had", () => {
+    saveBookingLog([{ name: 'From NextLL', at: at(10, 5), status: 'booked' }]);
+    saveBookingLog([{ name: 'From the app', at: at(10), status: 'booked' }]);
+    expect(
+      loadBookingLog()
+        .map(e => e.name)
+        .sort()
+    ).toEqual(['From NextLL', 'From the app']);
+  });
+
+  it('does not duplicate an entry both copies hold', () => {
+    const shared = { name: 'Shared', at: at(10), status: 'booked' as const };
+    saveBookingLog([shared]);
+    saveBookingLog([shared]);
+    expect(loadBookingLog()).toEqual([shared]);
+  });
+
+  it("preserves the caller's order and appends the rest", () => {
+    saveBookingLog([{ name: 'Other', at: at(9), status: 'booked' }]);
+    saveBookingLog([
+      { name: 'Mine newest', at: at(11), status: 'booked' },
+      { name: 'Mine older', at: at(10), status: 'booked' },
+    ]);
+    expect(loadBookingLog().map(e => e.name)).toEqual([
+      'Mine newest',
+      'Mine older',
+      'Other',
+    ]);
+  });
+
+  it('still caps the stored log', () => {
+    saveBookingLog(
+      Array.from({ length: LOG_LIMIT + 10 }, (_, i) => ({
+        name: `Ride ${i}`,
+        at: at(9, i),
+        status: 'booked' as const,
+      }))
+    );
+    expect(loadBookingLog()).toHaveLength(LOG_LIMIT);
+  });
+
+  it('round-trips a repeat count', () => {
+    saveBookingLog([
+      { name: 'A', at: at(10), status: 'failed', detail: 'boom', repeated: 7 },
+    ]);
+    expect(loadBookingLog()[0]?.repeated).toBe(7);
+  });
+
+  it('ignores a repeat count of one or less', () => {
+    saveBookingLog([
+      { name: 'A', at: at(10), status: 'failed', detail: 'boom', repeated: 1 },
+    ]);
+    expect(loadBookingLog()[0]?.repeated).toBeUndefined();
+  });
+});
+
 describe('settings persistence', () => {
   it('defaults to booking for whoever is eligible', () => {
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);

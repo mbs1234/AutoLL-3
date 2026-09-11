@@ -22,6 +22,7 @@ interface StoredLogEntry {
   fromTime?: string;
   replacedName?: string;
   detail?: string;
+  repeated?: number;
 }
 
 /** `ParkTime.from` throws on garbage; treat an unparseable time as absent. */
@@ -72,15 +73,47 @@ export function loadBookingLog(): BookingLogEntry[] {
           ? { replacedName: e.replacedName }
           : {}),
         ...(typeof e.detail === 'string' ? { detail: e.detail } : {}),
+        ...(typeof e.repeated === 'number' && e.repeated > 1
+          ? { repeated: Math.floor(e.repeated) }
+          : {}),
       },
     ];
   });
 }
 
+/**
+ * A key that identifies one logged event, for merging two instances' copies.
+ *
+ * Entries carry no id. Name, time to the second, status and the two times are
+ * specific enough in practice: two distinct events for the same attraction in
+ * the same second with the same outcome would be one event reported twice.
+ */
+function logKey(e: BookingLogEntry): string {
+  return [e.name, String(e.at), e.status, e.returnTime, e.fromTime].join('|');
+}
+
+/**
+ * Today's activity, merged with whatever is already stored.
+ *
+ * It used to be written wholesale from state loaded at mount, and there are
+ * routinely two instances -- NextLL nests an AutopilotProvider inside the app's
+ * own. So the outer provider's next write erased every booking the nested one
+ * had recorded, and vice versa: the day's record of what autopilot actually did
+ * depended on which screen wrote last.
+ *
+ * The caller's order is preserved -- it owns it, and the provider builds the
+ * list newest first. Entries only this writer has not seen are appended rather
+ * than interleaved, so a merge cannot reorder what the caller already arranged.
+ */
 export function saveBookingLog(entries: BookingLogEntry[]): void {
+  const seen = new Set(entries.map(logKey));
+  const merged = [
+    ...entries,
+    ...loadBookingLog().filter(e => !seen.has(logKey(e))),
+  ];
   kvdb.setDaily<StoredLogEntry[]>(
     LOG_KEY,
-    entries.slice(0, LOG_LIMIT).map(e => ({
+    merged.slice(0, LOG_LIMIT).map(e => ({
       name: e.name,
       at: String(e.at),
       status: e.status,
@@ -88,6 +121,7 @@ export function saveBookingLog(entries: BookingLogEntry[]): void {
       ...(e.fromTime ? { fromTime: String(e.fromTime) } : {}),
       ...(e.replacedName ? { replacedName: e.replacedName } : {}),
       ...(e.detail ? { detail: e.detail } : {}),
+      ...(e.repeated && e.repeated > 1 ? { repeated: e.repeated } : {}),
     }))
   );
 }

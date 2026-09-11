@@ -32,6 +32,7 @@ import {
   heldMPToday,
   shouldSwap,
 } from '@/autopilot/autoswap';
+import { addLogEntry, describeFailure } from '@/autopilot/bookinglog';
 import {
   activeScheduledDropTimes,
   learnedDropTimes,
@@ -546,14 +547,17 @@ export default function AutopilotProvider({
                     returnTime: outcome.returnTime,
                   }
                 : outcome.status === 'failed'
-                  ? { status: 'failed' as const, detail: outcome.error }
+                  ? {
+                      status: 'failed' as const,
+                      detail: describeFailure(outcome),
+                    }
                   : {
                       status: 'skipped' as const,
                       detail: outcome.reason,
                     }),
       };
-      setBookingLog(prev => [entry, ...prev].slice(0, 20));
-      setSessionLog(prev => [entry, ...prev].slice(0, 20));
+      setBookingLog(prev => addLogEntry(prev, entry));
+      setSessionLog(prev => addLogEntry(prev, entry));
     },
     []
   );
