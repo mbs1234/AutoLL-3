@@ -1,4 +1,4 @@
-import { use } from 'react';
+import { use, useState } from 'react';
 
 import { Experience } from '@/api/ll';
 import { describeMode } from '@/autopilot/describe';
@@ -12,6 +12,55 @@ import { ParkTime } from '@/datetime';
 const DOT = <span aria-hidden> · </span>;
 
 const bound = (time?: ParkTime) => (time ? String(time).slice(0, 5) : '');
+
+/**
+ * One end of the return-time window, committed when it is settled rather than
+ * on the way there.
+ *
+ * An empty value is ambiguous: it means "no bound", and it is also the state
+ * the field passes through when a bound is cleared to type a different one.
+ * Writing it straight through treated the second as the first, and the watch
+ * list it writes to is the one the running poller reads -- so backspacing over
+ * 15:00 to type 14:00 handed autopilot an unbounded window for as long as the
+ * field was empty, and a drop landing in that gap was booked at a time the
+ * user had explicitly excluded.
+ *
+ * A complete time still commits immediately; there is nothing unsafe about it
+ * and the responsiveness is worth keeping. Only the empty state waits, and it
+ * waits for blur -- the point at which "no bound" is what the user actually
+ * meant. Left mid-edit, the previous bound stands, which is the safe way to be
+ * wrong.
+ */
+function BoundInput({
+  label,
+  value,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  onCommit: (value: string) => void;
+}) {
+  const [cleared, setCleared] = useState(false);
+  return (
+    <input
+      type="time"
+      aria-label={label}
+      className="rounded-sm border border-gray-300 px-1 py-0.5"
+      value={cleared ? '' : value}
+      onChange={e => {
+        const next = e.target.value;
+        if (next === '') return setCleared(true);
+        setCleared(false);
+        onCommit(next);
+      }}
+      onBlur={() => {
+        if (!cleared) return;
+        setCleared(false);
+        onCommit('');
+      }}
+    />
+  );
+}
 
 /**
  * One watched attraction: a line that says what will happen, and the controls
@@ -157,20 +206,16 @@ export default function TargetCard({
             empty means unbounded on that side. */}
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
           <span className="text-gray-600">Return between</span>
-          <input
-            type="time"
-            aria-label={`Earliest return time for ${name}`}
-            className="rounded-sm border border-gray-300 px-1 py-0.5"
+          <BoundInput
+            label={`Earliest return time for ${name}`}
             value={bound(t.after)}
-            onChange={e => setTargetWindow(id, 'after', e.target.value)}
+            onCommit={value => setTargetWindow(id, 'after', value)}
           />
           <span className="text-gray-600">and</span>
-          <input
-            type="time"
-            aria-label={`Latest return time for ${name}`}
-            className="rounded-sm border border-gray-300 px-1 py-0.5"
+          <BoundInput
+            label={`Latest return time for ${name}`}
             value={bound(t.before)}
-            onChange={e => setTargetWindow(id, 'before', e.target.value)}
+            onCommit={value => setTargetWindow(id, 'before', value)}
           />
         </div>
         <label className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-600">

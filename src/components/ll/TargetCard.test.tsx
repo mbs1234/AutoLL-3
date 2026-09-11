@@ -139,3 +139,59 @@ describe('TargetCard', () => {
     expect(onRemove).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * The window is written into the watch list the running poller reads, so an
+ * in-progress edit must not reach it. Clearing a bound to retype it used to
+ * remove the bound immediately, and a drop landing in that gap was booked at a
+ * time the user had explicitly excluded.
+ */
+describe('TargetCard return-time window editing', () => {
+  const earliest = () =>
+    screen.getByLabelText(`Earliest return time for ${NAME}`);
+
+  it('commits a complete time straight away', () => {
+    setup({ after: new ParkTime(15) });
+    fireEvent.change(earliest(), { target: { value: '14:00' } });
+    expect(handlers.setTargetWindow).toHaveBeenCalledWith(BZ, 'after', '14:00');
+  });
+
+  it('does not clear the bound while the field is empty mid-edit', () => {
+    setup({ after: new ParkTime(15) });
+    fireEvent.change(earliest(), { target: { value: '' } });
+    expect(handlers.setTargetWindow).not.toHaveBeenCalled();
+    // The field shows empty so the user can type, while the target keeps 15:00.
+    expect(earliest()).toHaveValue('');
+  });
+
+  it('commits the replacement typed after clearing, and never the gap', () => {
+    setup({ after: new ParkTime(15) });
+    fireEvent.change(earliest(), { target: { value: '' } });
+    fireEvent.change(earliest(), { target: { value: '14:00' } });
+    expect(handlers.setTargetWindow).toHaveBeenCalledTimes(1);
+    expect(handlers.setTargetWindow).toHaveBeenCalledWith(BZ, 'after', '14:00');
+  });
+
+  // Clearing a bound and leaving is still how you say "no bound".
+  it('clears the bound once the emptied field is left', () => {
+    setup({ after: new ParkTime(15) });
+    fireEvent.change(earliest(), { target: { value: '' } });
+    fireEvent.blur(earliest());
+    expect(handlers.setTargetWindow).toHaveBeenCalledWith(BZ, 'after', '');
+  });
+
+  it('does not commit on blur when nothing was cleared', () => {
+    setup({ after: new ParkTime(15) });
+    fireEvent.blur(earliest());
+    expect(handlers.setTargetWindow).not.toHaveBeenCalled();
+  });
+
+  it('treats the latest bound the same way', () => {
+    setup({ before: new ParkTime(19) });
+    const latest = screen.getByLabelText(`Latest return time for ${NAME}`);
+    fireEvent.change(latest, { target: { value: '' } });
+    expect(handlers.setTargetWindow).not.toHaveBeenCalled();
+    fireEvent.blur(latest);
+    expect(handlers.setTargetWindow).toHaveBeenCalledWith(BZ, 'before', '');
+  });
+});
