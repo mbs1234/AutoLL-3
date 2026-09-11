@@ -121,6 +121,12 @@ export default function Activity() {
                   <span className="text-red-700">failed</span> on{' '}
                   <b>{entry.name}</b>
                   {entry.detail ? `: ${entry.detail}` : ''}
+                  {entry.repeated && entry.repeated > 1 ? (
+                    <span className="text-gray-600">
+                      {' '}
+                      &times;{entry.repeated}
+                    </span>
+                  ) : null}
                 </>
               )}
               {entry.reason && (
