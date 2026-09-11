@@ -123,10 +123,33 @@ export class AuthStore {
     this.reauthNotified = false;
     if (this.getPersistence() === 'session') {
       this.sessionData = data;
-      kvdb.delete(AUTH_KEY);
-    } else {
-      this.sessionData = undefined;
+      // Removing the durable copy is a privacy preference, not a condition of
+      // holding the token, so a storage failure here must not throw away the
+      // session that just authenticated. `readPersistent` treats a read
+      // exception as "no data" for the same reason.
+      try {
+        kvdb.delete(AUTH_KEY);
+      } catch (error) {
+        console.error(error);
+      }
+      return;
+    }
+    try {
       kvdb.set(AUTH_KEY, data);
+      // Written, so the persistent copy is authoritative and the in-memory one
+      // would only shadow it -- including shadowing a newer token another tab
+      // wrote.
+      this.sessionData = undefined;
+    } catch (error) {
+      // The durable copy is the only copy in this mode, so discarding the token
+      // because the write failed left a successful sign-in behaving exactly
+      // like one that never happened. This bundle runs injected into a Disney
+      // page and shares that origin's storage quota with Disney's own app, so a
+      // quota-exceeded write is a live possibility rather than a theoretical
+      // one. Held in memory instead: the session works, and it stops working
+      // when the tab closes rather than immediately.
+      this.sessionData = data;
+      console.error(error);
     }
   }
 

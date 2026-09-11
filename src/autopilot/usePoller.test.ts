@@ -6,6 +6,7 @@ import {
   BACKOFF_CAP_MS,
   IDLE_INTERVAL_MS,
   MAX_CONSECUTIVE_FAILURES,
+  TICK_DEADLINE_MS,
 } from './schedule';
 import usePoller from './usePoller';
 
@@ -222,5 +223,99 @@ describe('usePoller cancellation', () => {
       await Promise.resolve();
     });
     expect(seen).toBe(false);
+  });
+});
+
+/**
+ * A tick that never settles.
+ *
+ * The loop is deliberately sequential: one tick at a time, the next scheduled
+ * only when the last returns. So a promise that neither resolves nor rejects
+ * parked it permanently -- no failure counted, no backoff, no failure ceiling,
+ * and a status frozen on whatever mode it was in. The eight-second client
+ * timeout does not cover every path: a captive portal can leave a fetch
+ * hanging, and the dynamic import of the sensor-data module has no timeout.
+ */
+describe('usePoller deadline', () => {
+  /** A tick that hangs forever, and a way to see whether it may still act. */
+  function hangingTick() {
+    const seen: (() => boolean)[] = [];
+    const onTick = jest.fn(async (cancelled: () => boolean) => {
+      seen.push(cancelled);
+      await new Promise<void>(() => undefined);
+    });
+    return { onTick, seen };
+  }
+
+  it('abandons a tick that outlives the deadline', async () => {
+    const { onTick } = hangingTick();
+    const { result } = renderHook(() => usePoller({ enabled: true, onTick }));
+    await waitFor(() => expect(onTick).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(TICK_DEADLINE_MS + 1000);
+    });
+    expect(result.current.consecutiveFailures).toBeGreaterThan(0);
+  });
+
+  it('keeps polling after abandoning one', async () => {
+    const { onTick } = hangingTick();
+    renderHook(() => usePoller({ enabled: true, onTick }));
+    await waitFor(() => expect(onTick).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(TICK_DEADLINE_MS * 2 + 5000);
+    });
+    expect(onTick.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it('names the reason it gave up on the tick', async () => {
+    const { onTick } = hangingTick();
+    const { result } = renderHook(() => usePoller({ enabled: true, onTick }));
+    await waitFor(() => expect(onTick).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(TICK_DEADLINE_MS + 1000);
+    });
+    expect(result.current.lastError).toMatch(/too long/);
+  });
+
+  // The abandoned tick keeps running -- there is no way to stop it -- so what
+  // matters is that it can no longer commit anything. Every guard inside it
+  // consults this callback before acting.
+  it('tells the abandoned tick it is cancelled', async () => {
+    const { onTick, seen } = hangingTick();
+    renderHook(() => usePoller({ enabled: true, onTick }));
+    await waitFor(() => expect(onTick).toHaveBeenCalledTimes(1));
+    expect(seen[0]?.()).toBe(false);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(TICK_DEADLINE_MS + 1000);
+    });
+    expect(seen[0]?.()).toBe(true);
+  });
+
+  // A tick that is merely slow must not be treated as wedged.
+  it('leaves a slow but finishing tick alone', async () => {
+    const onTick = jest.fn(
+      async () =>
+        new Promise<void>(resolve => {
+          setTimeout(resolve, TICK_DEADLINE_MS / 2);
+        })
+    );
+    const { result } = renderHook(() => usePoller({ enabled: true, onTick }));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(TICK_DEADLINE_MS);
+    });
+    expect(result.current.consecutiveFailures).toBe(0);
+  });
+
+  // Eight abandoned ticks in a row is the same signal as eight errors.
+  it('eventually stops, like any other repeated failure', async () => {
+    const { onTick } = hangingTick();
+    const { result } = renderHook(() => usePoller({ enabled: true, onTick }));
+    await waitFor(() => expect(onTick).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(
+        (TICK_DEADLINE_MS + BACKOFF_CAP_MS) * (MAX_CONSECUTIVE_FAILURES + 2)
+      );
+    });
+    expect(result.current.mode).toBe('stopped');
   });
 });

@@ -1,4 +1,9 @@
-import { COOLDOWN_SECONDS, RateLimit, RateLimitExceeded } from '@/ratelimit';
+import {
+  COOLDOWN_SECONDS,
+  RATE_LIMIT_EXCEEDED,
+  RateLimit,
+  RateLimitExceeded,
+} from '@/ratelimit';
 
 jest.useFakeTimers();
 
@@ -54,5 +59,23 @@ describe('RateLimit', () => {
     exceed(limit);
     jest.advanceTimersByTime(COOLDOWN_SECONDS * 1000);
     expect(() => limit.enforce()).not.toThrow();
+  });
+});
+
+/**
+ * The guard for a bug that only existed in the production bundle.
+ *
+ * `RateLimitExceeded.name` is the class's name and minification rewrites it, so
+ * a message map keyed on it matched under jest and never in the shipped build.
+ * The instance property is a string literal and survives, so the constant and
+ * the instance must agree -- and the class name must not be relied on.
+ */
+describe('the rate-limit error name', () => {
+  it('matches what a thrown instance reports', () => {
+    expect(new RateLimitExceeded().name).toBe(RATE_LIMIT_EXCEEDED);
+  });
+
+  it('is a literal rather than the minifiable class name', () => {
+    expect(RATE_LIMIT_EXCEEDED).toBe('RateLimitExceeded');
   });
 });

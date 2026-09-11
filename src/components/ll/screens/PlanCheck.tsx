@@ -15,7 +15,7 @@ import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
 import { formatDate } from '@/datetime';
 import useDataLoader from '@/hooks/useDataLoader';
-import { RateLimitExceeded } from '@/ratelimit';
+import { RATE_LIMIT_EXCEEDED } from '@/ratelimit';
 
 import Configure from './Configure';
 
@@ -125,8 +125,13 @@ export default function PlanCheck() {
         // app, and it throws rather than throttling -- left unmapped this
         // surfaced as "Unknown error occurred", which says nothing about the
         // one thing the user can act on.
+        //
+        // The constant, not `RateLimitExceeded.name`: that is the class's name,
+        // which minification rewrites, so the key was "Kr" in the shipped
+        // bundle while the thrown instance still reported "RateLimitExceeded".
+        // The branch passed in jest and was dead in the only build anyone runs.
         messages: {
-          [RateLimitExceeded.name]:
+          [RATE_LIMIT_EXCEEDED]:
             'Too many requests just now. Wait a few seconds and try again.',
         },
       }

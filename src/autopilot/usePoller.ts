@@ -7,6 +7,7 @@ import {
   MAX_CONSECUTIVE_FAILURES,
   PollMode,
   RAPID_MIN_INTERVAL_MS,
+  TICK_DEADLINE_MS,
   backoffMs,
   cadence,
   syncedParkTime,
@@ -133,14 +134,26 @@ export default function usePoller({
       let failed = false;
       let lastError: string | undefined;
       const startedAt = performance.now();
+      // Per-run, so a tick that outlives its deadline stops being allowed to
+      // commit anything while the loop moves on without it.
+      let expired = false;
+      let deadline: ReturnType<typeof setTimeout> | undefined;
       try {
-        await onTickRef.current(() => cancelled);
+        await new Promise<void>((resolve, reject) => {
+          deadline = setTimeout(() => {
+            expired = true;
+            reject(new Error('Check took too long and was abandoned'));
+          }, TICK_DEADLINE_MS);
+          onTickRef.current(() => cancelled || expired).then(resolve, reject);
+        });
         failures = 0;
       } catch (error) {
         failed = true;
         failures += 1;
         lastError = error instanceof Error ? error.message : String(error);
         console.error(error);
+      } finally {
+        if (deadline) clearTimeout(deadline);
       }
       ++polls;
       let timing: { lastCycleMs?: number; averageCycleMs?: number } = {};
