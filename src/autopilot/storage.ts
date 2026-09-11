@@ -11,6 +11,7 @@ export const LOG_KEY = 'autoll3.autopilot.log';
 export const SETTINGS_KEY = 'autoll3.autopilot.settings';
 export const BUDGET_KEY = 'autoll3.autopilot.budget';
 export const LOCKS_KEY = 'autoll3.autopilot.locks';
+export const COMMITS_KEY = 'autoll3.autopilot.commits';
 /** Newest first, capped: the log is a glance at recent activity, not history. */
 export const LOG_LIMIT = 20;
 
@@ -271,4 +272,50 @@ export function saveLocks(
     LOCKS_KEY,
     [...new Set([...loadLocks(), ...keys])].filter(k => !dropped.has(k))
   );
+}
+
+/**
+ * Return times this party has committed today, shared across instances.
+ *
+ * `avoidOverlaps` is checked against the plans each instance last polled, plus
+ * the offer's own itinerary. Neither sees a booking another instance made
+ * moments ago: plans are refetched every tenth tick, around seven and a half
+ * minutes apart at the idle cadence, and there are routinely two instances
+ * because NextLL nests an AutopilotProvider inside the app's own. So both could
+ * pass the overlap check against their own snapshot and commit return times that
+ * clash -- the exact outcome the setting exists to prevent.
+ *
+ * This is the same reasoning the clash check already applies to the offer's
+ * itinerary, which it unions in "since a booking made a minute ago may be in
+ * plans and not yet in the offer", extended across instances.
+ *
+ * Day-scoped, like the locks and the budget. Only the start time is recorded,
+ * so the span derived from it is the wider open-ended one -- the conservative
+ * direction for something we know less about than a parsed plan.
+ */
+export interface CommittedReturn {
+  facilityId: string;
+  /** `ParkTime`'s own "HH:MM:SS". */
+  time: string;
+}
+
+export function loadCommits(): CommittedReturn[] {
+  const stored = kvdb.getDaily<CommittedReturn[]>(COMMITS_KEY);
+  if (!Array.isArray(stored)) return [];
+  return stored.filter(
+    (c): c is CommittedReturn =>
+      typeof c?.facilityId === 'string' && typeof c?.time === 'string'
+  );
+}
+
+/** Record one committed return time, replacing any earlier one for that ride. */
+export function saveCommit(entry: CommittedReturn): void {
+  const rest = loadCommits().filter(c => c.facilityId !== entry.facilityId);
+  kvdb.setDaily<CommittedReturn[]>(COMMITS_KEY, [...rest, entry]);
+}
+
+/** Forget a committed return time, once plans show the reservation is gone. */
+export function clearCommit(facilityId: string): void {
+  const rest = loadCommits().filter(c => c.facilityId !== facilityId);
+  kvdb.setDaily<CommittedReturn[]>(COMMITS_KEY, rest);
 }
