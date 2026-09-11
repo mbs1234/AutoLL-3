@@ -5,7 +5,7 @@ import { createBooking, hm, wdw } from '@/__fixtures__/ll';
 import { savePendingSearch } from '@/autopilot/nextll';
 import TabsContext from '@/contexts/TabContext';
 import { ParkTime } from '@/datetime';
-import { nav, setTime } from '@/testing';
+import { TODAY, nav, setTime } from '@/testing';
 
 import Activity from './Activity';
 import Configure from './Configure';
@@ -242,7 +242,7 @@ describe('Today', () => {
   });
 
   it('offers the way back to an interrupted NextLL search', () => {
-    savePendingSearch({ experienceId: BZ });
+    savePendingSearch({ experienceId: BZ, bookingDate: TODAY });
     const changeTab = jest.fn();
     renderScreen(
       <TabsContext

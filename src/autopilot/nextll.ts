@@ -21,15 +21,41 @@ export interface PendingSearch {
   experienceId: string;
   after?: string;
   before?: string;
+  /**
+   * The park day the search was aimed at.
+   *
+   * `setDaily` scopes by the park day at *write* time, which is not the same
+   * thing. A search set up on one park day for the next one -- which is what
+   * prebooking is -- was filed under the day it was written, so resuming it the
+   * same evening applied yesterday's goal to today's availability and could
+   * spend an action on the wrong park day, while on the day it was actually
+   * aimed at `getDaily` returned nothing and it was silently forgotten.
+   *
+   * Optional so an entry written before this field existed still parses; such an
+   * entry is treated as belonging to no particular day and is not offered.
+   */
+  bookingDate?: string;
 }
 
 /**
- * Kept per park day. A goal is a statement about one day's availability, and
- * offering to resume yesterday's search would be worse than offering nothing.
+ * The interrupted search, if it was aimed at the day being looked at now.
+ *
+ * Kept per park day *and* matched on the booking date it targeted. A goal is a
+ * statement about one day's availability, so offering to resume it against a
+ * different day would be worse than offering nothing -- and acting on it would
+ * spend an action on a day the user never asked about.
+ *
+ * `bookingDate` is required to match when given. Pass it; the parameterless form
+ * exists only for callers with no date in hand, and returns nothing rather than
+ * guessing.
  */
-export function loadPendingSearch(): PendingSearch | undefined {
+export function loadPendingSearch(
+  bookingDate?: string
+): PendingSearch | undefined {
   const pending = kvdb.getDaily<PendingSearch>(NEXTLL_PENDING_KEY);
-  return pending?.experienceId ? pending : undefined;
+  if (!pending?.experienceId) return undefined;
+  if (!bookingDate || pending.bookingDate !== bookingDate) return undefined;
+  return pending;
 }
 
 export function savePendingSearch(pending: PendingSearch): void {

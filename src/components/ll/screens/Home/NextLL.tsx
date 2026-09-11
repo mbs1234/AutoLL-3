@@ -135,7 +135,9 @@ export function NextLL({
   // What an interrupted search was after, read once on mount. Cleared as soon
   // as anything is started or dismissed, so it only ever describes a search
   // that is not running.
-  const [pending, setPending] = useState(loadPendingSearch);
+  // Matched on the booking date it was aimed at, not merely the day it was
+  // written: prebooking means those two routinely differ.
+  const [pending, setPending] = useState(() => loadPendingSearch(bookingDate));
 
   // Multi Pass only, same as Autopilot: matching reads `flex`, and there is no
   // Single Pass booking flow to offer.
@@ -223,8 +225,8 @@ export function NextLL({
   // Written straight to storage rather than through `replaceTargets`, because
   // an unmounting component's state update never reaches the effect that
   // persists it.
-  const latest = useRef({ enabled, target });
-  latest.current = { enabled, target };
+  const latest = useRef({ enabled, target, bookingDate });
+  latest.current = { enabled, target, bookingDate };
   useEffect(
     () => () => {
       const { enabled, target } = latest.current;
@@ -232,6 +234,7 @@ export function NextLL({
       if (enabled && target) {
         savePendingSearch({
           experienceId: target.experienceId,
+          bookingDate: latest.current.bookingDate,
           ...(target.after ? { after: String(target.after) } : {}),
           ...(target.before ? { before: String(target.before) } : {}),
         });
