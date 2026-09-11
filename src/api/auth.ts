@@ -135,7 +135,15 @@ export class AuthStore {
   }
 
   private readPersistent(): AuthData | undefined {
-    return kvdb.get<AuthData>(AUTH_KEY);
+    // getStatus()/getData() run ahead of every ApiClient request; a storage
+    // access exception here (a private-mode quirk, a sandboxed iframe, storage
+    // disabled by policy) must read as "no auth data" and reach ReauthNeeded,
+    // not propagate as an unhandled crash mid-poll.
+    try {
+      return kvdb.get<AuthData>(AUTH_KEY);
+    } catch {
+      return undefined;
+    }
   }
 
   private readData(): AuthData | undefined {

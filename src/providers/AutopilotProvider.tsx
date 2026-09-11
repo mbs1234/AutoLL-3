@@ -66,15 +66,22 @@ import {
   orderByPriority,
   shouldHoldTierSlot,
 } from '@/autopilot/priority';
-import { NO_REFUSALS, RefusalState, observeAction } from '@/autopilot/refusal';
+import {
+  ActionCall,
+  NO_REFUSALS,
+  RefusalState,
+  observeAction,
+} from '@/autopilot/refusal';
 import { syncedParkTime } from '@/autopilot/schedule';
 import {
   loadBookingLog,
   loadBudget,
+  loadLocks,
   loadSettings,
   sanitizeBudget,
   saveBookingLog,
   saveBudget,
+  saveLocks,
   saveSettings,
 } from '@/autopilot/storage';
 import usePoller from '@/autopilot/usePoller';
@@ -211,6 +218,22 @@ export default function AutopilotProvider({
   // renders; the state copy exists only so the screen can show it.
   const refusalRef = useRef<RefusalState>(NO_REFUSALS);
   const [refusals, setRefusals] = useState<RefusalState>(NO_REFUSALS);
+  // The only two ways `refusalRef` may change. Routing every write through
+  // one of these keeps the ref and the state copy that drives the banner from
+  // drifting apart -- a future call site that mutated `refusalRef` directly
+  // and forgot the matching `setRefusals` would leave the banner stale.
+  const recordRefusal = (
+    call: ActionCall,
+    status: number | undefined,
+    at: ParkTime
+  ) => {
+    refusalRef.current = observeAction(refusalRef.current, call, status, at);
+    setRefusals(refusalRef.current);
+  };
+  const clearRefusals = () => {
+    refusalRef.current = NO_REFUSALS;
+    setRefusals(NO_REFUSALS);
+  };
 
   // Identifies this provider to the wake-lock module, which is a singleton
   // shared with any other provider mounted at the same time -- NextLL nests a
@@ -262,10 +285,20 @@ export default function AutopilotProvider({
    * showing yesterday's count until it reloads, which is no worse than the
    * `bookingDate` beside it -- that is captured once too. What matters is that
    * the staleness is not written down where tomorrow will read it as fact.
+   *
+   * Merged against what is currently stored, not simply overwritten: both
+   * `spent` and a refill's contribution to `granted` only ever grow over a
+   * park day, so a slower write from a tab that has not yet seen another
+   * tab's (or a nested provider's) more recent spend must not ratchet the
+   * stored total back down.
    */
   const persistBudget = (spent: number) => {
     if (parkDate() !== budgetDateRef.current) return;
-    saveBudget({ spent, granted: grantedRef.current });
+    const stored = loadBudget();
+    saveBudget({
+      spent: Math.max(spent, stored.spent),
+      granted: Math.max(grantedRef.current, stored.granted),
+    });
   };
 
   const cacheRef = useRef(new GuestCache());
@@ -286,7 +319,19 @@ export default function AutopilotProvider({
           )
         : Infinity,
       budgeted ? budgetTodayRef.current.spent : 0,
-      spent => (budgeted ? persistBudget(spent) : undefined)
+      spent => (budgeted ? persistBudget(spent) : undefined),
+      // Shares this instance's action locks with any other tab or nested
+      // provider (e.g. NextLL) watching the same park day, so the two do not
+      // independently book, modify or swap the same attraction. See
+      // `AutoBookLedger.adoptAttempted` and `storage.ts`'s `saveLocks`. Guarded
+      // the same way as `persistBudget`, for the same reason: a backgrounded
+      // tab settling something after the real day has turned must not write
+      // yesterday's locks into today's bucket.
+      () => {
+        if (parkDate() === budgetDateRef.current) {
+          saveLocks(ledgerRef.current.attemptedKeys());
+        }
+      }
     )
   );
 
@@ -458,6 +503,13 @@ export default function AutopilotProvider({
 
   const onTick = useCallback(
     async (cancelled: () => boolean) => {
+      // Pick up locks any other tab or nested provider has taken since this
+      // instance last looked, so the two do not act on the same attraction in
+      // the same drop. Bounded by the poll interval rather than instantaneous,
+      // which is the same latency every other cross-instance signal in this
+      // provider (plans, budget) already accepts.
+      ledgerRef.current.adoptAttempted(loadLocks());
+
       // One date for the whole tick, read once. The ref is assigned during
       // render and this function awaits repeatedly, so re-reading it lets a date
       // change land between two decisions -- eligibility fetched for one day and
@@ -562,11 +614,16 @@ export default function AutopilotProvider({
       // here. Reading it while the settle loop below reads `freshPlans` would
       // let autopilot believe two things about the same party in the same tick:
       // that a slot has just come free, and that all three are still taken.
-      const currentPlans = freshPlans ?? plansRef.current;
+      //
+      // `let`, not `const`: the action loop below re-polls plans after a
+      // booking, move or swap commits, and updates these three so a second
+      // attraction dropping in the same tick is judged against what the party
+      // actually holds now, not the snapshot from before the first action.
+      let currentPlans = freshPlans ?? plansRef.current;
       const heldToday = (experienceId: string) =>
         findExistingLL(currentPlans, experienceId, date);
-      const allHeldToday = heldMPToday(currentPlans, date);
-      const partyIsFull = allHeldToday.length >= MAX_HELD_MP;
+      let allHeldToday = heldMPToday(currentPlans, date);
+      let partyIsFull = allHeldToday.length >= MAX_HELD_MP;
 
       /**
        * Whether a return time lands on top of something already planned.
@@ -878,11 +935,12 @@ export default function AutopilotProvider({
             ) &&
             ledgerRef.current.remaining > 0;
 
-          // Only new bookings can spend the party's Tier 1 slot; re-timing or
-          // swapping one already held does not. Checked here, ahead of the
-          // branches, so a dry run rehearses it as well.
+          // A fresh booking or a swap can both spend the party's Tier 1 slot on
+          // `experience`, since neither is already held; re-timing one already
+          // held (`modify`) does not. Checked here, ahead of the branches, so a
+          // dry run rehearses it as well.
           if (
-            kind === 'book' &&
+            (kind === 'book' || kind === 'swap') &&
             forToday &&
             shouldHoldTierSlot(hit, armed, nowTime, redeemedToday)
           ) {
@@ -992,12 +1050,7 @@ export default function AutopilotProvider({
           // call the booking path makes, so it is where a refusal lands first.
           const httpStatus = (error as { response?: { status?: number } })
             ?.response?.status;
-          refusalRef.current = observeAction(
-            refusalRef.current,
-            'eligibility',
-            httpStatus,
-            nowTime
-          );
+          recordRefusal('eligibility', httpStatus, nowTime);
           console.error(error);
           outcome = {
             status: 'failed',
@@ -1010,14 +1063,12 @@ export default function AutopilotProvider({
         // that call's run; only an unbroken run of refusals reads as "this is not
         // working" rather than "this went wrong a few times today".
         if (outcome.status !== 'skipped') {
-          refusalRef.current = observeAction(
-            refusalRef.current,
+          recordRefusal(
             kind === 'book' ? 'book' : 'offer',
             outcome.status === 'failed' ? outcome.httpStatus : undefined,
             nowTime
           );
         }
-        setRefusals(refusalRef.current);
 
         // Skips are the common case mid-drop and would swamp the log, so they
         // are tallied instead.
@@ -1105,7 +1156,13 @@ export default function AutopilotProvider({
                   }
           );
           try {
-            await pollPlans();
+            // Captured and applied, not just awaited: the loop below still has
+            // to judge later hits in this same tick against what the party
+            // actually holds after this action, not the snapshot taken before
+            // it -- see the `let currentPlans` above.
+            currentPlans = await pollPlans();
+            allHeldToday = heldMPToday(currentPlans, date);
+            partyIsFull = allHeldToday.length >= MAX_HELD_MP;
           } catch (error) {
             console.error(error);
           }
@@ -1310,8 +1367,7 @@ export default function AutopilotProvider({
         budgetSkipRef.current = false;
         setSkipCounts({});
         setLastSkip(undefined);
-        refusalRef.current = NO_REFUSALS;
-        setRefusals(NO_REFUSALS);
+        clearRefusals();
         // Fresh baseline: the first poll of a run sees everything as "new", and
         // that must read as a baseline rather than a drop.
         snapshotRef.current = new Map();

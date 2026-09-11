@@ -10,7 +10,15 @@ import {
 import { ParkTime } from '@/datetime';
 import { RateLimitExceeded } from '@/ratelimit';
 
+import { REFUSAL_STATUS } from './refusal';
 import { WatchTarget, inWindow } from './watchlist';
+
+/**
+ * Backpressure status: retrying is the one guaranteed way to make it worse.
+ * Kept beside `REFUSAL_STATUS` (imported, not redefined) so the two together
+ * are the one place "which status means stop asking" is decided.
+ */
+const THROTTLE_STATUS = 429;
 
 /**
  * Cap on automatic actions per park day.
@@ -104,9 +112,9 @@ export type AutoBookOutcome =
  * - `RateLimitExceeded`, which our own limiter throws as the first statement
  *   of `ApiClient.request`, before anything is sent.
  * - A client error the server returned, other than the two that mean stop
- *   asking. A 403 is the bot filter, which `refusal.ts` watches and which is
- *   made worse by hammering; a 429 is being throttled, where retrying is the
- *   one guaranteed way to make it worse still.
+ *   asking. `REFUSAL_STATUS` is the bot filter, which `refusal.ts` watches and
+ *   which is made worse by hammering; `THROTTLE_STATUS` is being throttled,
+ *   where retrying is the one guaranteed way to make it worse still.
  *
  * Everything else -- no response at all, or a 5xx -- leaves the outcome
  * genuinely unknown, and the lock stands.
@@ -121,7 +129,7 @@ export function actionWasRejected(error: unknown): boolean {
   const status = (error as { response?: { status?: number } })?.response
     ?.status;
   if (status === undefined) return false;
-  if (status === 403 || status === 429) return false;
+  if (status === REFUSAL_STATUS || status === THROTTLE_STATUS) return false;
   return status >= 400 && status < 500;
 }
 
@@ -188,18 +196,58 @@ export class AutoBookLedger {
    * lock released.
    */
   protected rehearsed = new Set<string>();
+  /**
+   * Locks this instance has explicitly let go of (`releaseAttempt`, or
+   * `resolveBook` settling a cancellation), kept for the life of the instance.
+   *
+   * `adoptAttempted` consults this so that re-reading a lock another tab (or
+   * an earlier save from this one) persisted cannot resurrect a lock this
+   * instance already decided was safe to retry.
+   */
+  protected released = new Set<string>();
 
   /**
-   * @param budget    today's ceiling: the setting plus any refills granted.
-   * @param carried   actions already charged earlier today, from storage.
-   * @param onSpend   called with the new total whenever the charge changes, so
-   *                  the day's spend survives the reload that used to reset it.
+   * @param budget         today's ceiling: the setting plus any refills granted.
+   * @param carried        actions already charged earlier today, from storage.
+   * @param onSpend        called with the new total whenever the charge
+   *                       changes, so the day's spend survives the reload
+   *                       that used to reset it.
+   * @param onAttemptChange called whenever a lock is taken or released, so a
+   *                       caller sharing this state across tabs can persist
+   *                       and re-read it -- see `attemptedKeys`/`adoptAttempted`.
    */
   constructor(
     protected budget = DEFAULT_ACTIONS_PER_DAY,
     protected carried = 0,
-    protected readonly onSpend: (spent: number) => void = () => undefined
+    protected readonly onSpend: (spent: number) => void = () => undefined,
+    protected readonly onAttemptChange: () => void = () => undefined
   ) {}
+
+  /**
+   * This instance's locks, for a caller to persist.
+   *
+   * A plain snapshot rather than a live reference: callers must not mutate
+   * the ledger's own set through it.
+   */
+  attemptedKeys(): string[] {
+    return [...this.attempted];
+  }
+
+  /**
+   * Adopt locks taken elsewhere -- another tab's ledger, most often -- without
+   * disturbing this instance's own bookkeeping for them.
+   *
+   * Union only: a key already held locally is left as this instance recorded
+   * it, and nothing here is ever removed by adoption -- except a key this
+   * instance has itself explicitly released (see `released`), which stays
+   * released rather than being re-locked by a stale copy read back from
+   * storage.
+   */
+  adoptAttempted(keys: Iterable<string>): void {
+    for (const key of keys) {
+      if (!this.released.has(key)) this.attempted.add(key);
+    }
+  }
 
   /** Everything charged against today: earlier runs, this run, and doubt-holds. */
   get spent(): number {
@@ -260,6 +308,7 @@ export class AutoBookLedger {
     rehearsal = false
   ): void {
     this.attempted.add(`${kind}:${experienceId}`);
+    this.onAttemptChange();
     if (kind !== 'book') return;
     // A dry run issues no request, so there is nothing to doubt and nothing to
     // settle -- it marks only so the rehearsal logs once.
@@ -280,6 +329,8 @@ export class AutoBookLedger {
    */
   releaseAttempt(experienceId: string, kind: ActionKind): void {
     this.attempted.delete(`${kind}:${experienceId}`);
+    this.released.add(`${kind}:${experienceId}`);
+    this.onAttemptChange();
     // A book attempt also takes a doubt-hold against the allowance, on the
     // chance that a request whose outcome we never learned did succeed. This
     // is only ever called for one we did learn about -- Disney rejected it,
@@ -359,9 +410,15 @@ export class AutoBookLedger {
     // A spent entitlement leaves plans exactly as a cancellation does, and
     // Disney will not sell it again: an unredeemed pass whose window lapses
     // counts as ridden. Releasing the lock here would spend the session
-    // allowance rebooking something that cannot be rebooked.
+    // allowance rebooking something that cannot be rebooked -- but an
+    // entitlement cannot be spent unless a booking created it, so an attempt
+    // still in doubt is hereby confirmed rather than left uncounted.
     if (spent) {
       this.absences.delete(experienceId);
+      if (this.unresolved.delete(experienceId)) {
+        ++this.booked;
+        this.notify();
+      }
       return;
     }
     if (!this.confirmed.has(experienceId)) return;
@@ -374,6 +431,7 @@ export class AutoBookLedger {
     this.confirmed.delete(experienceId);
     this.unresolved.delete(experienceId);
     this.attempted.delete(`book:${experienceId}`);
+    this.released.add(`book:${experienceId}`);
     this.notify();
   }
 

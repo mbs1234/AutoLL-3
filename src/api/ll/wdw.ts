@@ -120,6 +120,18 @@ export class Overlap {
   }
 }
 
+/**
+ * How long a failed availability-bundle fetch is left uncached before the
+ * next poll is allowed to retry it.
+ *
+ * The request is best-effort supplementary data, and the poller may run every
+ * second or two mid-drop -- retrying every tick would defeat the point of
+ * caching at all. Long enough that a transient failure is not retried into
+ * the ground, short enough that it is not effectively permanent for the
+ * life of the client, which one bad response used to make it.
+ */
+export const AVAILABILITY_BUNDLE_RETRY_MS = 5 * 60_000;
+
 export class LLClientWDW extends LLClient {
   readonly rules = {
     book: true,
@@ -134,6 +146,8 @@ export class LLClientWDW extends LLClient {
           closedIds: Experience['id'][];
           /** Only populated when Disney explicitly labels a tier. */
           tiers: Map<Experience['id'], number | undefined>;
+          /** When this came from a failed fetch, so a retry can be allowed later. */
+          failedAt?: number;
         }
       | undefined;
   } = {};
@@ -152,11 +166,14 @@ export class LLClientWDW extends LLClient {
     // unavailable-to-available flip and files a ride simply starting its day
     // as a drop. A future date cannot hit that, because learning is skipped
     // for any date that is not today.
-    if (
-      (date > parkDate() || exps.length === 0) &&
-      !this.#availabilityBundles[date + park.id]
-    ) {
-      const dateParkId = date + park.id;
+    const dateParkId = date + park.id;
+    const cached = this.#availabilityBundles[dateParkId];
+    // A failed fetch is retried after a cooldown rather than never again; see
+    // `AVAILABILITY_BUNDLE_RETRY_MS`.
+    const retryDue =
+      cached?.failedAt !== undefined &&
+      Date.now() - cached.failedAt >= AVAILABILITY_BUNDLE_RETRY_MS;
+    if ((date > parkDate() || exps.length === 0) && (!cached || retryDue)) {
       // Best effort, and deliberately unable to fail the call it enriches.
       //
       // The tipboard has already come back by this point; everything below
@@ -200,11 +217,14 @@ export class LLClientWDW extends LLClient {
         this.#availabilityBundles[dateParkId] = { closedIds, tiers };
       } catch (error) {
         // Cached as "nothing to add" so the next poll does not pay for the
-        // same failure. Cleared with the rest of the day's state on reload.
+        // same failure -- but only until `AVAILABILITY_BUNDLE_RETRY_MS` has
+        // passed, so a transient failure does not suppress this for the rest
+        // of the client's life if the endpoint recovers.
         console.error(error);
         this.#availabilityBundles[dateParkId] = {
           closedIds: [],
           tiers: new Map(),
+          failedAt: Date.now(),
         };
       }
     }

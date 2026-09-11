@@ -528,8 +528,16 @@ export class LLTracker {
     const cancellableLLs = bookings
       .filter(isLLMP)
       .filter(b => !!b.cancellable && parkDate(b.start) === parkDay);
+    // Recorded rather than applied only to `this.experiencedIds`: `client.guests`
+    // below awaits a round trip, and another tab's own `update()` can load,
+    // change and save `experiencedIds` in that window. Re-reading and replaying
+    // just this call's own decisions right before saving (below) means that
+    // write is not lost under this call's now-stale copy.
+    const experiencedChanges = new Map<Experience['id'], boolean>();
     for (const b of cancellableLLs) {
-      this.experiencedIds[b.modifiable ? 'delete' : 'add'](b.experience.id);
+      const experienced = !b.modifiable;
+      experiencedChanges.set(b.experience.id, experienced);
+      this.experiencedIds[experienced ? 'add' : 'delete'](b.experience.id);
     }
     const prevBookedIds = this.bookedIds;
     this.bookedIds = new Set(cancellableLLs.map(b => b.experience.id));
@@ -539,7 +547,16 @@ export class LLTracker {
       const limitReached = ineligible.some(
         g => g.ineligibleReason === 'EXPERIENCE_LIMIT_REACHED'
       );
+      experiencedChanges.set(id, limitReached);
       this.experiencedIds[limitReached ? 'add' : 'delete'](id);
+    }
+    // Re-read immediately before writing, and replay only this call's own
+    // changes onto it, rather than saving `this.experiencedIds` as accumulated
+    // from the copy loaded at the top of this call.
+    this.load();
+    this.bookedIds = new Set(cancellableLLs.map(b => b.experience.id));
+    for (const [id, experienced] of experiencedChanges) {
+      this.experiencedIds[experienced ? 'add' : 'delete'](id);
     }
     this.save();
   }

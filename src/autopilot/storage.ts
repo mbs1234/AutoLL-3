@@ -10,6 +10,7 @@ import kvdb from '@/kvdb';
 export const LOG_KEY = 'autoll3.autopilot.log';
 export const SETTINGS_KEY = 'autoll3.autopilot.settings';
 export const BUDGET_KEY = 'autoll3.autopilot.budget';
+export const LOCKS_KEY = 'autoll3.autopilot.locks';
 /** Newest first, capped: the log is a glance at recent activity, not history. */
 export const LOG_LIMIT = 20;
 
@@ -202,4 +203,22 @@ export function loadBudget(): DailyBudget {
 
 export function saveBudget(budget: DailyBudget): void {
   kvdb.setDaily<DailyBudget>(BUDGET_KEY, budget);
+}
+
+/**
+ * Per-attraction action locks (`AutoBookLedger.attemptedKeys()`), shared so a
+ * second tab or a nested provider (NextLL nests one inside the app's own) can
+ * see what another instance has already attempted today.
+ *
+ * Day-scoped, like the budget. Written as the union of what is already
+ * stored and what this instance holds -- see `AutoBookLedger.adoptAttempted`
+ * for why a lock is never removed this way, only added.
+ */
+export function loadLocks(): string[] {
+  const stored = kvdb.getDaily<string[]>(LOCKS_KEY);
+  return Array.isArray(stored) ? stored.filter(k => typeof k === 'string') : [];
+}
+
+export function saveLocks(keys: readonly string[]): void {
+  kvdb.setDaily<string[]>(LOCKS_KEY, [...new Set([...loadLocks(), ...keys])]);
 }
