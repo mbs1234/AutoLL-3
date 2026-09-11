@@ -290,6 +290,32 @@ export class AutoBookLedger {
     this.budget = budget;
   }
 
+  /**
+   * Start a new park day in place, for an instance that did not remount.
+   *
+   * Distinct from `reset()`, which deliberately keeps the day's spend: turning
+   * autopilot off and on must not be a way to get more actions. A new park day
+   * is the opposite case -- the allowance genuinely renews, and yesterday's
+   * spend is not a charge against today. Everything day-scoped goes with it,
+   * locks included, because a lock exists to stop a second action on an
+   * attraction *today*.
+   *
+   * `released` is cleared too, so nothing carries a decision made yesterday
+   * into a day it says nothing about.
+   */
+  startNewDay(carried = 0): void {
+    this.carried = carried;
+    this.attempted.clear();
+    this.owned.clear();
+    this.released.clear();
+    this.unresolved.clear();
+    this.absences.clear();
+    this.confirmed.clear();
+    this.rehearsed.clear();
+    this.booked = 0;
+    this.notify();
+  }
+
   protected notify(): void {
     this.onSpend(this.spent);
   }

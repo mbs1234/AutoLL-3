@@ -23,6 +23,14 @@ export const BOOKING_DATE_KEY = 'autoll3.date';
  */
 export const NUM_BOOKING_DAYS = 22;
 
+/**
+ * How often to check whether the park day has turned.
+ *
+ * A minute is far finer than the once-a-day event it watches for, and cheap:
+ * the callback is a string comparison that usually changes nothing.
+ */
+export const ROLLOVER_CHECK_MS = 60_000;
+
 function getBookingDates() {
   const today = parkDate();
   return [...Array(NUM_BOOKING_DAYS).keys()].map(i => modifyDate(today, i));
@@ -57,6 +65,40 @@ export default function BookingDateProvider({
   useEffect(() => {
     kvdb.setDaily<string>(BOOKING_DATE_KEY, bookingDate);
   }, [bookingDate]);
+
+  /**
+   * Follow the park day when it turns under a tab that stayed open.
+   *
+   * `bookingDate` was read once, at mount, and this provider does not remount:
+   * a phone that keeps the bookmarklet tab overnight was still holding
+   * yesterday at 7am. Nothing downstream treats that as an error, because
+   * yesterday is a date like any other -- but `watchingToday` and
+   * `watchingTomorrow` are both false for it, so `cadence` never leaves the
+   * 45-second idle interval. No approach, no burst, no eligibility prewarm, no
+   * drop learning, and a status display that reads exactly like a healthy run.
+   * Turning autopilot on does not fix it: on/off deliberately does not persist,
+   * so a tap is required, and the tap does not touch this. A reload did fix it,
+   * since `validDate` refuses a date the picker no longer offers -- but nothing
+   * told anyone to reload.
+   *
+   * Checked on an interval and whenever the page comes back to the front, which
+   * between them cover the two ways this is discovered: the tab was watched
+   * across 4am, or it was woken hours later. `validDate` does the work; a date
+   * still on offer is returned unchanged, so a deliberate choice of a future
+   * park day is left alone and the state update bails out.
+   */
+  useEffect(() => {
+    const follow = () =>
+      setDate(prev => (prebook ? validDate(prev) : parkDate()));
+    const timer = setInterval(follow, ROLLOVER_CHECK_MS);
+    document.addEventListener('visibilitychange', follow);
+    window.addEventListener('focus', follow);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', follow);
+      window.removeEventListener('focus', follow);
+    };
+  }, [prebook]);
 
   return (
     <BookingDateContext value={{ bookingDate, setBookingDate }}>
