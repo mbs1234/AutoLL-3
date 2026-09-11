@@ -1,9 +1,13 @@
 name: Check
 
-# Local development on this fork has no Node toolchain, so this workflow is
-# the only feedback loop for tests, lint and types. It runs on every push and
-# PR to any branch except goofy (which holds only prebuilt static assets and
-# has no package.json).
+# Reports tests, lint, types and the build on every push and PR to any branch
+# except goofy (which holds only prebuilt static assets and has no
+# package.json). Every step runs even after one fails, so a single push reports
+# everything at once.
+#
+# This is no longer the only feedback loop -- Node 22 has been on the
+# development machine since 2026-09-07, so `npm run checkall` runs locally --
+# but it is still the one that runs on a clean checkout.
 #
 # Keep the push trigger explicit: deployment and CI must start from an ordinary
 # branch update without requiring a manual Actions dispatch.
@@ -30,23 +34,17 @@ jobs:
 
       - run: npm ci
 
-      # Run each step even if an earlier one fails, so a single push reports
-      # every problem at once instead of one per round trip. That matters a
-      # lot when the runner is the only way to type-check.
-      # Excludes suites already broken in pristine upstream; see
-      # jest.ci.config.js for the list and the reasoning.
+      # The whole suite. There is no longer a filtered variant: upstream's
+      # broken suites were either repaired or removed with the Disneyland and
+      # virtual-queue code, so `jest.ci.config.js` had emptied out to the point
+      # where it excluded nothing and `test:ci` and `npm test` ran the same
+      # tests. Carrying both meant CI ran the suite twice, and the second run
+      # was labelled as tolerating failures that no longer existed -- which is
+      # exactly the note that would talk someone past a real regression.
       - name: Tests
         id: test
         if: '!cancelled()'
         run: npm run test:ci
-
-      # Informational: the unfiltered suite, including upstream's known
-      # failures. Never fails the job -- it exists so the pre-existing count is
-      # visible and a change in it is noticeable.
-      - name: Tests (full, informational)
-        if: '!cancelled()'
-        continue-on-error: true
-        run: npm test
 
       - name: Lint
         id: lint

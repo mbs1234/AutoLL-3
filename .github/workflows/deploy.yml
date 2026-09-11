@@ -187,10 +187,38 @@ jobs:
           # These are the only inherited pages that make up the installation
           # path. Fail closed if a future upstream asset changes spelling and
           # leaves AutoLL-2 branding in front of an AutoLL-3 user.
-          if grep -nEi 'AutoLL-2|autoll2|mbs1234/AutoLL-2' \
-              dist/index.html dist/start.html dist/news.html \
-              dist/contact.html dist/autoloader.user.js; then
+          #
+          # The exit status is read explicitly rather than with `if grep ...`,
+          # because grep has three of them and that form conflated two: 0 is a
+          # match, 1 is clean, and 2 is "a file could not be read". `news.html`
+          # and `contact.html` are optional above -- the overlay warns and
+          # continues -- so one of them being absent made grep exit 2, which `if`
+          # treats as false, and the guard reported clean. Worse, grep searches
+          # the remaining files and prints their matches before exiting 2, so a
+          # build could print the offending line and publish anyway.
+          #
+          # Only the files that exist are searched, and anything other than a
+          # clean 1 fails the deploy.
+          assets=()
+          for f in index.html start.html news.html contact.html \
+                   autoloader.user.js; do
+            [ -f "dist/$f" ] && assets+=("dist/$f")
+          done
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo '::error::no installer assets present to check for branding'
+            exit 1
+          fi
+          set +e
+          hits=$(grep -nEi 'AutoLL-2|autoll2|mbs1234/AutoLL-2' "${assets[@]}")
+          branding_status=$?
+          set -e
+          if [ "$branding_status" -eq 0 ]; then
+            echo "$hits"
             echo '::error::AutoLL-2 branding remains in an AutoLL-3 installer asset'
+            exit 1
+          fi
+          if [ "$branding_status" -ne 1 ]; then
+            echo "::error::branding check failed to read its inputs (grep exit $branding_status)"
             exit 1
           fi
           echo "--- remaining 'joelface' references ---"
@@ -234,8 +262,16 @@ jobs:
             # responder.html were missing from this list, and they are the two
             # whose absence breaks the app quietly rather than loudly -- an
             # unstyled page, and a sign-in that never completes.
-            for file in bg1.js bg1.css responder.html sensor-data.js \
-                        index.html index.css autoloader.user.js; do
+            # `wdw.js` is the resort data chunk, dynamically imported by
+            # `loadResort`, and `responder.js` is what `responder.html` loads to
+            # complete sign-in. Both are rollup outputs whose names a Vite or
+            # Rollup change could alter, and both were missing from this list --
+            # so a renamed chunk would have passed every gate. Jest never touches
+            # the built bundle and typecheck does not know about filenames, which
+            # leaves this check as the only thing that would notice.
+            for file in bg1.js bg1.css responder.html responder.js wdw.js \
+                        sensor-data.js index.html index.css \
+                        autoloader.user.js; do
               # Anchored to end of line so a `.map` or a same-named file in a
               # subdirectory cannot satisfy the check for the real one.
               grep -Eq "  ${file//./\\.}$" autoll3-files.sha256 || {

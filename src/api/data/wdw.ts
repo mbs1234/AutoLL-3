@@ -1023,12 +1023,6 @@ export const experiences: ResortData['experiences'] = {
     priority: 3.1,
     avgWait: 29,
   },
-  412328858: {
-    name: 'Little Mermaid - A Musical Adventure',
-    land: animation,
-    type: 'E',
-    geo: [28.3576612, -81.5609242],
-  },
   19259335: {
     name: "Mickey & Minnie's Runaway Railway",
     land: hollywood,
@@ -1136,6 +1130,12 @@ export const experiences: ResortData['experiences'] = {
     name: 'Disney Movie Magic',
     land: hollywood,
     type: 'E',
+  },
+  412328858: {
+    name: 'Little Mermaid - A Musical Adventure',
+    land: animation,
+    type: 'E',
+    geo: [28.3576612, -81.5609242],
   },
   412328859: {
     name: 'Disney Villains: Unfairly Ever After',

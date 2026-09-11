@@ -47,7 +47,7 @@
     "preview": "vite preview",
     "checkall": "npm run test:ci && npm run lint && npm run typecheck",
     "test": "TZ=UTC jest",
-    "test:ci": "TZ=UTC jest --config jest.ci.config.js",
+    "test:ci": "TZ=UTC jest --ci",
     "coverage": "jest --coverage --coverageDirectory=.coverage",
     "lint": "eslint src harness",
     "lint:fix": "eslint --fix src harness",
