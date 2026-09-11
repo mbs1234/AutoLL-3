@@ -82,6 +82,7 @@ export type SkipReason =
   | 'already-attempted'
   | 'waiting-to-retry'
   | 'no-eligible-guests'
+  | 'partial-party'
   | 'offer-outside-window'
   | 'overlaps-plans';
 
@@ -376,6 +377,28 @@ export class AutoBookLedger {
   }
 
   /**
+   * Give back the doubt-hold for a book attempt that provably never landed.
+   *
+   * The hold exists because the lock is taken *before* the request goes out: a
+   * timed-out booking may have succeeded server-side, so the allowance treats
+   * it as spent until plans say otherwise. That is right when the outcome is
+   * unknown and needless when it is not. Disney refusing the call outright, or
+   * our own limiter never sending it, establishes that nothing was booked --
+   * and leaving the hold then charged the day for a booking that does not
+   * exist, which on the default allowance of ten is a tenth of the day gone per
+   * lost race.
+   *
+   * The attempt lock is deliberately *not* released. Autopilot keeps one action
+   * per attraction per session, which is what stops it thrashing a reservation
+   * while availability shifts; only NextLL wants the retry, and it has
+   * `releaseAttempt` for that. This gives back the charge without giving back
+   * the action.
+   */
+  resolveRejected(experienceId: string): void {
+    if (this.unresolved.delete(experienceId)) this.notify();
+  }
+
+  /**
    * Forget one action lock, so the same action can be taken again.
    *
    * Autopilot never does this: one booking and one move per attraction per
@@ -605,6 +628,19 @@ export interface AutoBookDeps {
   ledger: AutoBookLedger;
   /** Optional; when it reports a clash, the offer is abandoned unbooked. */
   clashes?: ClashCheck;
+  /**
+   * Whether the party the offer would actually commit is acceptable.
+   *
+   * Distinct from the `guests` above, which is the eligibility the caller's
+   * guards ran on. That is a prediction; the offer is the commitment, and the
+   * two can disagree -- Disney can return an offer covering three of five when
+   * eligibility said all five were fine. Checking only the prediction meant
+   * "whole party only" could still book a Lightning Lane that split the group,
+   * which is the one thing it exists to prevent.
+   *
+   * Optional, and only passed when the setting is on.
+   */
+  partyIsAcceptable?: (guests: Guests) => boolean;
 }
 
 /**
@@ -619,7 +655,15 @@ export interface AutoBookDeps {
 export async function attemptAutoBook(
   target: WatchTarget,
   experience: OfferExperience,
-  { createOffer, book, guests, ledger, clashes, stillWanted }: AutoBookDeps
+  {
+    createOffer,
+    book,
+    guests,
+    ledger,
+    clashes,
+    stillWanted,
+    partyIsAcceptable,
+  }: AutoBookDeps
 ): Promise<AutoBookOutcome> {
   const allowed = shouldAttempt(target, ledger);
   if (!allowed.ok) return { status: 'skipped', reason: allowed.reason };
@@ -639,6 +683,13 @@ export async function attemptAutoBook(
     // dining reservation spends a slot to gain nothing.
     if (clashes?.(offer.start.time, offer.itinerary)) {
       return { status: 'skipped', reason: 'overlaps-plans' };
+    }
+
+    // The party the offer would commit, not the eligibility the guards ran on.
+    // Asked here because the offer is the first thing that says who is actually
+    // covered.
+    if (partyIsAcceptable && !partyIsAcceptable(offer.guests)) {
+      return { status: 'skipped', reason: 'partial-party' };
     }
 
     // Mark before booking: a timed-out request may still have succeeded, and

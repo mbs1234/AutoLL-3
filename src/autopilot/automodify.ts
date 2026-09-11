@@ -220,8 +220,6 @@ export async function attemptAutoModify(
     return { status: 'skipped', reason: 'no-eligible-guests' };
   }
 
-  const from = allowed.existing.start.time;
-
   try {
     const offer = await createModifyOffer(
       experience,
@@ -229,6 +227,36 @@ export async function attemptAutoModify(
       allowed.existing
     );
     const to = offer.start.time;
+
+    /**
+     * What is *actually* held, taken from the offer's own itinerary in
+     * preference to the plans snapshot this tick started with.
+     *
+     * "Never trade down" is only as good as the time it compares against, and
+     * plans are polled every tenth tick -- around seven and a half minutes apart
+     * at the idle cadence, and this same function is what moves the reservation
+     * in between. So the snapshot could name a return time nobody held any more,
+     * and the comparison was then against fiction: a genuinely better offer
+     * reading as a downgrade and being refused, or in the mirror case a worse
+     * one reading as a gain and being taken. The offer response carries Disney's
+     * own view as of the offer, which is the freshest thing available and costs
+     * no extra request.
+     *
+     * Matched on `facilityId` because `OfferItineraryItem` carries no
+     * entitlement id. The clash check below already relies on this itinerary
+     * containing the reservation being modified -- that is what it excludes by
+     * `release` -- so it is normally present.
+     *
+     * Falls back to the snapshot when it is absent rather than refusing to act.
+     * Absence probably means the reservation is genuinely gone, but if Disney
+     * ever omits the item under modification instead, skipping here would stop
+     * every move working, and that is the more expensive way to be wrong. The
+     * fallback is no worse than the behaviour this replaces.
+     */
+    const heldNow = offer.itinerary.find(
+      item => item.facilityId === allowed.existing.facilityId
+    );
+    const from = heldNow?.startTime ?? allowed.existing.start.time;
 
     if (offer.guests.eligible.length === 0) {
       return { status: 'skipped', reason: 'no-eligible-guests' };

@@ -62,6 +62,19 @@ function offerAt(time: ParkTime, guests = party()) {
   } as unknown as Offer<LLMP>;
 }
 
+/** An offer whose itinerary reports the held reservation at `heldAt`. */
+function offerWithHeld(
+  time: ParkTime,
+  heldAt: ParkTime,
+  facilityId = BZ,
+  guests = party()
+) {
+  return {
+    ...offerAt(time, guests),
+    itinerary: [{ facilityId, startTime: heldAt, overlap: 'NONE' }],
+  } as unknown as Offer<LLMP>;
+}
+
 function deps(
   overrides: Partial<Parameters<typeof attemptAutoModify>[4]> = {}
 ) {
@@ -520,5 +533,88 @@ describe('a targeted modify', () => {
       }
     );
     expect(outcome).toMatchObject({ status: 'modified' });
+  });
+});
+
+/**
+ * "Never trade down" measured against what is really held.
+ *
+ * Plans are polled every tenth tick -- around seven and a half minutes apart at
+ * the idle cadence -- and this function is what moves the reservation in
+ * between, so the snapshot it was handed could name a return time nobody held
+ * any more. The offer response carries Disney's own view as of the offer.
+ */
+describe('attemptAutoModify() against the offer itinerary', () => {
+  // The snapshot says 19:00 and 16:40 looks like a two-hour gain. Disney says
+  // the reservation is already at 13:15, which makes 16:40 three hours worse.
+  it('refuses an offer that is worse than the reservation actually held', async () => {
+    const outcome = await attemptAutoModify(
+      target(),
+      experience,
+      existingLL(at(19)),
+      at(16, 40),
+      deps({
+        createModifyOffer: jest.fn(async () =>
+          offerWithHeld(at(16, 40), at(13, 15))
+        ),
+      })
+    );
+    expect(outcome).toEqual({
+      status: 'skipped',
+      reason: 'offer-not-an-improvement',
+    });
+  });
+
+  it('accepts an offer that improves on the reservation actually held', async () => {
+    const outcome = await attemptAutoModify(
+      target(),
+      experience,
+      existingLL(at(19)),
+      at(11),
+      deps({
+        createModifyOffer: jest.fn(async () =>
+          offerWithHeld(at(11), at(13, 15))
+        ),
+      })
+    );
+    expect(outcome.status).toBe('modified');
+  });
+
+  // The reported `from` is what the log and the Activity screen show, so it has
+  // to be the time actually given up rather than the stale one.
+  it('reports the time actually given up', async () => {
+    const outcome = await attemptAutoModify(
+      target(),
+      experience,
+      existingLL(at(19)),
+      at(11),
+      deps({
+        createModifyOffer: jest.fn(async () =>
+          offerWithHeld(at(11), at(13, 15))
+        ),
+      })
+    );
+    expect(outcome.status === 'modified' && String(outcome.from)).toBe(
+      String(at(13, 15))
+    );
+  });
+
+  // Absence probably means the reservation is gone, but if Disney ever omits
+  // the item under modification then refusing would stop every move working.
+  it('falls back to the snapshot when the itinerary does not name it', async () => {
+    const outcome = await attemptAutoModify(
+      target(),
+      experience,
+      existingLL(at(19)),
+      at(11),
+      deps({
+        createModifyOffer: jest.fn(async () =>
+          offerWithHeld(at(11), at(13, 15), 'another-ride')
+        ),
+      })
+    );
+    expect(outcome.status === 'modified' && String(outcome.from)).toBe(
+      String(at(19))
+    );
   });
 });
