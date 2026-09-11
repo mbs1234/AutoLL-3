@@ -404,6 +404,9 @@ describe('NextLL when its tab goes away', () => {
     expect(kvdb.getDaily<PendingSearch>(NEXTLL_PENDING_KEY)).toEqual({
       experienceId: BZ,
       before: '13:00:00',
+      // The day it was aimed at, which prebooking makes distinct from the day
+      // it was written.
+      bookingDate: TODAY,
     });
   });
 
@@ -428,9 +431,10 @@ describe('NextLL when its tab goes away', () => {
 });
 
 describe('NextLL on returning to the tab', () => {
-  const pending = (before?: string) =>
+  const pending = (before?: string, bookingDate = TODAY) =>
     kvdb.setDaily<PendingSearch>(NEXTLL_PENDING_KEY, {
       experienceId: BZ,
+      bookingDate,
       ...(before ? { before } : {}),
     });
 
@@ -489,9 +493,37 @@ describe('NextLL on returning to the tab', () => {
   // Kingdom ride cannot run while Epcot is loaded, so offering it there would
   // be an offer the button could not keep -- but it is kept, not discarded,
   // so switching the park back brings it into reach again.
+  /**
+   * A goal is a statement about one day's availability. `setDaily` scopes by the
+   * park day at *write* time, which is not the same thing: a search set up this
+   * evening for tomorrow was filed under today, so resuming it applied
+   * tomorrow's goal to today's availability and could spend an action on a day
+   * the user never asked about.
+   */
+  it('stays quiet about a search aimed at another park day', () => {
+    pending(undefined, TOMORROW);
+    setup();
+    expect(screen.queryByText(/Still looking for/)).not.toBeInTheDocument();
+  });
+
+  it('keeps that search rather than discarding it', () => {
+    pending(undefined, TOMORROW);
+    setup();
+    expect(kvdb.getDaily(NEXTLL_PENDING_KEY)).toBeDefined();
+  });
+
+  // Written before the field existed, so which day it meant is unknowable.
+  // Offering it would be guessing with an action.
+  it('stays quiet about a search that names no day', () => {
+    kvdb.setDaily<PendingSearch>(NEXTLL_PENDING_KEY, { experienceId: BZ });
+    setup();
+    expect(screen.queryByText(/Still looking for/)).not.toBeInTheDocument();
+  });
+
   it('stays quiet about an attraction the loaded park does not have', () => {
     kvdb.setDaily<PendingSearch>(NEXTLL_PENDING_KEY, {
       experienceId: 'not_in_this_park',
+      bookingDate: TODAY,
     });
     setup();
     expect(screen.queryByText(/Still looking for/)).not.toBeInTheDocument();

@@ -121,8 +121,10 @@ export default function Today({ ref }: HomeTabProps) {
   const armed = targetsHere.filter(t => acts(t) && !t.paused).length;
   const paused = targetsHere.filter(t => t.paused).length;
   // A NextLL search stops when its tab is left; the tab offers to resume it,
-  // but only once you are back there. This is the reminder to go back.
-  const pending = loadPendingSearch();
+  // but only once you are back there. This is the reminder to go back. Matched
+  // on the day it was aimed at, so a search for another park day is not
+  // advertised against this one.
+  const pending = loadPendingSearch(bookingDate);
   const pendingName = pending
     ? (experiences.find(e => e.id === pending.experienceId)?.name ??
       pending.experienceId)
