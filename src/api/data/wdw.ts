@@ -736,12 +736,19 @@ export const experiences: ResortData['experiences'] = {
     avgWait: 11,
     priority: 4,
   },
+  // One ride, three facility ids -- Disney serves whichever film is showing, so
+  // all three are live rather than retired and none can be nulled. They carried
+  // priority 3, 2 and 3, which made the ride's rank depend on the film
+  // rotation: the same queue, the same 35-minute wait, ranked a whole band
+  // lower on two days out of three, and low enough to be swapped away. Held
+  // equal at the value the ride already had, because the film does not change
+  // how much the Lightning Lane is worth.
   412577054: {
     name: "Soarin' Across America",
     land: nature,
     type: 'A',
     geo: [28.3735924, -81.5522783],
-    priority: 3,
+    priority: 2,
     avgWait: 35,
     highlight: true,
   },
@@ -759,7 +766,7 @@ export const experiences: ResortData['experiences'] = {
     land: nature,
     type: 'A',
     geo: [28.3735924, -81.5522783],
-    priority: 3,
+    priority: 2,
     avgWait: 35,
     highlight: true,
   },
@@ -1039,6 +1046,16 @@ export const experiences: ResortData['experiences'] = {
     type: 'A',
     geo: [28.353862, -81.5616967],
     tier: 1,
+    // The only Tier 1 in this file that had no priority, which
+    // `comparePriority` reads as Infinity -- worst of everything. So the
+    // party's most valuable Hollywood Studios selection sorted last: attempted
+    // last of any match, never worth a Tier 1 hold, and offered up as the
+    // preferred swap victim to anything with a priority at all, Alien Swirling
+    // Saucers (3.1) included. Placed in the empty 2.x band here: above Runaway
+    // Railway (3) and the Toy Story rides, below the four Hollywood Studios
+    // headliners. Adjust if that is not where you would put it -- the point of
+    // this change is that it has a rank, not that this is the rank.
+    priority: 2,
     avgWait: 37,
     highlight: true,
     dropTimes: ['10:47', '15:47'],

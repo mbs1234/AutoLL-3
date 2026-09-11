@@ -93,7 +93,19 @@ export function chooseSwapVictim(
   incoming: Ranked
 ): LLMP | undefined {
   return held
-    .filter(b => b.modifiable && comparePriority(incoming, b.experience) < 0)
+    .filter(
+      b =>
+        b.modifiable &&
+        // An attraction the resort data does not rank cannot be compared, and
+        // `comparePriority` sorts a missing priority last -- so an unranked
+        // reservation read as the worst thing held. Worse, `Itinerary` synthesises
+        // an experience for an unknown facility id with neither `priority` nor
+        // `tier`, so it also passed the non-Tier-1 preference below: a renamed
+        // id, a new ride or a seasonal overlay produced the ideal swap victim.
+        // Refusing to rank it costs one swap; guessing costs the reservation.
+        b.experience.priority !== undefined &&
+        comparePriority(incoming, b.experience) < 0
+    )
     .sort(
       (a, b) =>
         Number(isTier1(a.experience)) - Number(isTier1(b.experience)) ||

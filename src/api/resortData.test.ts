@@ -47,6 +47,49 @@ describe.each([['wdw.ts', wdw as unknown as ResortData]])(
       expect([...sections.keys()].sort()).toEqual(ids.sort());
     });
 
+    // `comparePriority` reads a missing priority as Infinity, which is right
+    // for attempt order and dangerous for a Tier 1: the party can hold only one
+    // at a time, so an unranked Tier 1 sorted last of everything -- attempted
+    // last, never worth a hold, and offered up as the preferred swap victim.
+    // Millennium Falcon shipped that way, so Alien Swirling Saucers outranked
+    // it.
+    it('gives every Tier 1 experience a priority', () => {
+      const unranked = Object.entries(data.experiences)
+        .filter(
+          ([, exp]) => exp && exp.tier === 1 && exp.priority === undefined
+        )
+        .map(([id, exp]) => `${id} ${exp?.name}`);
+      expect(unranked).toEqual([]);
+    });
+
+    // One ride served under several facility ids -- a film rotation, a seasonal
+    // overlay -- must not change rank with the id, or the same queue is worth
+    // more on some days than others and can be swapped away on the rest.
+    //
+    // Same coordinates *and* the same average wait is the test for "one ride":
+    // the coordinates alone group Mission: SPACE with Living with the Land, and
+    // a genuine overlay that draws a different crowd earns a different rank
+    // honestly -- Jingle Cruise waits 53 minutes against Jungle Cruise's 37.
+    // Soarin's three films all wait 35, so they had no such excuse.
+    it('ranks one ride the same under every facility id it is served as', () => {
+      const groups = new Map<string, { name: string; priority?: number }[]>();
+      for (const exp of Object.values(data.experiences)) {
+        if (!exp?.geo || exp.avgWait === undefined) continue;
+        const key = `${exp.geo.join()}@${exp.avgWait}`;
+        groups.set(key, [
+          ...(groups.get(key) ?? []),
+          { name: exp.name, priority: exp.priority },
+        ]);
+      }
+      const inconsistent = [...groups]
+        .filter(([, v]) => new Set(v.map(e => e.priority)).size > 1)
+        .map(
+          ([key, v]) =>
+            `${key}: ${v.map(e => `${e.name}=${e.priority}`).join(', ')}`
+        );
+      expect(inconsistent).toEqual([]);
+    });
+
     it('puts every experience in a land belonging to its section park', () => {
       const wrong = [...sections].flatMap(([id, park]) => {
         const exp = data.experiences[id];

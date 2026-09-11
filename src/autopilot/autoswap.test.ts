@@ -50,7 +50,7 @@ function held(
   } as unknown as LLMP;
 }
 
-const incoming = (id: string, priority: number, tier?: number) =>
+const incoming = (id: string, priority?: number, tier?: number) =>
   ({ id, name: `Ride ${id}`, priority, tier, park: { id: 'p' } }) as never;
 
 const target = (rest: Partial<WatchTarget> = {}): WatchTarget => ({
@@ -149,11 +149,31 @@ describe('chooseSwapVictim()', () => {
     );
   });
 
-  it('treats a missing priority as worst', () => {
+  // Reversed deliberately. `comparePriority` sorts a missing priority last,
+  // which is right for attempt order and wrong here: an unranked reservation
+  // read as the worst thing held, and `Itinerary` synthesises an experience for
+  // an unknown facility id with neither `priority` nor `tier` -- so it also
+  // passed the non-Tier-1 preference above and became the ideal victim on both
+  // keys. A renamed id after a refurbishment, a new ride, or a seasonal overlay
+  // was enough. Refusing to rank it costs one swap; guessing costs a real
+  // reservation, and that is the trade this whole function is about.
+  it('never gives up a reservation the resort data does not rank', () => {
     const heldList = [held('ranked', 4.0), held('none', undefined)];
     expect(chooseSwapVictim(heldList, incoming('new', 1.0))?.facilityId).toBe(
-      'none'
+      'ranked'
     );
+  });
+
+  it('gives up nothing when the only worse reservation is unranked', () => {
+    const heldList = [held('better', 1.0), held('none', undefined)];
+    expect(chooseSwapVictim(heldList, incoming('new', 2.0))).toBeUndefined();
+  });
+
+  // The same rule from the other side, and already the behaviour: an incoming
+  // attraction with no rank cannot be shown to be an improvement, so it never
+  // costs anything held.
+  it('gives up nothing for an unranked incoming attraction', () => {
+    expect(chooseSwapVictim(full(), incoming('new'))).toBeUndefined();
   });
 
   it('handles an empty list', () => {
