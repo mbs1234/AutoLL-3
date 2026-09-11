@@ -15,6 +15,7 @@ import {
   offerIsAcceptable,
   shouldAttempt,
 } from './autobook';
+import { wholePartyEligible } from './party';
 import { WatchTarget } from './watchlist';
 
 const BZ = '80010114';
@@ -797,5 +798,142 @@ describe('AutoBookLedger shared locks', () => {
     ledger.adoptAttempted([`book:${BZ}`]);
     expect(ledger.hasAttempted(BZ)).toBe(true);
     expect(ledger.ownedKeys()).toEqual([]);
+  });
+});
+
+/**
+ * The offer's party, checked before committing.
+ *
+ * `guests` is the eligibility the caller's guards ran on -- a prediction. The
+ * offer is the commitment, and the two can disagree: Disney can return an offer
+ * covering three of five when eligibility said all five were fine. Checking only
+ * the prediction meant "whole party only" could still book the split party it
+ * exists to prevent.
+ */
+describe('attemptAutoBook() party re-check', () => {
+  const full = (): Guests => ({
+    eligible: [
+      { id: 'g1', name: 'A' },
+      { id: 'g2', name: 'B' },
+    ] as Guest[],
+    ineligible: [],
+  });
+  const partial = (): Guests => ({
+    eligible: [{ id: 'g1', name: 'A' }] as Guest[],
+    ineligible: [
+      { id: 'g2', name: 'B', ineligibleReason: 'TOO_EARLY' },
+    ] as Guest[],
+  });
+
+  /** An offer whose own party differs from the eligibility handed in. */
+  function offerWithParty(guests: Guests) {
+    return {
+      id: 'offer-1',
+      start: new DateTime(DATE, at(11)),
+      end: new DateTime(DATE, at(12)),
+      guests,
+      itinerary: [],
+    } as unknown as Offer<undefined>;
+  }
+
+  it('refuses to commit an offer that covers only part of the party', async () => {
+    const book = jest.fn();
+    const outcome = await attemptAutoBook(
+      { experienceId: BZ, autoBook: true },
+      experience,
+      {
+        createOffer: async () => offerWithParty(partial()),
+        book,
+        guests: full(),
+        ledger: new AutoBookLedger(),
+        partyIsAcceptable: wholePartyEligible,
+      }
+    );
+    expect(outcome).toEqual({ status: 'skipped', reason: 'partial-party' });
+    expect(book).not.toHaveBeenCalled();
+  });
+
+  it('commits when the offer covers the whole party', async () => {
+    const outcome = await attemptAutoBook(
+      { experienceId: BZ, autoBook: true },
+      experience,
+      {
+        createOffer: async () => offerWithParty(full()),
+        book: async () => ({}) as never,
+        guests: full(),
+        ledger: new AutoBookLedger(),
+        partyIsAcceptable: wholePartyEligible,
+      }
+    );
+    expect(outcome.status).toBe('booked');
+  });
+
+  // Refusing before the lock is taken matters: a skip must not retire the
+  // attraction for the session or charge the allowance.
+  it('takes no lock and no charge when it refuses', async () => {
+    const ledger = new AutoBookLedger();
+    await attemptAutoBook({ experienceId: BZ, autoBook: true }, experience, {
+      createOffer: async () => offerWithParty(partial()),
+      book: jest.fn(),
+      guests: full(),
+      ledger,
+      partyIsAcceptable: wholePartyEligible,
+    });
+    expect(ledger.hasAttempted(BZ)).toBe(false);
+    expect(ledger.remaining).toBe(DEFAULT_ACTIONS_PER_DAY);
+  });
+
+  it('commits a partial offer when the setting is off', async () => {
+    const outcome = await attemptAutoBook(
+      { experienceId: BZ, autoBook: true },
+      experience,
+      {
+        createOffer: async () => offerWithParty(partial()),
+        book: async () => ({}) as never,
+        guests: full(),
+        ledger: new AutoBookLedger(),
+      }
+    );
+    expect(outcome.status).toBe('booked');
+  });
+});
+
+/**
+ * The doubt-hold, and giving it back when there is nothing left to doubt.
+ *
+ * The lock is taken before the request goes out, because a timed-out booking may
+ * have succeeded. When the failure proves nothing was booked, keeping the charge
+ * spent a tenth of the default allowance on a booking that does not exist.
+ */
+describe('AutoBookLedger.resolveRejected()', () => {
+  it('gives back the charge for an attempt that never landed', () => {
+    const ledger = new AutoBookLedger(2);
+    ledger.markAttempted(BZ);
+    expect(ledger.remaining).toBe(1);
+    ledger.resolveRejected(BZ);
+    expect(ledger.remaining).toBe(2);
+  });
+
+  // Autopilot keeps one action per attraction per session; only NextLL retries.
+  it('keeps the attempt lock', () => {
+    const ledger = new AutoBookLedger(2);
+    ledger.markAttempted(BZ);
+    ledger.resolveRejected(BZ);
+    expect(ledger.hasAttempted(BZ)).toBe(true);
+  });
+
+  it('does nothing for an attraction with no hold', () => {
+    const ledger = new AutoBookLedger(2);
+    ledger.resolveRejected(BZ);
+    expect(ledger.remaining).toBe(2);
+  });
+
+  // A confirmed booking is a real charge, not a doubt.
+  it('does not refund a booking that confirmed', () => {
+    const ledger = new AutoBookLedger(2);
+    ledger.markAttempted(BZ);
+    ledger.markBooked(BZ);
+    ledger.resolveRejected(BZ);
+    expect(ledger.remaining).toBe(1);
   });
 });

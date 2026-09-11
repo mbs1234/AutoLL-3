@@ -1113,6 +1113,14 @@ export default function AutopilotProvider({
               guests,
               ledger: ledgerRef.current,
               clashes,
+              // Re-checked against the offer's own party. The guard above ran on
+              // the eligibility prediction, and Disney can return an offer
+              // covering fewer guests than that -- so "whole party only" could
+              // book the split party it exists to prevent. Read at call time, so
+              // switching the setting on while the offer is in flight counts.
+              partyIsAcceptable: offerGuests =>
+                !settingsRef.current.requireWholeParty ||
+                wholePartyEligible(offerGuests),
               // Last gate before the entitlement is spent: generating the
               // offer is another round trip, and every guard above it ran
               // before that.
@@ -1188,6 +1196,22 @@ export default function AutopilotProvider({
         // doubt-hold on a booking that may well exist. That inverts the rule
         // the ledger is built on -- mark before the request goes out, because a
         // timed-out request may have succeeded.
+        // A booking the request provably never made must not keep its charge on
+        // the day. `rejected` is exactly that proof -- Disney refusing the call,
+        // or our own limiter never sending it -- and the hold is only warranted
+        // while the outcome is unknown. Left on, a lost race spent a tenth of
+        // the default allowance on a booking that does not exist. Only `book`
+        // takes a hold, and the attempt lock stays: autopilot keeps one action
+        // per attraction per session either way.
+        if (
+          kind === 'book' &&
+          outcome.status === 'failed' &&
+          outcome.rejected &&
+          ledgerRef.current.hasAttempted(experience.id, kind)
+        ) {
+          ledgerRef.current.resolveRejected(experience.id);
+        }
+
         if (
           repeatMoves &&
           outcome.status === 'failed' &&
