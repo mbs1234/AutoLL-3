@@ -205,6 +205,17 @@ export class AutoBookLedger {
    * instance already decided was safe to retry.
    */
   protected released = new Set<string>();
+  /**
+   * Locks this instance took itself, as opposed to ones it adopted from
+   * storage because another tab or a nested provider holds them.
+   *
+   * `reset()` needs the distinction. Clearing this run's locks must clear the
+   * shared copy of the ones this instance put there, or the next
+   * `adoptAttempted` reads them straight back and the reset is a no-op -- but
+   * it must leave a lock another instance is genuinely holding alone, since
+   * that one is still true.
+   */
+  protected owned = new Set<string>();
 
   /**
    * @param budget         today's ceiling: the setting plus any refills granted.
@@ -215,12 +226,18 @@ export class AutoBookLedger {
    * @param onAttemptChange called whenever a lock is taken or released, so a
    *                       caller sharing this state across tabs can persist
    *                       and re-read it -- see `attemptedKeys`/`adoptAttempted`.
+   *                       Its argument lists keys to *remove* from the shared
+   *                       copy: adding is inferred from `attemptedKeys()`, but a
+   *                       release has to be stated, or a union-only write can
+   *                       never let one go.
    */
   constructor(
     protected budget = DEFAULT_ACTIONS_PER_DAY,
     protected carried = 0,
     protected readonly onSpend: (spent: number) => void = () => undefined,
-    protected readonly onAttemptChange: () => void = () => undefined
+    protected readonly onAttemptChange: (
+      released?: readonly string[]
+    ) => void = () => undefined
   ) {}
 
   /**
@@ -231,6 +248,15 @@ export class AutoBookLedger {
    */
   attemptedKeys(): string[] {
     return [...this.attempted];
+  }
+
+  /**
+   * The subset of `attemptedKeys()` this instance took itself.
+   *
+   * Only these are this instance's to withdraw from the shared copy.
+   */
+  ownedKeys(): string[] {
+    return [...this.owned];
   }
 
   /**
@@ -307,7 +333,13 @@ export class AutoBookLedger {
     kind: ActionKind = 'book',
     rehearsal = false
   ): void {
-    this.attempted.add(`${kind}:${experienceId}`);
+    const key = `${kind}:${experienceId}`;
+    // A key locked again after being released is no longer released: leaving it
+    // in the set would have `adoptAttempted` refuse to re-adopt this very lock,
+    // and would have the next write subtract it again.
+    this.released.delete(key);
+    this.attempted.add(key);
+    this.owned.add(key);
     this.onAttemptChange();
     if (kind !== 'book') return;
     // A dry run issues no request, so there is nothing to doubt and nothing to
@@ -328,9 +360,11 @@ export class AutoBookLedger {
    * available rather than oscillating.
    */
   releaseAttempt(experienceId: string, kind: ActionKind): void {
-    this.attempted.delete(`${kind}:${experienceId}`);
-    this.released.add(`${kind}:${experienceId}`);
-    this.onAttemptChange();
+    const key = `${kind}:${experienceId}`;
+    this.attempted.delete(key);
+    this.owned.delete(key);
+    this.released.add(key);
+    this.onAttemptChange([key]);
     // A book attempt also takes a doubt-hold against the allowance, on the
     // chance that a request whose outcome we never learned did succeed. This
     // is only ever called for one we did learn about -- Disney rejected it,
@@ -431,8 +465,14 @@ export class AutoBookLedger {
     this.confirmed.delete(experienceId);
     this.unresolved.delete(experienceId);
     this.attempted.delete(`book:${experienceId}`);
+    this.owned.delete(`book:${experienceId}`);
     this.released.add(`book:${experienceId}`);
     this.notify();
+    // A cancellation settled here is a release like any other, and it has to
+    // reach the shared copy. Without this the lock survives in storage and the
+    // next mount adopts it, so the rebooking this branch exists to permit
+    // never happens.
+    this.onAttemptChange([`book:${experienceId}`]);
   }
 
   /**
@@ -448,13 +488,21 @@ export class AutoBookLedger {
    */
   reset(): void {
     this.carried = this.spent;
+    // Withdraw only what this instance put there. Clearing `attempted` alone
+    // leaves the shared copy intact, and the first tick of the new run adopts
+    // it straight back -- which made this reset a no-op for any lock that had
+    // been persisted. A lock another instance holds is left alone: it is still
+    // true, and that instance is still the one to release it.
+    const mine = [...this.owned];
     this.attempted.clear();
+    this.owned.clear();
     this.unresolved.clear();
     this.absences.clear();
     this.confirmed.clear();
     this.rehearsed.clear();
     this.booked = 0;
     this.notify();
+    if (mine.length > 0) this.onAttemptChange(mine);
   }
 }
 
