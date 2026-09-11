@@ -28,8 +28,10 @@ import {
   DEFAULT_SETTINGS,
   loadBookingLog,
   loadBudget,
+  loadCommits,
   loadLocks,
   saveBudget,
+  saveCommit,
   saveLocks,
   saveSettings,
 } from '@/autopilot/storage';
@@ -2663,5 +2665,80 @@ describe('AutopilotProvider park-day rollover', () => {
     expect(loadBookingLog().length).toBeGreaterThan(0);
     await crossRollover();
     expect(loadBookingLog()).toEqual([]);
+  });
+});
+
+/**
+ * A booking another instance made moments ago.
+ *
+ * `avoidOverlaps` is checked against the plans this instance last polled plus the
+ * offer's own itinerary, and neither sees a commit from elsewhere: plans are
+ * refetched every tenth tick, and there are routinely two instances because
+ * NextLL nests an AutopilotProvider inside the app's own. So both could pass the
+ * overlap check against their own snapshot and commit clashing return times --
+ * the outcome the setting exists to prevent.
+ */
+describe('AutopilotProvider cross-instance overlaps', () => {
+  beforeEach(() => setTime('09:00'));
+
+  it('publishes the return time it commits', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book } = setupBooking({
+      experiences: [available(BZ, new ParkTime(11))],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(loadCommits()).toEqual([{ facilityId: BZ, time: '11:00:00' }]);
+  });
+
+  // The regression: another instance holds 11:00, and this one is asked to book
+  // a different attraction at a time inside that reservation's protected span.
+  it("refuses a time that clashes with another instance's booking", async () => {
+    saveCommit({ facilityId: DB, time: '11:00:00' });
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book } = setupBooking({
+      experiences: [available(BZ, new ParkTime(11, 20))],
+      offerHour: 11,
+    });
+    await enable();
+    await runTicks(3);
+    expect(book).not.toHaveBeenCalled();
+  });
+
+  it('books a time clear of it', async () => {
+    saveCommit({ facilityId: DB, time: '11:00:00' });
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book } = setupBooking({
+      experiences: [available(BZ, new ParkTime(19))],
+      offerHour: 19,
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+  });
+
+  it('ignores the record when clash avoidance is off', async () => {
+    saveCommit({ facilityId: DB, time: '11:00:00' });
+    saveSettings({ ...DEFAULT_SETTINGS, avoidOverlaps: false });
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book } = setupBooking({
+      experiences: [available(BZ, new ParkTime(11, 20))],
+      offerHour: 11,
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+  });
+
+  // A parsed plan carries an end time and gives the narrower, more accurate
+  // span, so it wins over a commit for the same attraction.
+  it('defers to plans once they have caught up', async () => {
+    saveCommit({ facilityId: BZ, time: '11:00:00' });
+    saveWatchList([{ experienceId: DB, autoBook: true }]);
+    const { book } = setupBooking({
+      experiences: [available(DB, new ParkTime(19))],
+      plans: [],
+      offerHour: 19,
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
   });
 });

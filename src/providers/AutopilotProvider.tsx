@@ -80,13 +80,16 @@ import {
 } from '@/autopilot/refusal';
 import { syncedParkTime } from '@/autopilot/schedule';
 import {
+  clearCommit,
   loadBookingLog,
   loadBudget,
+  loadCommits,
   loadLocks,
   loadSettings,
   sanitizeBudget,
   saveBookingLog,
   saveBudget,
+  saveCommit,
   saveLocks,
   saveSettings,
 } from '@/autopilot/storage';
@@ -750,6 +753,26 @@ export default function AutopilotProvider({
           ...(release ? { ignoreIds: [release.id] } : {}),
         });
         if (inPlans.length > 0) return true;
+        // Return times another instance has committed today but that this one's
+        // plans have not caught up with yet. Same reasoning as the offer's own
+        // itinerary below, across instances rather than across one round trip.
+        // Anything already in plans is skipped, since a parsed plan carries an
+        // end time and gives the narrower, more accurate span; these carry only
+        // a start, so they get the wider open-ended one.
+        if (forToday) {
+          const unseen = loadCommits()
+            .filter(
+              c =>
+                c.facilityId !== release?.facilityId &&
+                !currentPlans.some(p => p.facilityId === c.facilityId)
+            )
+            .map(c => ({
+              id: `commit:${c.facilityId}`,
+              facilityId: c.facilityId,
+              start: { date, time: ParkTime.from(c.time) },
+            })) as unknown as Booking[];
+          if (overlappingPlans(time, unseen, { date }).length > 0) return true;
+        }
         return !!itinerary?.some(
           item =>
             item.facilityId !== release?.facilityId &&
@@ -764,9 +787,16 @@ export default function AutopilotProvider({
       if (freshPlans) {
         const settled = freshPlans;
         for (const id of ledgerRef.current.attemptedBookIds) {
+          const stillHeld = !!findExistingLL(settled, id, date);
+          // The shared commit record exists only to cover the window between
+          // committing and plans catching up. Once a plans poll says the
+          // reservation is not there, that window is over: leaving the record
+          // would have it block the very rebooking this settle loop exists to
+          // permit, and a return time nobody holds is not something to protect.
+          if (!stillHeld) clearCommit(id);
           ledgerRef.current.resolveBook(
             id,
-            !!findExistingLL(settled, id, date),
+            stillHeld,
             // A redeemed or lapsed pass leaves plans looking exactly like a
             // cancelled one, and only the tracker can tell the two apart.
             forToday && ll.experienced({ id })
@@ -1286,6 +1316,19 @@ export default function AutopilotProvider({
           // be retried all afternoon.
           if (repeatMoves && outcome.status === 'modified') {
             ledgerRef.current.releaseAttempt(experience.id, 'modify');
+          }
+          // Publish the committed return time for any other instance to see.
+          // Plans are refetched every tenth tick, so without this a second tab
+          // or the provider NextLL nests inside this one could pass its own
+          // overlap check against a snapshot taken before this booking existed,
+          // and commit a return time that clashes with it.
+          if (forToday) {
+            saveCommit({
+              facilityId: experience.id,
+              time: String(
+                outcome.status === 'booked' ? outcome.returnTime : outcome.to
+              ),
+            });
           }
           // Any change shifts eligibility across every experience at once via
           // party, tier and overlap limits, so the whole cache is invalid.

@@ -10,18 +10,22 @@ import { setTime } from '@/testing';
 
 import {
   BUDGET_KEY,
+  COMMITS_KEY,
   DEFAULT_SETTINGS,
   LOCKS_KEY,
   LOG_KEY,
   LOG_LIMIT,
   SETTINGS_KEY,
+  clearCommit,
   loadBookingLog,
   loadBudget,
+  loadCommits,
   loadLocks,
   loadSettings,
   sanitizeBudget,
   saveBookingLog,
   saveBudget,
+  saveCommit,
   saveLocks,
   saveSettings,
 } from './storage';
@@ -318,5 +322,58 @@ describe("the day's action locks", () => {
   it('drops a key that is both held and released', () => {
     saveLocks(['book:A'], ['book:A']);
     expect(loadLocks()).toEqual([]);
+  });
+});
+
+describe("the day's committed return times", () => {
+  it('starts empty', () => {
+    expect(loadCommits()).toEqual([]);
+  });
+
+  it('round-trips a commit', () => {
+    saveCommit({ facilityId: 'a', time: '16:10:00' });
+    expect(loadCommits()).toEqual([{ facilityId: 'a', time: '16:10:00' }]);
+  });
+
+  it('keeps commits for other attractions', () => {
+    saveCommit({ facilityId: 'a', time: '16:10:00' });
+    saveCommit({ facilityId: 'b', time: '11:00:00' });
+    expect(
+      loadCommits()
+        .map(c => c.facilityId)
+        .sort()
+    ).toEqual(['a', 'b']);
+  });
+
+  // One reservation per attraction, so a move replaces rather than adds.
+  it('replaces an earlier commit for the same attraction', () => {
+    saveCommit({ facilityId: 'a', time: '16:10:00' });
+    saveCommit({ facilityId: 'a', time: '13:15:00' });
+    expect(loadCommits()).toEqual([{ facilityId: 'a', time: '13:15:00' }]);
+  });
+
+  it('forgets one that plans show is gone', () => {
+    saveCommit({ facilityId: 'a', time: '16:10:00' });
+    saveCommit({ facilityId: 'b', time: '11:00:00' });
+    clearCommit('a');
+    expect(loadCommits()).toEqual([{ facilityId: 'b', time: '11:00:00' }]);
+  });
+
+  it('discards malformed entries', () => {
+    kvdb.setDaily(COMMITS_KEY, [
+      { facilityId: 'a', time: '16:10:00' },
+      { facilityId: 'b' },
+      'nonsense',
+      null,
+    ]);
+    expect(loadCommits()).toEqual([{ facilityId: 'a', time: '16:10:00' }]);
+  });
+
+  it('ignores commits from another park day', () => {
+    kvdb.set(COMMITS_KEY, {
+      date: '2020-01-01',
+      value: [{ facilityId: 'a', time: '16:10:00' }],
+    });
+    expect(loadCommits()).toEqual([]);
   });
 });
