@@ -109,6 +109,47 @@ describe('TargetCard', () => {
     expect(handlers.setTargetRank).toHaveBeenCalledWith(BZ, 2);
   });
 
+  // Every keystroke used to reach the watch list the poller reads, so
+  // backspacing over "12" made the target rank 1 for a render, and clearing
+  // the field to retype deleted the rank outright. A burst tick is 1.2s.
+  describe('the plan rank field', () => {
+    const rank = () => screen.getByLabelText(`Plan rank for ${NAME}`);
+
+    it('commits a complete value', () => {
+      setup({ rank: 12 });
+      fireEvent.change(rank(), { target: { value: '2' } });
+      expect(handlers.setTargetRank).toHaveBeenCalledWith(BZ, 2);
+    });
+
+    it('does not clear the rank while the field is empty', () => {
+      setup({ rank: 12 });
+      fireEvent.change(rank(), { target: { value: '' } });
+      expect(handlers.setTargetRank).not.toHaveBeenCalled();
+      expect(rank()).toHaveValue(null);
+    });
+
+    it('clears it when the field is left empty', () => {
+      setup({ rank: 12 });
+      fireEvent.change(rank(), { target: { value: '' } });
+      fireEvent.blur(rank());
+      expect(handlers.setTargetRank).toHaveBeenCalledWith(BZ, undefined);
+    });
+
+    // `min={1}` is a spinner hint, not a constraint, and a rank of 0 or -5
+    // outranks everything armed.
+    it('refuses a rank below one', () => {
+      setup({ rank: 12 });
+      fireEvent.change(rank(), { target: { value: '0' } });
+      expect(handlers.setTargetRank).not.toHaveBeenCalled();
+    });
+
+    it('shows what was typed while it is uncommitted', () => {
+      setup({ rank: 12 });
+      fireEvent.change(rank(), { target: { value: '0' } });
+      expect(rank()).toHaveValue(0);
+    });
+  });
+
   it('shows the state each chip is in', () => {
     setup({ autoModify: true, autoSwap: true });
     expect(screen.getByTitle(`Stop auto-moving ${NAME}`)).toHaveTextContent(

@@ -63,6 +63,61 @@ function BoundInput({
 }
 
 /**
+ * The plan rank, held locally until it is worth acting on.
+ *
+ * The same problem `BoundInput` solves, on the field three lines below it.
+ * Every keystroke used to reach the watch list the running poller reads:
+ * backspacing over "12" passes through "1", and clearing the field to retype
+ * deletes the rank outright and falls back to the built-in priority. A tick
+ * landing in either gap -- 1.2 seconds apart in a drop burst -- reads the
+ * transient as the real plan, and `shouldHoldTierSlot` needs only one hit to
+ * act on it, so the day's Tier 1 slot could be held for the attraction being
+ * demoted.
+ *
+ * A value is committed when it is a whole number of at least 1, and an empty
+ * field only on blur. `min={1}` is a spinner hint, not a constraint: it does
+ * not stop "0" or "-5" being typed, and either outranks everything.
+ */
+function RankInput({
+  label,
+  value,
+  onCommit,
+}: {
+  label: string;
+  value: number | undefined;
+  onCommit: (rank: number | undefined) => void;
+}) {
+  const [draft, setDraft] = useState<string>();
+  return (
+    <input
+      type="number"
+      min={1}
+      step={1}
+      aria-label={label}
+      className="w-16 rounded-sm border border-gray-300 px-1 py-0.5"
+      value={draft ?? value ?? ''}
+      onChange={e => {
+        const next = e.target.value;
+        setDraft(next);
+        const rank = Number(next);
+        if (next === '' || !Number.isInteger(rank) || rank < 1) return;
+        onCommit(rank);
+      }}
+      onBlur={() => {
+        const next = draft;
+        setDraft(undefined);
+        if (next === undefined) return;
+        const rank = Number(next);
+        if (next === '' || !Number.isInteger(rank) || rank < 1) {
+          return onCommit(undefined);
+        }
+        onCommit(rank);
+      }}
+    />
+  );
+}
+
+/**
  * One watched attraction: a line that says what will happen, and the controls
  * underneath it, folded away.
  *
@@ -220,19 +275,10 @@ export default function TargetCard({
         </div>
         <label className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-600">
           Plan rank
-          <input
-            type="number"
-            min={1}
-            step={1}
-            aria-label={`Plan rank for ${name}`}
-            className="w-16 rounded-sm border border-gray-300 px-1 py-0.5"
-            value={t.rank ?? ''}
-            onChange={e =>
-              setTargetRank(
-                id,
-                e.target.value === '' ? undefined : Number(e.target.value)
-              )
-            }
+          <RankInput
+            label={`Plan rank for ${name}`}
+            value={t.rank}
+            onCommit={rank => setTargetRank(id, rank)}
           />
           <span className="basis-full text-xs">
             lower goes first; blank uses the built-in priority
