@@ -171,6 +171,42 @@ describe('bestCandidate()', () => {
   });
 });
 
+// The "Change attraction" search. The grid belongs to the attraction being
+// taken, so the reservation being given up is not a baseline to beat: giving
+// up a 10:05 Haunted Mansion for an afternoon TRON is the ordinary reason to
+// swap, and a `soonest` goal could never accept it.
+describe('bestCandidate() for a replacement', () => {
+  const replace = { kind: 'replace' } as const;
+
+  it('takes a later time than the reservation being replaced', () => {
+    expect(bestCandidate(replace, at(10, 5), grid([at(16), at(20)]))).toEqual(
+      at(16)
+    );
+  });
+
+  it('still prefers the earliest time on offer', () => {
+    expect(
+      bestCandidate(replace, at(10, 5), grid([at(20), at(14), at(16)]))
+    ).toEqual(at(14));
+  });
+
+  it('takes an earlier one just as happily', () => {
+    expect(bestCandidate(replace, at(15), grid([at(9)]))).toEqual(at(9));
+  });
+
+  it('reports nothing when the grid is empty', () => {
+    expect(bestCandidate(replace, at(10), [])).toBeUndefined();
+  });
+
+  it('skips a slot that was already declined', () => {
+    expect(
+      bestCandidate(replace, at(10), grid([at(16), at(18)]), {
+        exclude: new Set([+at(16)]),
+      })
+    ).toEqual(at(18));
+  });
+});
+
 describe('bestCandidate() with declined slots', () => {
   // `changeOfferTime` returns the nearest slot it can rather than refusing,
   // so a time the loop asked for and did not get must never be asked for

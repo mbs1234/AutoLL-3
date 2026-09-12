@@ -1,4 +1,4 @@
-import { use, useEffect, useRef, useState } from 'react';
+import { ReactNode, use, useEffect, useRef, useState } from 'react';
 
 import { Experience } from '@/api/ll';
 import {
@@ -10,7 +10,12 @@ import {
   loadPendingSearch,
   savePendingSearch,
 } from '@/autopilot/nextll';
-import { WatchTarget, parseBound, saveWatchList } from '@/autopilot/watchlist';
+import {
+  WatchTarget,
+  inWindow,
+  parseBound,
+  saveWatchList,
+} from '@/autopilot/watchlist';
 import Button from '@/components/Button';
 import Tab from '@/components/Tab';
 import { Time } from '@/components/Time';
@@ -40,6 +45,48 @@ export const NEXTLL = 'NextLL';
  * park, the booking date, the plans, the tipboard and the login.
  */
 export const NEXTLL_WATCHLIST_KEY = 'autoll3.nextll.watchlist';
+
+/**
+ * The window the search is aiming at, in words.
+ *
+ * Its own component, and it reads both bounds. The line used to render only
+ * when `before` was set, so a search asked for a return *after* a time said
+ * nothing about what it was aiming at -- on the one screen where a person
+ * typed the bound themselves and is standing there waiting for it.
+ */
+function GoalLine({ target }: { target: WatchTarget }) {
+  const { after, before } = target;
+  if (after && before) {
+    return (
+      <GoalText>
+        between <Time time={after} /> and <Time time={before} />
+      </GoalText>
+    );
+  }
+  if (after) {
+    return (
+      <GoalText>
+        at or after <Time time={after} />
+      </GoalText>
+    );
+  }
+  if (before) {
+    return (
+      <GoalText>
+        at or before <Time time={before} />
+      </GoalText>
+    );
+  }
+  return null;
+}
+
+function GoalText({ children }: { children: ReactNode }) {
+  return (
+    <p className="mt-1 text-sm text-gray-600">
+      Goal: a return time {children}.
+    </p>
+  );
+}
 
 export default function NextLLTab({ ref }: HomeTabProps) {
   return <NextLLChooser ref={ref} />;
@@ -154,8 +201,10 @@ export function NextLL({
     exp => exp.id === (target?.experienceId ?? choice)
   );
   const held = chosen && findExistingLL(plans, chosen.id, bookingDate);
-  const goalMet =
-    !!held && (!target?.before || +held.start.time <= +target.before);
+  // The engine's own predicate, not a second one. Reading `before` alone said
+  // "that will do" about a 9:40 return for a search asked to return after 3pm,
+  // and offered Done beside it.
+  const goalMet = !!held && (!target || inWindow(held.start.time, target));
 
   // `replaceTargets` rather than `addTarget`: this screen watches exactly one
   // attraction and names it, so a target from an earlier search must not
@@ -165,7 +214,16 @@ export function NextLL({
     const upper = parseBound(beforeText);
     const target: WatchTarget = {
       experienceId,
-      bookThenMove: true,
+      // Book-then-move strips the window while nothing is held, so the first
+      // offered time is booked and then walked earlier. That is coherent for
+      // an upper bound and incoherent for a lower one: a move only ever goes
+      // earlier, so a reservation booked below an "after" bound can never
+      // climb into the window. Asked to return after 3pm, it booked 9:40 and
+      // called the goal met. With a lower bound the window governs booking
+      // instead, and moving improves within it.
+      ...(lower
+        ? { autoBook: true, autoModify: true }
+        : { bookThenMove: true }),
       ...(lower ? { after: lower } : {}),
       ...(upper ? { before: upper } : {}),
       // Naming a time is the whole difference between this and an unattended
@@ -353,7 +411,7 @@ export function NextLL({
               {goalMet ? (
                 <span className="font-semibold"> &mdash; that will do.</span>
               ) : (
-                <> &mdash; still looking for something earlier.</>
+                <> &mdash; still looking for a time inside your window.</>
               )}
             </p>
           ) : (
@@ -380,11 +438,7 @@ export function NextLL({
             </p>
           )}
 
-          {target?.before && (
-            <p className="mt-1 text-sm text-gray-600">
-              Goal: a return time at or before <Time time={target.before} />.
-            </p>
-          )}
+          {target && <GoalLine target={target} />}
 
           {bookingDate !== parkDate() && (
             <p className="mt-1 text-sm text-gray-600">

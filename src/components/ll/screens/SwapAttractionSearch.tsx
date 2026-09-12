@@ -52,7 +52,10 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
   );
   const search = useTimeSearch({
     booking,
-    goal: { kind: 'soonest' },
+    // Not `soonest`: that measures the incoming attraction's times against
+    // the reservation being given up, so only a replacement at least five
+    // minutes earlier than it could ever be accepted.
+    goal: { kind: 'replace' },
     createOffer: held => {
       // An attraction removed from the current tipboard is never silently
       // replaced with the original attraction mid-search.
