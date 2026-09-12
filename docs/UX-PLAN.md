@@ -1,15 +1,20 @@
-# AutoLL-2 UI/UX plan
+# AutoLL-3 UI/UX plan
 
-Written 2026-09-07 against AutoLL-2 `d390133`. Inputs: the Codex UI/UX review
-of the same day (twelve suggestions), a line-by-line read of every screen it
-names, the 2026-09-07 session handoff, and the owner's decision of the same
-day to drop Disneyland and virtual-queue support from AutoLL-2. Phase 0a, the
-narrowing, landed the same day as `39b12b5`; Phase 0b, the harness and the
-shared primitives, followed it; Phase 1a, the cards and the colour policy
-inside the existing Autopilot screen, after that; and Phase 1b, the split into
-Today, Configure, Activity and Timeline with Today as a fifth tab, after that.
-Everything from Phase 2 on is the proposal for the owner to accept, trim, or
-reorder.
+Written 2026-09-07 against AutoLL-2 `d390133`, carried forward into AutoLL-3
+with the rest of the fork, and revised 2026-09-12 against the code as it
+stands here. The repository it describes is AutoLL-3: `package.json` names
+`autoll-3`, the storage namespace is `autoll3.*`, and the build is published
+at <https://mbs1234.github.io/AutoLL-3>. Inputs: the Codex UI/UX review of
+2026-09-07 (twelve suggestions), a line-by-line read of every screen it names,
+the 2026-09-07 session handoff, and the owner's decision of the same day to
+drop Disneyland and virtual-queue support. Phase 0a, the narrowing, landed the
+same day as `39b12b5`; Phase 0b, the harness and the shared primitives,
+followed it; Phase 1a, the cards and the colour policy inside the existing
+Autopilot screen, after that; and Phase 1b, the split into Today, Configure,
+Activity and Timeline with Today as a fifth tab, after that. Phases 2, 3, 4
+and 5 have landed since, each with gaps against what it proposed; every phase
+below ends with a dated note recording what actually shipped. What the
+2026-09-12 review found still outstanding is in §9.
 
 ## 0. Summary
 
@@ -108,10 +113,14 @@ From the handoff and from the code, none of them negotiable here:
 - Prettier is an eslint error. Nested ternaries in JSX go into maps or small
   components. `npm run lint:fix` before every commit.
 - `vite build` does not typecheck; `npm run checkall` is the gate.
-- AutoLL-2 is a Walt Disney World Lightning Lane client. No Disneyland, no
+- AutoLL-3 is a Walt Disney World Lightning Lane client. No Disneyland, no
   virtual queues, one destination on the start page. AutoLL keeps both.
-- All work lands in AutoLL-2. AutoLL is frozen. The settled constraints in the
-  handoff (sensor integration, Thrill Data tables, entitlement rules, git
+- All work lands in AutoLL-3. AutoLL-2 is the stable base and has to stay
+  where it is: `deploy.yml` checks out `mbs1234/AutoLL-2` at `goofy` for the
+  installer pages and at `gh-pages` for the runtime module, rewriting the
+  AutoLL-2 name in the copied assets, so that repository must keep existing
+  for AutoLL-3 to deploy at all. AutoLL is frozen. The settled constraints in
+  the handoff (sensor integration, Thrill Data tables, entitlement rules, git
   identity, release gate) are untouched by anything here.
 
 ## 4. Target structure
@@ -378,6 +387,38 @@ span), `DayTimeline.test.tsx` (taps call the handlers; band present).
 
 Size: about one session.
 
+**Landed 2026-09-10 (`c1870b9`, `aa83e10`), recorded here 2026-09-12, with
+three things still open.** `PlanCheckItem.subject` carries five variants, not
+the four above: `{ kind: 'targets' }` was added for "no saved targets for this
+park and date", which names no single target. `PlanCheck.tsx` has the outcome
+bar and a button on every item that has a subject. `TimelineLane` carries
+`protectedFrom` and `protectedTo`, `DayTimeline` draws the span as a lighter
+band behind the bar, both columns of bars are real buttons with names, and
+`Timeline.tsx` wires a target tap to Configure and a lane tap to Booking
+details.
+
+Still open:
+
+- The names still truncate. `DayTimeline` is a `3rem 1fr 1fr` grid and
+  `pack()` splits the Targets column again for every simultaneous bar, so at
+  360 px three full-day targets get about 50 px each and every name is cut.
+  What landed instead of a fix is a `title` tooltip, which a touchscreen never
+  shows, plus tap-through to the card. The Phase 0b finding this phase
+  inherited is unfixed.
+- No enlarged hit area. A bar's height is still its time extent floored by
+  `MIN_HEIGHT = 3` percent of a 480 px rail: about 14 px for a half-hour hold
+  and 20 px for an hour.
+- A `setting` subject opens Configure but nothing focuses the Settings
+  section. `Configure` accepts a `focus` prop of that kind and reads only
+  `focus.kind === 'target'`.
+
+Of the four test deliverables, only `plancheck.test.ts` gained anything, and
+that is one assertion on the `targets` subject. `PlanCheck.test.tsx` exists
+with nine cases, none of which touches the outcome bar, the per-item buttons
+or the navigation; `daytimeline.test.ts` never asserts `protectedFrom` or
+`protectedTo`; `DayTimeline.test.tsx` has no test for a tap or for the band.
+All three remain outstanding work.
+
 ### Phase 3: Time Search recovery and the shared status row
 
 Changes:
@@ -406,6 +447,27 @@ confirmed; cleared when it agrees), `TimeSearch.test.tsx`,
 
 Size: about one session.
 
+**Landed 2026-09-10 (`516a29c`, `ea9ebc2`), recorded here 2026-09-12, with two
+corrections.** `phase` is on `TimeSearchState`, the settling copy and the Open
+Plans / Keep waiting recovery are on `TimeSearch.tsx`, and the mirror and the
+footer row exist as `src/contexts/TopAutopilotContext.ts`,
+`src/providers/TopAutopilotProvider.tsx` and
+`src/components/ll/AutopilotStatusRow.tsx`, the last rendered by `Tab.tsx`.
+
+First correction: the bullet above has `startable` wrong.
+`CommitGuard.startable` in `src/autopilot/timesearch.ts` is
+`idle || awaiting`, and excludes `committing` deliberately: an awaiting move
+only needs Plans to catch up, but a committing request has left the device and
+must settle before anything else is offered. `phase !== 'unknown'` would offer
+Start while a modify request is in flight, which is the one thing the guard
+exists to prevent. The screen is stricter again and shows the fresh-search
+buttons only at `idle`.
+
+Second correction: `TimeSearch.test.tsx` was never written, and none of the
+scenarios listed for it has a component test. The hook tests for the phase
+field and `AutopilotStatusRow.test.tsx` did land. The component test remains
+outstanding, as it was in the handoff that first named it.
+
 ### Phase 4: pre-trip checklist and polish
 
 Changes:
@@ -427,6 +489,28 @@ for `lastUpdated`.
 
 Size: about one session.
 
+**Landed 2026-09-10 (`516a29c`, `aa83e10`), recorded here 2026-09-12, with four
+deviations.** `src/autopilot/checklist.ts` is pure and tested, and Today
+renders it under "Before your trip" whenever `bookingDate` is not the park
+date. `lastUpdated` is on both `ExperiencesContext` and `PlansContext` with
+provider tests, Today says how fresh the data is, and Configure has the filter
+box. The deviations:
+
+- Five of the eight listed steps shipped. Park and date chosen, windows set
+  where wanted, and unrecognised attraction IDs are absent. The last of those
+  is on Today as a standalone red paragraph outside the checklist, so it is
+  visible but is not a step with a route to fix it.
+- The action button renders only for a step that is not done, so a finished
+  step has no route back to review what was set.
+- The filter box filters the watched cards as well as the add list. On a
+  360 px phone that is arguably the better behaviour, since a long watch list
+  is what pushes the add list off the screen, but it is not what the plan
+  describes.
+- Pre-trip mode is the live screen plus a checklist, not a second mode. Only
+  the checklist section is gated on the date, so a date days away still shows
+  the status row, the latest-event line, held passes and next Book and Drop
+  times.
+
 ### Phase 5: review gate and release
 
 - Codex review round on the whole branch set, per the handoff: design review
@@ -439,44 +523,67 @@ Size: about one session.
   `events.ts`, `Today`, `Configure`. That is the reason Phase 1 keeps them out
   of `Autopilot.tsx`.
 
+**Landed 2026-09-11, at a different version and over more rounds.** The
+release went out at 0.4.0, not the 0.3.0 named above: 0.3.0 was spent by the
+auth-hardening commit `c3f2542` before this work was ready, so the roadmap
+merge `aa83e10` took 0.4.0. The review gate was not one round but several
+Codex rounds, merged as PRs #14 through #19, each merge followed by a
+successful `deploy.yml` run, the last of them on 2026-09-11. Park use waits on
+the December trip, and the port to AutoLL v1.1 has not happened: none of
+`Toggle`, `TargetCard`, `ContextStrip`, `describe.ts`, `events.ts`, `Today` or
+`Configure` exists in that repository yet.
+
 ## 6. Decisions for the owner
 
-1. **Today as a fifth tab** (recommended, subject to the 360 px check in the
-   harness) or only as the header button's destination.
-2. **Colour policy.** Proposed: armed actions on in a fixed blue
-   (`bg-blue-700`, which Passkey already uses); safeguards on in green; Dry run
-   stays yellow; Paused in amber; grey for off; red reserved for Turn off, Stop,
-   errors and blockers. Every chip keeps its "on/off" wording, so colour never
-   carries state alone.
+Six of the seven are settled by what shipped. One is still open.
+
+1. **Today as a fifth tab.** Adopted. `Home.tsx` lists five tabs and Today is
+   the first of them, so it is the fifth tab added rather than the fifth in
+   the bar; `HOME_TAB_KEY` makes it the default once it has been used, and the
+   header button opens it too.
+2. **Colour policy.** Adopted, and written down in
+   `src/components/toggleColors.ts`: actions `bg-blue-700`, safeguards
+   `bg-green-700`, dry run `bg-yellow-600`, paused `bg-amber-600`,
+   `bg-gray-200` for off, and red left to Turn off, Stop, errors and blockers.
+   Every chip still carries "on" or "off" in its text, so colour never carries
+   state alone.
 3. **Hoist NextLL's provider** to `Merlock` so a quick search survives a tab
-   switch, which is what would make item 7's banner true. Cost: two pollers
-   drawing on one `RateLimit(5)` while both run, and a second set of arming
-   rules to keep straight. Not in the phases above unless chosen.
-4. **Retire `DaySummary.tsx`** once Today covers it, or keep it as the
-   Timeline screen's shell.
-5. **Activity** as its own screen or as disclosures at the foot of Today.
-6. **Boarding groups in Plans.** Keep the read-only display of a boarding
-   group already in the itinerary (recommended: it is itinerary code, and
-   removing it touches the parser, two listing components and four suites), or
-   strip the `'BG'` booking type as well.
-7. **Start page wording.** "Walt Disney World: Lightning Lane" on the one
-   button, or just "Lightning Lane" under a Walt Disney World heading.
+   switch, which is what would make item 7's banner true. Still open, and more
+   interesting than it was. The cost is no longer only two pollers drawing on
+   one `RateLimit(5)`: `autobook.ts` now keeps a per-attraction action ledger
+   whose locks are persisted, adopted from other instances and released under
+   rules of their own, so a second running poller is something those locks
+   would have to arbitrate rather than merely a second claim on the budget.
+4. **Retire `DaySummary.tsx`.** Done. The file is gone and Today and Timeline
+   cover what it showed.
+5. **Activity** as its own screen. Done: `screens/Activity.tsx`.
+6. **Boarding groups in Plans.** Kept, as recommended. `'BG'` is still an
+   itinerary booking type and still renders read-only in `BookingListing.tsx`
+   and `BookingDetails.tsx`.
+7. **Start page wording.** One button and no heading, but worded "WDW -
+   Lightning Lane" rather than either option offered here. It lives on
+   AutoLL-2's `goofy` branch, and `deploy.yml` rewrites the AutoLL-2 name in
+   the copied assets at deploy time.
 
 ## 7. Risks
 
-- `Autopilot.test.tsx` is 956 lines and covers behaviour that moves between
-  two screens. Moving tests file by file and diffing the test count is the
-  mitigation; a lost assertion is the likely failure.
-- `Home.test.tsx` and `MultiPassList.test.tsx` are CI-excluded, so a broken
-  tab bar would not fail CI. Run `npm test` unfiltered for Phase 1b.
-- Five tabs at 360 px. Decided in the harness, not on a 390 px phone.
-- A colour change is a habit change. It lands months before the December
-  trip, and the chip wording is unchanged, so the cost is bounded.
+Four of the risks first listed here have gone. `Autopilot.test.tsx` was split
+in Phase 1b with its 81 tests re-homed across three suites and none lost. Five
+tabs at 360 px was settled in the harness and shipped. The colour change
+landed in Phase 1a with the chip wording unchanged and the December trip still
+months off. And the CI exclusion is gone: `jest.ci.config.js` was deleted,
+`npm run test:ci` is plain `jest --ci`, and it runs 108 suites and 1293 tests
+with `Home.test.tsx` and `MultiPassList.test.tsx` among them and passing, so
+`npm test` unfiltered and `npm run test:ci` now cover the same ground. What
+remains:
+
 - Any new effect-scoped state meets StrictMode's double mount; refs where it
   matters, as the provider and `useTimeSearch` already do.
 - Re-render cost from a 1.2 s tick across Today, Configure and a timeline;
   memoised derivations, and the harness's live scenario is where to watch for
-  jank.
+  jank. Partly addressed: `PlanCheck` memoises `checkPlan`, but `DayTimeline`
+  still calls `dayTimeline()` on every render, which §2 asked for a `useMemo`
+  around.
 - The narrowing in Phase 0a widens the gap to upstream `bg1`. Every later
   upstream merge meets modify-versus-delete conflicts on the removed paths.
   Acceptable for an experimental WDW-only build, and documented in `FORK.md`
@@ -494,3 +601,40 @@ touch; "suggest a safe window" on the timeline, deferred until the navigable
 timeline has been used in a park. The Disneyland Plan Check wording
 limitation formerly documented in `FORK.md#disneyland` is not fixed but
 removed, along with Disneyland.
+
+## 9. What the 2026-09-12 review found
+
+The UI-side items that review left outstanding, recorded here so they are not
+lost. They are candidates for a next phase, not decided work, and none of them
+has been scoped or costed.
+
+- **Names are cut off in the timeline.** Three target columns at 360 px leave
+  about 50 px a bar, and the `title` tooltip standing in for the name is inert
+  on a touchscreen. Carried from Phase 0b through Phase 2.
+- **Timeline bars are 14 to 20 px tall.** `MIN_HEIGHT` is 3 percent of a
+  480 px rail and the enlarged hit area Phase 2 proposed was never added.
+- **Plan Check's "Refresh LL list" gives no feedback.** `actOn` calls
+  `refreshExperiences()` and returns. The refresh does run through the
+  Experiences provider's `loadData`, but that provider's spinner and error
+  flash are rendered by `Today`, which `NavProvider` marks `hidden` while Plan
+  Check sits on top, so a tap produces no spinner, no error and nothing
+  visible until the item recomputes.
+- **Today's freshness line over-claims.** "Plans and LL availability are
+  current as of" is the older of the two `lastUpdated` values, but undefined
+  values are filtered out before the comparison, so one loaded context and one
+  that has never fetched reads as both being current.
+- **Configure can contradict its own heading.** "Watching (4)" counts
+  `targetsHere`, while the list under it is the watched targets intersected
+  with the loaded tipboard. An empty or not-yet-loaded tipboard gives "Nothing
+  selected yet. Pick attractions below." under a heading that says four.
+- **A protected band can bury the hold underneath it.** The band is a
+  full-width absolutely positioned div drawn per lane in start order, with no
+  `pointer-events-none`, so a later hold's band paints over an earlier
+  overlapping hold's button and takes its taps as well.
+- **The undo flash holds one removal.** `removed` on Configure is a single
+  state slot, so a second removal inside the undo window replaces the first
+  and the first target's undo is gone.
+- **The timeline's tooltips are in 24-hour time.** Every bar's `title` is
+  built from `ParkTime.toString()`, so the string a screen reader takes as the
+  description, and the only place the full name survives truncation, reads
+  "20:15:00" where the bar itself shows "8:15 PM" through `<Time>`.
