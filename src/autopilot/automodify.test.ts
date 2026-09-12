@@ -283,6 +283,74 @@ describe('attemptAutoModify()', () => {
 
   // The failure mode plain booking does not have: committing a modify offer
   // that came back later than what is already held would make the day worse.
+  // "Whole party only" promises autopilot "will not book, move, or swap
+  // unless everyone in your party is eligible". The re-check was wired to
+  // booking alone, so a move committed whatever party the offer came back
+  // with -- the split group the setting exists to prevent.
+  describe('party re-check', () => {
+    const splitOffer = () =>
+      jest.fn(async () => ({
+        ...offerAt(at(11)),
+        guests: { eligible: [guest('a')], ineligible: [guest('b')] } as Guests,
+      }));
+
+    it('refuses an offer that covers only part of the party', async () => {
+      const d = deps({
+        createModifyOffer: splitOffer(),
+        partyIsAcceptable: g => g.ineligible.length === 0,
+      });
+      const result = await attemptAutoModify(
+        target(),
+        experience,
+        existingLL(at(19)),
+        at(11),
+        d
+      );
+      expect(result).toEqual({ status: 'skipped', reason: 'partial-party' });
+      expect(d.book).not.toHaveBeenCalled();
+    });
+
+    it('takes no lock when it refuses', async () => {
+      const ledger = new AutoBookLedger();
+      await attemptAutoModify(
+        target(),
+        experience,
+        existingLL(at(19)),
+        at(11),
+        deps({
+          createModifyOffer: splitOffer(),
+          ledger,
+          partyIsAcceptable: g => g.ineligible.length === 0,
+        })
+      );
+      expect(ledger.hasAttempted(BZ, 'modify')).toBe(false);
+    });
+
+    it('moves when the offer covers the whole party', async () => {
+      const d = deps({ partyIsAcceptable: g => g.ineligible.length === 0 });
+      const result = await attemptAutoModify(
+        target(),
+        experience,
+        existingLL(at(19)),
+        at(11),
+        d
+      );
+      expect(result.status).toBe('modified');
+    });
+
+    it('moves a split party when the setting is off', async () => {
+      const d = deps({ createModifyOffer: splitOffer() });
+      const result = await attemptAutoModify(
+        target(),
+        experience,
+        existingLL(at(19)),
+        at(11),
+        d
+      );
+      expect(result.status).toBe('modified');
+    });
+  });
+
   it('never trades down when the offer comes back later', async () => {
     const d = deps({ createModifyOffer: jest.fn(async () => offerAt(at(21))) });
     const result = await attemptAutoModify(

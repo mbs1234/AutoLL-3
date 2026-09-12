@@ -48,6 +48,17 @@ export interface Experience {
   dropTimes?: ParkTime[];
   refillWindows?: RefillWindow[];
   highlight?: boolean;
+  /**
+   * Not in the curated data: synthesised from an itinerary item alone.
+   *
+   * A facility id this build does not know -- a re-theme, a new ride, a
+   * seasonal overlay -- still has to render in Plans, so `ItineraryClient`
+   * invents an experience for it with no `tier` and no `priority`. Nothing
+   * about it can be compared, which matters wherever a decision reads a rank:
+   * a missing priority sorts last, and "worst thing held" is exactly how a
+   * swap victim is picked.
+   */
+  unlisted?: true;
 }
 
 type ParkData = Omit<Park, 'dropTimes' | 'dropSchedule' | 'theme'>;

@@ -24,6 +24,7 @@ export type SwapSkipReason =
   | 'already-attempted'
   | 'budget-exhausted'
   | 'no-eligible-guests'
+  | 'partial-party'
   | 'overlaps-plans';
 
 export type SwapOutcome =
@@ -96,14 +97,19 @@ export function chooseSwapVictim(
     .filter(
       b =>
         b.modifiable &&
-        // An attraction the resort data does not rank cannot be compared, and
-        // `comparePriority` sorts a missing priority last -- so an unranked
-        // reservation read as the worst thing held. Worse, `Itinerary` synthesises
-        // an experience for an unknown facility id with neither `priority` nor
-        // `tier`, so it also passed the non-Tier-1 preference below: a renamed
-        // id, a new ride or a seasonal overlay produced the ideal swap victim.
-        // Refusing to rank it costs one swap; guessing costs the reservation.
-        b.experience.priority !== undefined &&
+        // A facility the resort data does not know at all is excluded.
+        // `Itinerary` synthesises an experience for one -- a re-theme, a new
+        // ride, a seasonal overlay -- with neither `priority` nor `tier`, so it
+        // sorted last on rank *and* passed the non-Tier-1 preference below: the
+        // ideal swap victim, built out of ignorance. Refusing to rank it costs
+        // one swap; guessing costs the reservation.
+        //
+        // An attraction the data does know and deliberately leaves unranked is
+        // the opposite case, and testing `priority !== undefined` conflated the
+        // two: it protected PhilharMagic, the Laugh Floor and the Tiki Room --
+        // twenty-six entries -- so a Big Thunder swap gave up Haunted Mansion
+        // and kept the five-minute show.
+        !b.experience.unlisted &&
         comparePriority(incoming, b.experience) < 0
     )
     .sort(
@@ -170,6 +176,19 @@ export interface AutoSwapDeps {
   ledger: AutoBookLedger;
   /** Optional; when it reports a clash, the swap is abandoned. */
   clashes?: ClashCheck;
+  /**
+   * Whether the party the offer actually covers is acceptable.
+   *
+   * The same re-check `attemptAutoBook` makes, for the same reason: the guards
+   * upstream run on a cached eligibility prediction, and Disney can return an
+   * offer covering fewer guests than that. It was wired to booking only, so
+   * "whole party only" -- whose own wording promises autopilot "will not book,
+   * move, or swap unless everyone in your party is eligible" -- let a move or a
+   * swap split the group it exists to keep together.
+   *
+   * Optional, and only passed when the setting is on.
+   */
+  partyIsAcceptable?: (guests: Guests) => boolean;
 }
 
 /**
@@ -185,7 +204,15 @@ export async function attemptAutoSwap(
   target: WatchTarget,
   incoming: OfferExperience,
   held: LLMP[],
-  { createSwapOffer, book, guests, ledger, clashes, stillWanted }: AutoSwapDeps
+  {
+    createSwapOffer,
+    book,
+    guests,
+    ledger,
+    clashes,
+    stillWanted,
+    partyIsAcceptable,
+  }: AutoSwapDeps
 ): Promise<SwapOutcome> {
   const allowed = shouldSwap(target, incoming, held, ledger);
   if (!allowed.ok) return { status: 'skipped', reason: allowed.reason };
@@ -198,6 +225,10 @@ export async function attemptAutoSwap(
     const offer = await createSwapOffer(incoming, guests.eligible, victim);
     if (offer.guests.eligible.length === 0) {
       return { status: 'skipped', reason: 'no-eligible-guests' };
+    }
+    // The party the offer would commit, not the eligibility the guards ran on.
+    if (partyIsAcceptable && !partyIsAcceptable(offer.guests)) {
+      return { status: 'skipped', reason: 'partial-party' };
     }
     if (!inWindow(offer.start.time, target)) {
       return { status: 'skipped', reason: 'offer-outside-window' };

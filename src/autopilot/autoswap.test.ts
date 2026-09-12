@@ -24,6 +24,8 @@ function held(
   priority: number | undefined,
   rest: {
     tier?: number;
+    /** As `ItineraryClient` builds one for a facility id the data lacks. */
+    unlisted?: true;
     modifiable?: boolean;
     time?: ParkTime;
     cancellable?: boolean;
@@ -38,7 +40,13 @@ function held(
     id: `ent-${id}`,
     facilityId: id,
     name: `Ride ${id}`,
-    experience: { id, name: `Ride ${id}`, priority, tier: rest.tier },
+    experience: {
+      id,
+      name: `Ride ${id}`,
+      priority,
+      tier: rest.tier,
+      ...(rest.unlisted ? { unlisted: true } : {}),
+    },
     start: new DateTime(DATE, time),
     end: new DateTime(DATE, time.add({ hours: 1 })),
     modifiable: rest.modifiable ?? true,
@@ -149,24 +157,49 @@ describe('chooseSwapVictim()', () => {
     );
   });
 
-  // Reversed deliberately. `comparePriority` sorts a missing priority last,
-  // which is right for attempt order and wrong here: an unranked reservation
-  // read as the worst thing held, and `Itinerary` synthesises an experience for
-  // an unknown facility id with neither `priority` nor `tier` -- so it also
-  // passed the non-Tier-1 preference above and became the ideal victim on both
-  // keys. A renamed id after a refurbishment, a new ride, or a seasonal overlay
-  // was enough. Refusing to rank it costs one swap; guessing costs a real
-  // reservation, and that is the trade this whole function is about.
-  it('never gives up a reservation the resort data does not rank', () => {
-    const heldList = [held('ranked', 4.0), held('none', undefined)];
+  // A facility the data does not know is synthesised from the itinerary alone,
+  // with neither `priority` nor `tier` -- so it sorted last on rank *and*
+  // passed the non-Tier-1 preference above, making it the ideal victim on both
+  // keys out of pure ignorance. A renamed id after a refurbishment, a new ride
+  // or a seasonal overlay was enough. Refusing to rank it costs one swap;
+  // guessing costs a real reservation.
+  it('never gives up a reservation the resort data does not know', () => {
+    const heldList = [
+      held('ranked', 4.0),
+      held('none', undefined, {
+        unlisted: true,
+      }),
+    ];
     expect(chooseSwapVictim(heldList, incoming('new', 1.0))?.facilityId).toBe(
       'ranked'
     );
   });
 
-  it('gives up nothing when the only worse reservation is unranked', () => {
-    const heldList = [held('better', 1.0), held('none', undefined)];
+  it('gives up nothing when the only worse one is unknown to the data', () => {
+    const heldList = [
+      held('better', 1.0),
+      held('none', undefined, { unlisted: true }),
+    ];
     expect(chooseSwapVictim(heldList, incoming('new', 2.0))).toBeUndefined();
+  });
+
+  // The case the `priority !== undefined` guard swept up with it. Twenty-six
+  // attractions the data knows carry no priority on purpose -- PhilharMagic,
+  // the Laugh Floor, the Tiki Room -- and they are precisely what a swap
+  // should give up. Protecting them made a Big Thunder swap surrender Haunted
+  // Mansion and keep the five-minute show.
+  it('gives up a known attraction the data leaves unranked', () => {
+    const heldList = [held('philharmagic', undefined), held('mansion', 2.0)];
+    expect(chooseSwapVictim(heldList, incoming('new', 1.0))?.facilityId).toBe(
+      'philharmagic'
+    );
+  });
+
+  it('prefers it over a ranked Tier 2 even when that ranks worse', () => {
+    const heldList = [held('philharmagic', undefined), held('pirates', 4.5)];
+    expect(chooseSwapVictim(heldList, incoming('new', 1.0))?.facilityId).toBe(
+      'philharmagic'
+    );
   });
 
   // The same rule from the other side, and already the behaviour: an incoming
@@ -351,6 +384,71 @@ describe('attemptAutoSwap()', () => {
       status: 'skipped',
       reason: 'no-eligible-guests',
     });
+  });
+});
+
+// "Whole party only" promises autopilot "will not book, move, or swap unless
+// everyone in your party is eligible". The re-check was wired to booking
+// alone, so a swap committed whatever party the offer came back with -- and a
+// swap spends a reservation the party already held to do it.
+describe('attemptAutoSwap() party re-check', () => {
+  const splitOffer = () =>
+    jest.fn(async () => ({
+      ...offerAt(at(11)),
+      guests: { eligible: [guest('a')], ineligible: [guest('b')] } as Guests,
+    }));
+
+  it('refuses an offer that covers only part of the party', async () => {
+    const d = deps({
+      createSwapOffer: splitOffer(),
+      partyIsAcceptable: g => g.ineligible.length === 0,
+    });
+    const result = await attemptAutoSwap(
+      target(),
+      incoming('new', 1.0),
+      full(),
+      d
+    );
+    expect(result).toEqual({ status: 'skipped', reason: 'partial-party' });
+    expect(d.book).not.toHaveBeenCalled();
+  });
+
+  it('gives up nothing and takes no lock when it refuses', async () => {
+    const ledger = new AutoBookLedger();
+    await attemptAutoSwap(
+      target(),
+      incoming('new', 1.0),
+      full(),
+      deps({
+        createSwapOffer: splitOffer(),
+        ledger,
+        partyIsAcceptable: g => g.ineligible.length === 0,
+      })
+    );
+    expect(ledger.hasAttempted('new', 'swap')).toBe(false);
+    expect(ledger.bookedCount).toBe(0);
+  });
+
+  it('swaps when the offer covers the whole party', async () => {
+    const d = deps({ partyIsAcceptable: g => g.ineligible.length === 0 });
+    const result = await attemptAutoSwap(
+      target(),
+      incoming('new', 1.0),
+      full(),
+      d
+    );
+    expect(result.status).toBe('swapped');
+  });
+
+  it('swaps a split party when the setting is off', async () => {
+    const d = deps({ createSwapOffer: splitOffer() });
+    const result = await attemptAutoSwap(
+      target(),
+      incoming('new', 1.0),
+      full(),
+      d
+    );
+    expect(result.status).toBe('swapped');
   });
 });
 
