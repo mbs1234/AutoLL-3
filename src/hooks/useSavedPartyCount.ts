@@ -1,6 +1,4 @@
-import kvdb from '@/kvdb';
-
-import { PARTY_IDS_KEY } from './useSavedParty';
+import { loadSavedPartyIds } from '@/savedParty';
 
 /**
  * How many guests the saved party holds, without applying it.
@@ -14,6 +12,5 @@ import { PARTY_IDS_KEY } from './useSavedParty';
  * different screen in the same document, and no event announces that.
  */
 export default function useSavedPartyCount(): number {
-  const ids = kvdb.get<string[]>(PARTY_IDS_KEY);
-  return Array.isArray(ids) ? ids.length : 0;
+  return loadSavedPartyIds().length;
 }

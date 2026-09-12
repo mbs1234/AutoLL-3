@@ -2,15 +2,13 @@ import { use, useCallback, useEffect, useState } from 'react';
 
 import ClientsContext from '@/contexts/ClientsContext';
 import kvdb from '@/kvdb';
+import { PARTY_IDS_KEY, loadSavedPartyIds } from '@/savedParty';
 
-export const PARTY_IDS_KEY = 'autoll3.genie.partyIds';
+export { PARTY_IDS_KEY };
 
 export default function useSavedParty() {
   const { ll } = use(ClientsContext);
-  const [partyIds, setPartyIds] = useState(() => {
-    const partyIds = kvdb.get<string[]>(PARTY_IDS_KEY) ?? [];
-    return new Set(Array.isArray(partyIds) ? partyIds : []);
-  });
+  const [partyIds, setPartyIds] = useState(() => new Set(loadSavedPartyIds()));
 
   useEffect(() => ll.setPartyIds([...partyIds]), [ll, partyIds]);
 
