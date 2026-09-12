@@ -14,7 +14,22 @@ import { ParkTime } from '@/datetime';
  *   direction to get closer to it. That is only expressible against the full
  *   grid from `ll.times()`, which is why it lives here.
  */
-export type SearchGoal = { kind: 'soonest' } | { kind: 'at'; target: ParkTime };
+export type SearchGoal =
+  | { kind: 'soonest' }
+  | { kind: 'at'; target: ParkTime }
+  /**
+   * The earliest time on offer for a *different* attraction.
+   *
+   * A swap has no baseline to beat: the grid belongs to the attraction being
+   * taken, not the one being given up, so measuring a candidate against the
+   * held reservation compares two different queues. Done that way -- the
+   * "Change attraction" screen passed `soonest` -- a replacement had to be at
+   * least five minutes earlier than the reservation being replaced, which is
+   * the opposite of why anyone swaps: you give up a good early slot for a
+   * headliner later in the day. Every offered time is a candidate here, and
+   * `confirmEveryMove` is what stands between the search and a commitment.
+   */
+  | { kind: 'replace' };
 
 /**
  * The smallest move worth making, in minutes.
@@ -31,9 +46,7 @@ export const GOAL_TOLERANCE_MINUTES = 5;
 
 /** Distance from a goal, in minutes. Lower is better; 0 is exact. */
 export function distance(goal: SearchGoal, time: ParkTime): number {
-  return goal.kind === 'soonest'
-    ? +time / 60
-    : Math.abs(+time - +goal.target) / 60;
+  return goal.kind === 'at' ? Math.abs(+time - +goal.target) / 60 : +time / 60;
 }
 
 /** Whether `time` is close enough to stop searching. */
@@ -81,7 +94,10 @@ export function bestCandidate(
     exclude,
   }: { minGainMinutes?: number; exclude?: ReadonlySet<number> } = {}
 ): ParkTime | undefined {
-  const held = distance(goal, current);
+  // A replacement is measured against nothing: `current` belongs to the
+  // attraction being given up, and an infinite baseline is what makes every
+  // offered time for the incoming one a candidate.
+  const held = goal.kind === 'replace' ? Infinity : distance(goal, current);
   let best: ParkTime | undefined;
   let bestDistance = held;
   for (const time of candidates(times)) {

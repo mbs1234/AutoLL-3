@@ -139,6 +139,22 @@ describe('useTimeSearch', () => {
     expect(result.current.moves).toBe(0);
   });
 
+  // The "Change attraction" search. Its grid belongs to the attraction being
+  // taken, so the reservation being given up is no baseline: a `soonest` goal
+  // refused every afternoon slot for TRON against a 10:05 Haunted Mansion and
+  // reported that no replacement existed.
+  it('offers a replacement later than the reservation being given up', async () => {
+    const { result } = setup({
+      goal: { kind: 'replace' },
+      held: at(10, 5),
+      times: [[at(16)]],
+      confirmEveryMove: true,
+    });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.pending).toBeDefined());
+    expect(`${result.current.pending}`).toBe('16:00:00');
+  });
+
   it('requires approval even for an earlier replacement when requested', async () => {
     const { result, deps } = setup({ confirmEveryMove: true });
     act(() => result.current.start());

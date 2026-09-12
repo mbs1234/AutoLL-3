@@ -286,8 +286,7 @@ describe('NextLL', () => {
   });
 
   // The state that made this worth a message: something is held, so the
-  // reassuring "still looking for something earlier" line renders, and the
-  // loop behind it is dead.
+  // reassuring "still looking" line renders, and the loop behind it is dead.
   it('says so even while it is holding something', () => {
     setup({
       enabled: true,
@@ -296,7 +295,7 @@ describe('NextLL', () => {
       targets: [{ experienceId: BZ, before: new ParkTime(13) }],
     });
     expect(
-      screen.getByText(/still looking for something earlier/)
+      screen.getByText(/still looking for a time inside your window/)
     ).toBeVisible();
     expect(screen.getByText(/Stopped after 8 failed checks/)).toBeVisible();
   });
@@ -309,7 +308,7 @@ describe('NextLL', () => {
       targets: [{ experienceId: BZ, before: new ParkTime(13) }],
     });
     expect(
-      screen.getByText(/still looking for something earlier/)
+      screen.getByText(/still looking for a time inside your window/)
     ).toBeVisible();
   });
 
@@ -549,12 +548,70 @@ describe('NextLL aiming at a particular time', () => {
     expect(replaceTargets).toHaveBeenCalledWith([
       {
         experienceId: BZ,
-        bookThenMove: true,
+        // Not book-then-move: that strips the window to hold *something*
+        // first, and a move only ever goes earlier, so a reservation booked
+        // below the lower bound could never climb into it.
+        autoBook: true,
+        autoModify: true,
         after: new ParkTime(10, 45),
         before: new ParkTime(11, 15),
         minImprovementMinutes: MIN_TARGETED_IMPROVEMENT_MINUTES,
       },
     ]);
+  });
+
+  // The park failure this replaces: asked to return after 3pm, the search
+  // booked 9:40 -- book-then-move strips the window while nothing is held --
+  // and then called the goal met, because "met" read the upper bound only.
+  it('does not book-then-move when only a lower bound is named', () => {
+    const { replaceTargets } = setup();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: BZ } });
+    fireEvent.change(screen.getByLabelText('Earliest acceptable return time'), {
+      target: { value: '15:00' },
+    });
+    fireEvent.click(screen.getByText('Find it'));
+    expect(replaceTargets).toHaveBeenCalledWith([
+      {
+        experienceId: BZ,
+        autoBook: true,
+        autoModify: true,
+        after: new ParkTime(15),
+        minImprovementMinutes: MIN_TARGETED_IMPROVEMENT_MINUTES,
+      },
+    ]);
+  });
+
+  it('is still looking when what it holds is outside the window', () => {
+    setup({
+      enabled: true,
+      status: RUNNING,
+      plans: [heldAt(9)],
+      targets: [{ experienceId: BZ, after: new ParkTime(15) }],
+    });
+    expect(
+      screen.getByText(/still looking for a time inside your window/)
+    ).toBeVisible();
+    expect(screen.getByText('Stop looking')).toBeVisible();
+  });
+
+  it('says a time inside the window will do', () => {
+    setup({
+      enabled: true,
+      status: RUNNING,
+      plans: [heldAt(16)],
+      targets: [{ experienceId: BZ, after: new ParkTime(15) }],
+    });
+    expect(screen.getByText(/that will do/)).toBeVisible();
+    expect(screen.getByText('Done')).toBeVisible();
+  });
+
+  it('names a lower bound in the goal line', () => {
+    setup({
+      enabled: true,
+      status: RUNNING,
+      targets: [{ experienceId: BZ, after: new ParkTime(15) }],
+    });
+    expect(screen.getByText(/Goal: a return time at or after/)).toBeVisible();
   });
 
   // No bound named means no time named, so the unattended rule stands: this
