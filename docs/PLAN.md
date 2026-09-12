@@ -17,10 +17,25 @@ and deliberately absent here. This document is about making the booker smarter.
 
 ## Status
 
-This plan was written for the `mbs1234/bg1` fork. That work now lives in
-**AutoLL**, merged onto [jgeurts/bg1](https://github.com/jgeurts/bg1) so that
-Lightning Lane booking works; see FORK.md, "Booking". Section numbers below are
-unchanged.
+This plan was written for the `mbs1234/bg1` fork. That work now lands in
+**AutoLL-3** ([mbs1234/AutoLL-3](https://github.com/mbs1234/AutoLL-3)), which
+is AutoLL-2's `main` at `650a108` plus everything since. **AutoLL-2** is the
+stable base: AutoLL-3's deploy builds `main` from this repository and overlays
+the static site from `mbs1234/AutoLL-2@goofy` and the runtime module from
+`mbs1234/AutoLL-2@gh-pages` (`.github/workflows/deploy.yml`). **AutoLL** is
+frozen at v1.0. The inherited reason Lightning Lane booking works at all is
+unchanged; see FORK.md, "Booking". Section numbers below are unchanged.
+
+A 59-agent review on 2026-09-12 produced the corrections recorded in this
+section, and the fixes for its highest-severity findings landed the same day:
+the saved party never reached the LL client, so autopilot booked for every
+eligible guest on the account (`08a7f40`); shared action locks and committed
+return times could never be released, so a refused request or a completed move
+went on blocking an attraction for the rest of the park day (`2cbf82c`);
+`chooseSwapVictim` protected every attraction the data deliberately leaves
+unranked, and "whole party only" guarded booking but neither move nor swap
+(`157ea7f`); and both NextLL searches judged their results by a rule that was
+not the user's (`bfc6b43`).
 
 **Landed:** all of Phase 0 (§3) and all of Phase 1 (§4).
 
@@ -78,13 +93,95 @@ obvious guard deadlocks — the hold avoids deadlock only because the better
 attraction has a drop still ahead _today_, and a date a week out has no such
 clock. Left as is by decision, 2026-09-05.
 
-**Landed since this plan was written:** P2.1 (two-minute burst lead), P2.2
-(target-scoped refill windows), and P2.3 (demotion after safely observed
-non-firing schedules).
+**Phase 2–5, item by item.** Each status below was verified against the tree at
+this commit on 2026-09-12.
 
-**Outstanding:** the remaining Phase 2–5 items (§5–§8). Section numbers below are unchanged, so an
-item still described in the present tense there and not listed as landed above
-has not been built.
+Phase 2 (§5):
+
+- **P2.1** landed. Burst lead widened to two minutes.
+- **P2.2** landed. Refill windows are a target kind, scoped to watched
+  attractions.
+- **P2.3** plumbed but **inert**, and previously recorded here as landed, which
+  was wrong. `DEMOTION_ENABLED = false` (`autopilot/learned.ts:51`) and
+  `activeScheduledDropTimes` makes the whole rule conditional on it
+  (`learned.ts:110-135`, the `enabled &&` conjunct at `:128`), so nothing has
+  ever been demoted. Evidence is still gathered and still shown on the Activity
+  screen. Re-enabling waits on coverage being recorded per scheduled drop time
+  rather than per park day, so both counts derive from the same evidence
+  (`learned.ts:48-49`).
+- **P2.4** landed. `TOMORROW_INTERVAL_MS` is 15s (`autopilot/schedule.ts:64-70`)
+  and `cadence()` returns approach cadence between 07:00 and 22:00 when the
+  watched date is tomorrow (`schedule.ts:159-161`), with a test.
+- **P2.5** half landed, as described above: the `hasUpcomingDrop` horizon is in,
+  the party-night date table is declined by decision.
+- **P2.6** not started. No crowd-level qualifier is carried in the data and
+  there is no busy-day toggle.
+- **P2.7** not started. `dropTimes` is still an undifferentiated union.
+- **P2.8** landed. `detectReopenings` (`autopilot/observe.ts:105-128`) requires
+  standby to be open again rather than only the down flag to clear, and feeds
+  the alert path alone (`providers/AutopilotProvider.tsx:656`, `:666-674`).
+- **P2.9** not started. Learning still requires two distinct park days.
+
+Phase 3 (§6):
+
+- **P3.1** **partly** landed. The `passkey` flag on `WatchTarget`
+  (`autopilot/watchlist.ts:40`) and the tap-in detector (`autopilot/passkey.ts`,
+  `tierLimitLifted`, wired at `providers/AutopilotProvider.tsx:1418-1493`) are
+  built, and the detector uses the authoritative signal the item named. The
+  selector is not: the user marks one target by hand, and the flag only
+  reorders hits that already matched the watch list
+  (`autopilot/priority.ts:52-54`). Nothing books the earliest-returning eligible
+  non-Tier-1 regardless of rank.
+- **P3.2** display half landed — `nextBookTime` is shown on Today
+  (`components/ll/screens/Today.tsx:300-315`) and in `TimeBanner`. The cascade
+  model remains refuted; one of the reasons given for refuting it was wrong
+  about the code and is corrected in §6 below.
+- **P3.3** not started.
+- **P3.4** not started. Both codes exist only as members of the
+  `IneligibleReason` union (`api/ll.ts:117`, `:122`).
+- **P3.5** **built differently**, with a consequence recorded in §6 below: the
+  dead return is gone and the bundle fetch and divergence warning exist, but the
+  fetch is gated so that it never runs on an ordinary day-of poll.
+- **P3.6** not started. No per-attraction reclaimability data exists.
+
+Phase 4 (§7):
+
+- **P4.1** partly landed. `WatchTarget` now carries `parkId`, `date` and a
+  per-user `rank` (`autopilot/watchlist.ts:34-38`), and `rank` feeds both
+  `orderByPriority` and `shouldHoldTierSlot` (`autopilot/priority.ts:55`,
+  `:96-101`) — the booking-correctness half the item argued for. Targets are
+  still added from a loaded tipboard, so planning offline is still not possible.
+- **P4.2** landed. Only the Tier 1 hold is gated `forToday`
+  (`providers/AutopilotProvider.tsx:609`, `:1121`); the book, move and swap
+  paths act on whatever date is selected, and the poller drops to its slow rate
+  for a future date (`:1544-1558`).
+- **P4.3** not started.
+- **P4.4** landed. Skip reasons render as sentences (`autopilot/events.ts`,
+  including the tier-hold counterfactual) under "Why nothing was booked"
+  (`components/ll/screens/Activity.tsx:142`), and armed targets describe
+  themselves in `autopilot/describe.ts`.
+- **P4.5** partly landed. The next drop is shown as a time rather than a
+  countdown (`components/ll/screens/Today.tsx:300-315`), and the AudioContext
+  chime exists for alerts (`autopilot/alert.ts`) but not as a T−60s pre-drop
+  cue.
+- **P4.6** landed. `components/ll/screens/Today.tsx:331-341` renders "grace scan
+  until" at the window end plus 119 minutes.
+- **P4.7** cheap half landed. Watched targets absent from today's tipboard are
+  collected (`components/ll/screens/Configure.tsx:141-148`) and rendered as a
+  "Not on today's list" group (`:220-245`). No alias table.
+- **P4.8** not started. `requireWholeParty` is still one global setting.
+- **P4.9** landed. Today, Timeline and `components/ll/DayTimeline.tsx` give the
+  day on one screen.
+
+Phase 5 (§8):
+
+- Live standby in the ranking: not started. `comparePriority` still breaks ties
+  on the static `avgWait` (`autopilot/priority.ts:34`), and `LiveDataClient` is
+  used only for show times.
+
+**How to read §5–§8.** Those sections are the original proposals and are still
+written in the present tense throughout, including for work that has since been
+built. They are the reasoning, not the status. The list above is the status.
 
 ---
 
@@ -219,6 +316,11 @@ and the badge.
 
 ### 3.2 Priority corrections that survived verification
 
+> **The "Now" column is historical.** It was written against `d8dd6c5` and
+> describes almost none of these rows as they ship today — several moved twice,
+> once by an upstream data merge and once back. It is kept because the "Why"
+> column argues from it. For what ships, read the summary under the table.
+
 | Attraction                                | Now               | To                                 | Why                                                                                                                                                                                                                                                                                               |
 | ----------------------------------------- | ----------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Big Thunder Mountain Railroad** (MK T1) | 2.3, no `avgWait` | **1.0** + `avgWait` from real data | Hardest MK Tier 1 since reopening: gone 8:47am (May) and 9:07am (Jul) vs Tiana's ~11am. At 2.3 it ranks below Haunted Mansion and Pirates, `chooseSwapVictim` refuses to swap it in, and — worse — `shouldHoldTierSlot` actively **skips an available Big Thunder to hold the slot for Tiana's**. |
@@ -232,6 +334,19 @@ and the badge.
 | **New RnRC Muppets**                      | —                 | 1.1, `avgWait` ~59                 | Thrill Data: sells out 3:18pm / 59 min vs Runaway Railway 6:10pm / 47 min.                                                                                                                                                                                                                        |
 | **New Soarin' Across America**            | —                 | 1.3                                | #1 Tier 2 in all of WDW. Must outrank Mission: SPACE (2.0 → 2.1).                                                                                                                                                                                                                                 |
 | **New Disney Jr. Clubhouse**              | —                 | unranked                           | Sorts last; its value is as a passkey, not a rank.                                                                                                                                                                                                                                                |
+
+**As shipped, 2026-09-12.** All three new facility ids from §1 are present.
+Landed as asked: Big Thunder at priority 1 with `avgWait` 33, Buzz Lightyear at
+1.2 with `avgWait` 37, Winnie the Pooh at 1.3, Expedition Everest at 3.1. Fixed
+today, having been reverted by the upstream data merge: Kilimanjaro Safaris to 3
+from 4, and Zootopia to 3.2 from no rank at all. Kali River Rapids moved today
+to 3.3, so that both Animal Kingdom headliners outrank it. Shipped differently
+from what the table asks: Little Mermaid is unranked rather than 4.0, the new
+Rock 'n' Roller Coaster Muppets id sits at 1.2 with `avgWait` 61 rather than
+1.1, and the new Soarin' id at 2 rather than 1.3, holding the value the ride
+already had. Peter Pan's Flight is at 2.1 rather than the 1.2 proposed here: the
+tie the renumbering existed to break was removed another way, by Jingle Cruise
+going to 1.1 while Big Thunder took 1.
 
 ### 3.3 Land corrections — a real bug
 
@@ -254,7 +369,14 @@ day.**
 - **Do not seed Big Thunder drop times** from pre-closure 2024 evidence. Every
   current source says "no predictable drop times" post-reopening, and
   `park.dropTimes` is the union of every experience's — fabricated entries make
-  the poller burst at 1.2s when nothing drops.
+  the poller burst at 1.2s when nothing drops. _They had been seeded anyway:
+  `['08:47','13:47']` arrived with the same upstream data merge, and on top of
+  the wasted burst gave Big Thunder an "upcoming drop" that had
+  `shouldHoldTierSlot` decline an offered Tiana's or Jingle Cruise to keep the
+  Tier 1 slot free for it. Removed 2026-09-12. The prohibition is now enforced
+  rather than conventional: a comment in `api/data/wdw.ts` says why the field is
+  absent, and the test `Big Thunder drop times, as shipped`
+  (`autopilot/priority.test.ts:464`) asserts it stays absent._
 - The nine existing entries are correct. Keep rejecting the viral "1:02 PM mega
   drop," which traces to a single tweet.
 
@@ -266,6 +388,9 @@ day.**
 - **Do not** add "every `tier: 1` has a numeric priority and `avgWait`" — it
   fails on Big Thunder's missing `avgWait`, would force a fabricated number,
   and forbids upstream's deliberate removal of Space Mountain's priority.
+  _Half of this was overridden on 2026-09-12; see §9.11 for the reasoning. The
+  priority half now ships as a test (`api/resortData.test.ts:80`). The `avgWait`
+  half is still refused._
 
 ---
 
@@ -450,14 +575,29 @@ already fetches via `GuestCache`. Because the gate is per-guest, release only
 when every party member has tapped — reuse the whole-party guard's
 least-advanced-member logic. _Effort: medium._
 
+_Partly landed, 2026-09-12._ The detector half is built on exactly that signal
+(`autopilot/passkey.ts`, wired at `providers/AutopilotProvider.tsx:1418-1493`).
+The role half is not: the user marks one target as the passkey by hand, and
+`orderByPriority(hits, passkeyFirst)` only moves that target to the front of
+hits which already matched the watch list (`autopilot/priority.ts:52-54`).
+Nothing selects the earliest-returning eligible non-Tier-1 on its own.
+
 **P3.2 · Surface the timing (not a cascade model).** My draft proposed a
 `cascade.ts` scoring offers by how much they delay the next booking. **That was
 refuted and should not be built:** the gate is 120 minutes from booking, not a
 function of the return time you hold, so a late first booking delays nothing.
-Two further reasons it was wrong — bg1 already sends `targetedTime:
+A further reason it was wrong: bg1 already sends `targetedTime:
 nextAvailableTime` on every offer and calls `changeOfferTime()` when the result
 comes back >10 minutes later, so "nothing prefers an earlier return time" is
-false; and `ll.times()` is switched off at WDW (`rules.timeSelect = false`).
+false.
+
+_A second such reason was given here and was wrong about the code; withdrawn
+2026-09-12._ `ll.times()` is not switched off at WDW. `rules.timeSelect = false`
+is only the abstract base default (`api/ll.ts:268`); `LLClientWDW` overrides it
+to `true` (`api/ll/wdw.ts:141`) and `times()` is fully implemented
+(`api/ll/wdw.ts:384-407`) — it is what the NextLL time search runs on. The
+refutation stands on the 120-minute gate and on `targetedTime` /
+`changeOfferTime`.
 
 What survives is display: show `nextBookTime` as _"you can book your next
 Lightning Lane at 11:52 AM"_ on Home and Autopilot. It is authoritative, bg1
@@ -485,6 +625,16 @@ the last twelve months (Big Thunder returned May 2026; Rock 'n' Roller Coaster
 left Tier 1 in March and returned in May under a new ID). December is three
 months out. Delete the dead return, read tier membership live, keep the static
 flag as a fallback that warns on divergence. _Effort: medium._
+
+_Built differently, 2026-09-12._ The dead return is gone, the bundle is fetched
+and cached per park and date, and the divergence warning exists — reported, not
+applied (`api/ll/wdw.ts:246-265`). But the fetch is gated on
+`(date > parkDate() || exps.length === 0)` (`api/ll/wdw.ts:176`), deliberately,
+because on a day-of poll the bundle appends closed attractions and the drop
+learner files a ride simply opening for the day as a drop. The consequence is
+that no bundle is fetched on an ordinary day-of poll, so the tier-divergence
+warning cannot fire in the park: live tiers are consulted when planning a future
+date, not on the day. If December tiers move, this will not be what tells you.
 
 **P3.6 · Reclaimability for swap victims.** `chooseSwapVictim` assumes Tier 2 is
 always cheap to give up. Thrill Data shows Kali selectable for 10h 28m of the
@@ -598,9 +748,36 @@ Nineteen findings were adversarially refuted. The most consequential:
    _deliberately removed_ Space Mountain's in commit `1dac5d7`. Worse, Millennium
    Falcon at 2.1 would make `shouldHoldTierSlot` decline an offered Rock 'n'
    Roller Coaster to hold the slot for a weaker attraction.
+
+   **Overridden for the Falcon, 2026-09-12, with reasons.** This item weighed
+   only one of the two hazards. An unranked Tier 1 reads as `Infinity` to
+   `comparePriority`, so it is attempted last, is never worth a Tier 1 hold, and
+   is the preferred thing to surrender in a swap — and that hazard grew the same
+   day, because `chooseSwapVictim` no longer protects attractions the data
+   leaves unranked: it now excludes only facilities the data does not know at
+   all, which `Itinerary` synthesises and flags `unlisted`
+   (`autopilot/autoswap.ts:112`). The Falcon is therefore ranked, at 3.1, and
+   deliberately **below** Mickey & Minnie's Runaway Railway (3, and the harder
+   get at 41 minutes average against 37), so the specific harm this item named —
+   declining a better attraction to hold the slot for a weaker one — cannot
+   occur. Two tests over the shipped table pin both directions
+   (`autopilot/priority.test.ts:414-458`). Space Mountain's 3.1 arrived with the
+   same upstream merge and is left alone; this item's objection to inventing one
+   for it is untouched.
 6. **Swapping Frozen Ever After and Remy.** Three of four post-refurbishment
    sources put Remy at or ahead of Frozen, and bg1's own `avgWait` agrees. The
    December argument does not discriminate — both are in World Showcase.
+
+   **The data ships the swap anyway, and it was not re-litigated on
+   2026-09-12.** `wdw.ts` has Frozen at 1.1 with `avgWait: 51` and Remy at 1.2
+   with 46; at this plan's baseline it was Remy 1.1/56 and Frozen 1.2/53. The
+   upstream merge replaced both ranks and both averages together, which takes
+   away half of this item's grounds: bg1's own `avgWait` no longer agrees, it
+   now makes Frozen the harder get. Both are EPCOT Tier 1, so the order decides
+   which one the Tier 1 hold protects. Left as it ships, on the current
+   numbers, rather than flipped on sources this repository cannot re-check —
+   but recorded here so the next reader knows the shipped order contradicts
+   this item rather than predating it.
 7. **Swapping Tower of Terror and Toy Story Mania.** Sources call it a tie
    ("mostly academic"); bg1's own `avgWait` favours Toy Story Mania. Only the
    Little Mermaid demotion survives.
@@ -615,6 +792,16 @@ Nineteen findings were adversarially refuted. The most consequential:
     in the cadence would cost a forfeited Tier 1 in the hold.
 11. **A "every tier:1 has priority and avgWait" test.** Fails on Big Thunder,
     forces a fabricated number, and fights upstream data merges.
+
+    **Half overridden, 2026-09-12, with reasons.** The priority half is now a
+    deliberate exception and ships as a test: `api/resortData.test.ts:80`
+    asserts every Tier 1 experience has a `priority`. It guards the hazard in
+    §9.5 — an unranked Tier 1 sorts last of everything, is never held, and is
+    surrendered first, which is exactly how the Falcon shipped. The `avgWait`
+    half stays refused, for the reason given here: there is no honest number to
+    put there and inventing one is worse than the gap. The first objection above
+    no longer applies either way — Big Thunder now carries `avgWait` 33, adopted
+    from upstream's own measurement rather than invented.
 
 ---
 
@@ -655,15 +842,25 @@ Instrument these; do not model them from folklore.
 
 ## 12. Suggested schedule
 
-| When             | What                                              | Gate                                                             |
-| ---------------- | ------------------------------------------------- | ---------------------------------------------------------------- |
-| Week of Sept 8   | §1 missing IDs, §3 data, section-consistency test | `test:ci` green; the three attractions appear on their tipboards |
-| Sept 15 – 26     | Phase 1 (P1.1 window UI first)                    | Dry run shows `offer-outside-window` and overlap skips firing    |
-| Sept 29 – Oct 17 | Phase 2 cadence                                   | Learned-drop screen shows demotions; burst covers :45–:49        |
-| Oct 20 – Nov 14  | Phase 3 (P3.1 passkey, P3.5 live tiers)           | A simulated day books a passkey first and explains why           |
-| Nov 17 – Dec 5   | Phase 4 planner; P4.2 future-date booking         | A December plan built in November drives a dry run end to end    |
-| Dec 6 – trip     | Freeze. Full-day dry runs. Instrument §10.        | No code changes in the final two weeks                           |
+_Revised 2026-09-12._ §1, Phase 0 and Phase 1 are done, as is most of Phases 2
+and 4; the original rows for the weeks of Sept 8 and Sept 15–26 are spent. What
+follows is only what is still outstanding, in the order it is worth doing. The
+item list under "Status" is the authority on which items those are.
 
-Each phase ships independently. If the schedule slips, Phase 4 is what to cut.
-**§1 must not slip** — three attractions, two of them headliners, are
-unbookable until it lands.
+| When            | What                                                                                 | Gate                                                                                          |
+| --------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| Sept 15 – Oct 3 | Record drop coverage per scheduled drop time, then turn P2.3's `DEMOTION_ENABLED` on | A demotion appears on the Activity screen over real evidence, and no firing drop time is lost |
+| Sept 15 – Oct 3 | P2.6 crowd-gated drops; P2.7 pop-up vs earlier-time                                  | AK's five gated times carry their qualifier; earlier-time bursts run only for held targets    |
+| Oct 6 – Oct 30  | P3.3 expiry rescue; P3.4 park-hop codes handled distinctly                           | A pass about to lapse is modified to a filler; each code schedules or suppresses, not both    |
+| Nov 2 – Nov 20  | P4.8 per-target guest subset; P3.6 reclaimability for swap victims                   | A target books for a subset; autoswap gives up the genuinely cheapest slot, not merely Tier 2 |
+| Nov 23 – Dec 5  | P4.3 booking-window guidance; P2.9 faster learning within a trip                     | The 7:00am screen answers "which three first"; a second same-hour observation counts          |
+| Dec 6 – trip    | Freeze. Full-day dry runs. Instrument §10.                                           | No code changes in the final two weeks                                                        |
+
+§8's live standby ranking is the only Phase 5 item and stays optional. It is the
+largest remaining accuracy gain on a CL10 December day and also a new external
+dependency, so it is the first thing to cut and should not be started after
+early November. If more slips, cut P4.3, then P3.6.
+
+Two halves of partly-landed items are deliberately unscheduled: P3.1's passkey
+selector, which the hand-marked flag substitutes for, and P3.5's day-of tier
+check, which is gated off on purpose. Both are explained in §6.
