@@ -488,7 +488,7 @@ export class ItineraryClient extends ApiClient {
         theme: { bg: '', text: '', color: '' },
         park,
       };
-      exp = { id, name, park, land, type: 'A' };
+      exp = { id, name, park, land, type: 'A', unlisted: true };
     }
     return {
       facilityId: id,

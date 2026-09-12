@@ -59,6 +59,7 @@ export type ModifySkipReason =
   | 'already-attempted'
   | 'budget-exhausted'
   | 'no-eligible-guests'
+  | 'partial-party'
   | 'overlaps-plans';
 
 export type ModifyOutcome =
@@ -175,6 +176,19 @@ export interface AutoModifyDeps {
   minImprovementMinutes?: number;
   /** Optional; when it reports a clash, the move is abandoned. */
   clashes?: ClashCheck;
+  /**
+   * Whether the party the offer actually covers is acceptable.
+   *
+   * The same re-check `attemptAutoBook` makes, for the same reason: the guards
+   * upstream run on a cached eligibility prediction, and Disney can return an
+   * offer covering fewer guests than that. It was wired to booking only, so
+   * "whole party only" -- whose own wording promises autopilot "will not book,
+   * move, or swap unless everyone in your party is eligible" -- let a move or a
+   * swap split the group it exists to keep together.
+   *
+   * Optional, and only passed when the setting is on.
+   */
+  partyIsAcceptable?: (guests: Guests) => boolean;
 }
 
 /**
@@ -206,6 +220,7 @@ export async function attemptAutoModify(
     ledger,
     minImprovementMinutes = improvementBar(target),
     clashes,
+    partyIsAcceptable,
   }: AutoModifyDeps
 ): Promise<ModifyOutcome> {
   const allowed = shouldModify(
@@ -260,6 +275,10 @@ export async function attemptAutoModify(
 
     if (offer.guests.eligible.length === 0) {
       return { status: 'skipped', reason: 'no-eligible-guests' };
+    }
+    // The party the offer would commit, not the eligibility the guards ran on.
+    if (partyIsAcceptable && !partyIsAcceptable(offer.guests)) {
+      return { status: 'skipped', reason: 'partial-party' };
     }
     if (!inWindow(to, target)) {
       return { status: 'skipped', reason: 'offer-outside-window' };
