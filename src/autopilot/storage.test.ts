@@ -11,11 +11,13 @@ import { setTime } from '@/testing';
 import {
   BUDGET_KEY,
   COMMITS_KEY,
+  COMMIT_TTL_MS,
   DEFAULT_SETTINGS,
   LOCKS_KEY,
   LOG_KEY,
   LOG_LIMIT,
   SETTINGS_KEY,
+  activeCommits,
   clearCommit,
   loadBookingLog,
   loadBudget,
@@ -332,7 +334,38 @@ describe("the day's committed return times", () => {
 
   it('round-trips a commit', () => {
     saveCommit({ facilityId: 'a', time: '16:10:00' });
-    expect(loadCommits()).toEqual([{ facilityId: 'a', time: '16:10:00' }]);
+    expect(loadCommits()).toEqual([
+      { facilityId: 'a', time: '16:10:00', at: expect.any(Number) },
+    ]);
+  });
+
+  // The stamp is what bounds a commit's reach: without it a move's or a swap's
+  // record sat in this list all day, blocking return times around a
+  // reservation the party no longer held.
+  it('stamps a commit with the time it was written', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    saveCommit({ facilityId: 'a', time: '16:10:00' });
+    expect(loadCommits()[0]?.at).toBe(1_000_000);
+  });
+
+  it('counts a fresh commit as active', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    saveCommit({ facilityId: 'a', time: '16:10:00' });
+    expect(activeCommits(1_000_000 + COMMIT_TTL_MS - 1)).toHaveLength(1);
+  });
+
+  it('stops believing one past its lifetime', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    saveCommit({ facilityId: 'a', time: '16:10:00' });
+    expect(activeCommits(1_000_000 + COMMIT_TTL_MS)).toEqual([]);
+  });
+
+  // A record an older build wrote carries no stamp, so its age cannot be
+  // known. Believing it for the rest of the day is the failure this replaces.
+  it('does not believe an unstamped record', () => {
+    kvdb.setDaily(COMMITS_KEY, [{ facilityId: 'a', time: '16:10:00' }]);
+    expect(loadCommits()).toHaveLength(1);
+    expect(activeCommits()).toEqual([]);
   });
 
   it('keeps commits for other attractions', () => {
@@ -349,14 +382,18 @@ describe("the day's committed return times", () => {
   it('replaces an earlier commit for the same attraction', () => {
     saveCommit({ facilityId: 'a', time: '16:10:00' });
     saveCommit({ facilityId: 'a', time: '13:15:00' });
-    expect(loadCommits()).toEqual([{ facilityId: 'a', time: '13:15:00' }]);
+    expect(loadCommits()).toEqual([
+      { facilityId: 'a', time: '13:15:00', at: expect.any(Number) },
+    ]);
   });
 
   it('forgets one that plans show is gone', () => {
     saveCommit({ facilityId: 'a', time: '16:10:00' });
     saveCommit({ facilityId: 'b', time: '11:00:00' });
     clearCommit('a');
-    expect(loadCommits()).toEqual([{ facilityId: 'b', time: '11:00:00' }]);
+    expect(loadCommits()).toEqual([
+      { facilityId: 'b', time: '11:00:00', at: expect.any(Number) },
+    ]);
   });
 
   it('discards malformed entries', () => {

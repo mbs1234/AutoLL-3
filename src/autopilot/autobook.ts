@@ -207,6 +207,19 @@ export class AutoBookLedger {
    */
   protected released = new Set<string>();
   /**
+   * Locks this instance keeps for itself but must not publish.
+   *
+   * A lock is taken before the request goes out, so it reaches the shared copy
+   * before anyone knows whether anything was booked. When the answer comes back
+   * "nothing was" -- Disney refused the call, or our own limiter never sent it
+   * -- the lock is still right *here* (one action per attraction per session)
+   * and wrong *there*: nothing in the shared copy can release it, because
+   * `adoptAttempted` never takes ownership, so every later mount and every
+   * other tab inherits a lock for a booking that provably does not exist and
+   * skips the attraction for the rest of the park day.
+   */
+  protected readonly unshared = new Set<string>();
+  /**
    * Locks this instance took itself, as opposed to ones it adopted from
    * storage because another tab or a nested provider holds them.
    *
@@ -248,7 +261,7 @@ export class AutoBookLedger {
    * the ledger's own set through it.
    */
   attemptedKeys(): string[] {
-    return [...this.attempted];
+    return [...this.attempted].filter(key => !this.unshared.has(key));
   }
 
   /**
@@ -309,6 +322,7 @@ export class AutoBookLedger {
     this.attempted.clear();
     this.owned.clear();
     this.released.clear();
+    this.unshared.clear();
     this.unresolved.clear();
     this.absences.clear();
     this.confirmed.clear();
@@ -365,6 +379,8 @@ export class AutoBookLedger {
     // in the set would have `adoptAttempted` refuse to re-adopt this very lock,
     // and would have the next write subtract it again.
     this.released.delete(key);
+    // A fresh request is a fresh doubt, so the lock is publishable again.
+    this.unshared.delete(key);
     this.attempted.add(key);
     this.owned.add(key);
     this.onAttemptChange();
@@ -396,6 +412,15 @@ export class AutoBookLedger {
    */
   resolveRejected(experienceId: string): void {
     if (this.unresolved.delete(experienceId)) this.notify();
+    // The lock stays here and leaves the shared copy. Keeping it locally is
+    // the anti-thrash rule above; keeping it *shared* would hand a permanent
+    // skip to every other instance, since only the instance that owns a lock
+    // can withdraw one and a rejection is proof there is nothing to protect.
+    const key = `book:${experienceId}`;
+    if (this.owned.has(key) && !this.unshared.has(key)) {
+      this.unshared.add(key);
+      this.onAttemptChange([key]);
+    }
   }
 
   /**
@@ -410,6 +435,7 @@ export class AutoBookLedger {
    */
   releaseAttempt(experienceId: string, kind: ActionKind): void {
     const key = `${kind}:${experienceId}`;
+    this.unshared.delete(key);
     this.attempted.delete(key);
     this.owned.delete(key);
     this.released.add(key);
@@ -504,7 +530,18 @@ export class AutoBookLedger {
       }
       return;
     }
-    if (!this.confirmed.has(experienceId)) return;
+    if (!this.confirmed.has(experienceId)) {
+      // A lock this instance owns but has never seen held is still in doubt:
+      // the request may have succeeded where the response was lost, and only
+      // the doubt-hold settles that.
+      if (this.owned.has(`book:${experienceId}`)) return;
+      // An adopted one is different. Nothing here ever confirms it, the
+      // instance that took it may be gone, and until this branch existed no
+      // evidence could release it. Plans saying the reservation is not there
+      // is the same evidence for an adopted lock as for one of ours, so it is
+      // counted the same way.
+      if (!this.attempted.has(`book:${experienceId}`)) return;
+    }
     const seen = (this.absences.get(experienceId) ?? 0) + 1;
     if (seen < CONFIRM_ABSENT_POLLS) {
       this.absences.set(experienceId, seen);
@@ -515,6 +552,7 @@ export class AutoBookLedger {
     this.unresolved.delete(experienceId);
     this.attempted.delete(`book:${experienceId}`);
     this.owned.delete(`book:${experienceId}`);
+    this.unshared.delete(`book:${experienceId}`);
     this.released.add(`book:${experienceId}`);
     this.notify();
     // A cancellation settled here is a release like any other, and it has to
@@ -545,6 +583,7 @@ export class AutoBookLedger {
     const mine = [...this.owned];
     this.attempted.clear();
     this.owned.clear();
+    this.unshared.clear();
     this.unresolved.clear();
     this.absences.clear();
     this.confirmed.clear();

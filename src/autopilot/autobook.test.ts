@@ -19,6 +19,8 @@ import { wholePartyEligible } from './party';
 import { WatchTarget } from './watchlist';
 
 const BZ = '80010114';
+/** A second attraction, for asserting one lock does not move another. */
+const HM = '80010208';
 const DATE = '2026-09-04';
 
 const at = (h: number, m = 0) => new ParkTime(h, m);
@@ -712,6 +714,79 @@ describe('AutoBookLedger shared locks', () => {
   /** Every key the persister was told to drop, flattened. */
   const dropped = (removals: (readonly string[] | undefined)[]) =>
     removals.flatMap(r => [...(r ?? [])]);
+
+  // The park failure this block was extended for. A lock reaches the shared
+  // copy before the request's outcome is known, and nothing in that copy can
+  // release it: `adoptAttempted` never takes ownership, so the instance that
+  // inherits a lock can never withdraw it. A rejection is proof there is
+  // nothing to protect, so the lock stops being shared at that moment.
+  it('withdraws a rejected attempt from the shared copy', () => {
+    const { ledger, removals } = watched();
+    ledger.markAttempted(BZ, 'book');
+    ledger.resolveRejected(BZ);
+    expect(dropped(removals)).toContain(`book:${BZ}`);
+    expect(ledger.attemptedKeys()).toEqual([]);
+  });
+
+  // Locally the lock stands: one action per attraction per session is what
+  // stops this run thrashing a reservation while availability moves.
+  it('keeps a rejected attempt locked for this run', () => {
+    const { ledger } = watched();
+    ledger.markAttempted(BZ, 'book');
+    ledger.resolveRejected(BZ);
+    expect(ledger.hasAttempted(BZ)).toBe(true);
+  });
+
+  // The lock must not come back by the side door: the next write publishes
+  // `attemptedKeys()`, and a rejected key still in that list would be shared
+  // again by the very next attempt on any other attraction.
+  it('does not republish a rejected attempt on the next write', () => {
+    const { ledger } = watched();
+    ledger.markAttempted(BZ, 'book');
+    ledger.resolveRejected(BZ);
+    ledger.markAttempted(HM, 'book');
+    expect(ledger.attemptedKeys()).toEqual([`book:${HM}`]);
+  });
+
+  it('shares the lock again if the same attraction is attempted again', () => {
+    const { ledger } = watched();
+    ledger.markAttempted(BZ, 'book');
+    ledger.resolveRejected(BZ);
+    ledger.releaseAttempt(BZ, 'book');
+    ledger.markAttempted(BZ, 'book');
+    expect(ledger.attemptedKeys()).toContain(`book:${BZ}`);
+  });
+
+  // An adopted lock used to be permanent: nothing here confirms it, so the
+  // absence branch returned early every time. Plans saying the reservation is
+  // not there is the same evidence for an adopted lock as for one of ours.
+  it('releases an adopted lock once plans settle it as absent', () => {
+    const { ledger, removals } = watched();
+    ledger.adoptAttempted([`book:${BZ}`]);
+    for (let i = 0; i < CONFIRM_ABSENT_POLLS; i++) {
+      ledger.resolveBook(BZ, false);
+    }
+    expect(ledger.hasAttempted(BZ)).toBe(false);
+    expect(dropped(removals)).toContain(`book:${BZ}`);
+  });
+
+  it('holds an adopted lock until the absences add up', () => {
+    const { ledger } = watched();
+    ledger.adoptAttempted([`book:${BZ}`]);
+    ledger.resolveBook(BZ, false);
+    expect(ledger.hasAttempted(BZ)).toBe(true);
+  });
+
+  // This instance's own unsettled attempt is a different case: the request may
+  // have succeeded where the response was lost, so absence is not proof.
+  it('keeps an unsettled attempt of its own through the same absences', () => {
+    const { ledger } = watched();
+    ledger.markAttempted(BZ, 'book');
+    for (let i = 0; i < CONFIRM_ABSENT_POLLS + 1; i++) {
+      ledger.resolveBook(BZ, false);
+    }
+    expect(ledger.hasAttempted(BZ)).toBe(true);
+  });
 
   it('reports a lock it took as its own', () => {
     const { ledger } = watched();
