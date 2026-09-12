@@ -25,6 +25,9 @@ import {
   syncedParkTime,
 } from '@/autopilot/schedule';
 import {
+  COMMITS_KEY,
+  COMMIT_TTL_MS,
+  CommittedReturn,
   DEFAULT_SETTINGS,
   loadBookingLog,
   loadBudget,
@@ -44,6 +47,7 @@ import ExperiencesContext from '@/contexts/ExperiencesContext';
 import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
 import { DateTime, ParkTime } from '@/datetime';
+import kvdb from '@/kvdb';
 import { TODAY, TOMORROW, setTime } from '@/testing';
 
 import AutopilotProvider, {
@@ -207,12 +211,12 @@ beforeEach(() => {
 
 const party = { eligible: [{ id: 'g1', name: 'A' }], ineligible: [] };
 
-function offerAt(hour: number) {
+function offerAt(hour: number, minute = 0) {
   return {
     id: 'offer-1',
     offerSetId: 'set-1',
-    start: new DateTime(TODAY, new ParkTime(hour)),
-    end: new DateTime(TODAY, new ParkTime(hour + 1)),
+    start: new DateTime(TODAY, new ParkTime(hour, minute)),
+    end: new DateTime(TODAY, new ParkTime(hour + 1, minute)),
     guests: party,
     itinerary: [],
     booking: undefined,
@@ -248,6 +252,10 @@ function diningAt(hour: number): Booking {
 
 function setupBooking({
   offerHour = 11,
+  // Minutes for the offered return time. The clash spans are 40 minutes
+  // before and 60 after a start, so whole hours alone cannot tell a parsed
+  // plan's narrower span from a bare commit's wider one.
+  offerMinute = 0,
   experiences = [available(BZ, new ParkTime(11))],
   plans = [] as Booking[],
   guestsResult = party as unknown,
@@ -304,7 +312,7 @@ function setupBooking({
       if (failure !== undefined) {
         throw new RequestError({ ok: false, status: failure, data: {} });
       }
-      return offerAt(offerHour);
+      return offerAt(offerHour, offerMinute);
     }
   );
   let bookCalls = 0;
@@ -2688,7 +2696,9 @@ describe('AutopilotProvider cross-instance overlaps', () => {
     });
     await enable();
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
-    expect(loadCommits()).toEqual([{ facilityId: BZ, time: '11:00:00' }]);
+    expect(loadCommits()).toEqual([
+      { facilityId: BZ, time: '11:00:00', at: expect.any(Number) },
+    ]);
   });
 
   // The regression: another instance holds 11:00, and this one is asked to book
@@ -2729,14 +2739,82 @@ describe('AutopilotProvider cross-instance overlaps', () => {
   });
 
   // A parsed plan carries an end time and gives the narrower, more accurate
-  // span, so it wins over a commit for the same attraction.
+  // span, so it wins over a commit for the same attraction. 11:50 is the test:
+  // inside the commit's bare 10:20-12:00 span, outside the held plan's
+  // 10:20-11:40 one. The earlier version of this test offered 7pm, eight hours
+  // clear of both, so it passed whether or not plans won anything.
   it('defers to plans once they have caught up', async () => {
     saveCommit({ facilityId: BZ, time: '11:00:00' });
     saveWatchList([{ experienceId: DB, autoBook: true }]);
     const { book } = setupBooking({
-      experiences: [available(DB, new ParkTime(19))],
+      experiences: [available(DB, new ParkTime(11, 50))],
+      plans: [heldBZAt(11)],
+      offerHour: 11,
+      offerMinute: 50,
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+  });
+
+  // The same time, with the commit alone: refused. Without this the test above
+  // proves only that 11:50 is bookable.
+  it('refuses that time when only the commit knows about it', async () => {
+    saveCommit({ facilityId: BZ, time: '11:00:00' });
+    saveWatchList([{ experienceId: DB, autoBook: true }]);
+    const { book } = setupBooking({
+      experiences: [available(DB, new ParkTime(11, 50))],
       plans: [],
+      offerHour: 11,
+      offerMinute: 50,
+    });
+    await enable();
+    await runTicks(3);
+    expect(book).not.toHaveBeenCalled();
+  });
+
+  // A commit is written for a move and a swap as well as a booking, and the
+  // settle loop only ever swept `book:` locks -- so one of those records sat
+  // here for the rest of the park day, protecting a return time the party had
+  // ridden or cancelled. Two things end it: plans carrying the reservation,
+  // and the record outliving the window it exists to cover.
+  it('forgets a commit once plans carry the reservation', async () => {
+    saveCommit({ facilityId: BZ, time: '11:00:00' });
+    saveWatchList([{ experienceId: DB, autoBook: true }]);
+    setupBooking({
+      experiences: [available(DB, new ParkTime(19))],
+      plans: [heldBZAt(11)],
       offerHour: 19,
+    });
+    await enable();
+    await runTicks(PLANS_EVERY_N_TICKS + 2);
+    expect(loadCommits()).toEqual([]);
+  });
+
+  it('forgets one that has outlived its window', async () => {
+    kvdb.setDaily<CommittedReturn[]>(COMMITS_KEY, [
+      { facilityId: BZ, time: '11:00:00', at: Date.now() - COMMIT_TTL_MS },
+    ]);
+    saveWatchList([{ experienceId: DB, autoBook: true }]);
+    setupBooking({
+      experiences: [available(DB, new ParkTime(19))],
+      offerHour: 19,
+    });
+    await enable();
+    await runTicks(PLANS_EVERY_N_TICKS + 2);
+    expect(loadCommits()).toEqual([]);
+  });
+
+  // The park failure: an expired record must stop refusing return times as
+  // well as stop being stored.
+  it('books a time an expired commit used to block', async () => {
+    kvdb.setDaily<CommittedReturn[]>(COMMITS_KEY, [
+      { facilityId: DB, time: '11:00:00', at: Date.now() - COMMIT_TTL_MS },
+    ]);
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book } = setupBooking({
+      experiences: [available(BZ, new ParkTime(11, 20))],
+      offerHour: 11,
+      offerMinute: 20,
     });
     await enable();
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));

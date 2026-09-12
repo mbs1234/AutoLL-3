@@ -80,6 +80,8 @@ import {
 } from '@/autopilot/refusal';
 import { syncedParkTime } from '@/autopilot/schedule';
 import {
+  COMMIT_TTL_MS,
+  activeCommits,
   clearCommit,
   loadBookingLog,
   loadBudget,
@@ -760,7 +762,7 @@ export default function AutopilotProvider({
         // end time and gives the narrower, more accurate span; these carry only
         // a start, so they get the wider open-ended one.
         if (forToday) {
-          const unseen = loadCommits()
+          const unseen = activeCommits()
             .filter(
               c =>
                 c.facilityId !== release?.facilityId &&
@@ -802,6 +804,26 @@ export default function AutopilotProvider({
             forToday && ll.experienced({ id })
           );
         }
+        // The loop above sweeps `book:` locks only, so a return time committed
+        // by a move or a swap -- or by an instance that has since gone away --
+        // had nothing to clear it and blocked a 100-minute band of return
+        // times for the rest of the park day. Two things end a commit's job:
+        // plans carrying the reservation, which is the better witness because
+        // a parsed plan has an end time and gives the narrower span; and the
+        // record outliving the window between committing and plans catching
+        // up, after which a reservation nobody can see is not one to protect.
+        if (forToday) {
+          const now = Date.now();
+          for (const commit of loadCommits()) {
+            const inPlans = settled.some(
+              plan => plan.facilityId === commit.facilityId
+            );
+            const expired =
+              commit.at === undefined || now - commit.at >= COMMIT_TTL_MS;
+            if (inPlans || expired) clearCommit(commit.facilityId);
+          }
+        }
+
         // Settling can charge the allowance for a booking whose request never
         // returned, so the on-screen count has to follow the ledger rather than
         // only successful actions.
@@ -1141,6 +1163,18 @@ export default function AutopilotProvider({
             continue;
           }
 
+          // Re-checked against the offer's own party, whichever action this
+          // is. The guards above ran on the eligibility prediction, and Disney
+          // can return an offer covering fewer guests than that -- so "whole
+          // party only" could commit the split party it exists to prevent. It
+          // used to be passed to booking alone, while the setting's own
+          // wording promises autopilot "will not book, move, or swap unless
+          // everyone in your party is eligible". Read at call time, so
+          // switching the setting on while an offer is in flight counts.
+          const partyIsAcceptable = (offerGuests: Guests) =>
+            !settingsRef.current.requireWholeParty ||
+            wholePartyEligible(offerGuests);
+
           if (kind === 'swap') {
             // Atomic on Disney's side: the mod endpoint takes both the new
             // experience and the one being given up, so the old reservation is
@@ -1152,6 +1186,7 @@ export default function AutopilotProvider({
               guests,
               ledger: ledgerRef.current,
               clashes,
+              partyIsAcceptable,
               // Last gate before the entitlement is spent: generating the
               // offer is another round trip, and every guard above it ran
               // before that.
@@ -1173,6 +1208,7 @@ export default function AutopilotProvider({
                 guests,
                 ledger: ledgerRef.current,
                 clashes,
+                partyIsAcceptable,
                 // Last gate before the entitlement is spent: generating the
                 // offer is another round trip, and every guard above it ran
                 // before that.
@@ -1190,14 +1226,7 @@ export default function AutopilotProvider({
               guests,
               ledger: ledgerRef.current,
               clashes,
-              // Re-checked against the offer's own party. The guard above ran on
-              // the eligibility prediction, and Disney can return an offer
-              // covering fewer guests than that -- so "whole party only" could
-              // book the split party it exists to prevent. Read at call time, so
-              // switching the setting on while the offer is in flight counts.
-              partyIsAcceptable: offerGuests =>
-                !settingsRef.current.requireWholeParty ||
-                wholePartyEligible(offerGuests),
+              partyIsAcceptable,
               // Last gate before the entitlement is spent: generating the
               // offer is another round trip, and every guard above it ran
               // before that.

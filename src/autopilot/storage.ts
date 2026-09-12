@@ -292,12 +292,32 @@ export function saveLocks(
  * Day-scoped, like the locks and the budget. Only the start time is recorded,
  * so the span derived from it is the wider open-ended one -- the conservative
  * direction for something we know less about than a parsed plan.
+ *
+ * Each record also carries when it was written, because the gap it covers is
+ * minutes long and the record is not. A commit written for a move or a swap
+ * used to sit in this list for the rest of the park day: the only sweep was
+ * over `book:` locks, so nothing cleared it, and a reservation that was
+ * ridden or cancelled by hand went on blocking a 100-minute band of return
+ * times for every attraction. Past `COMMIT_TTL_MS` the plans poll has had
+ * every chance to see it, and plans are the better witness.
  */
 export interface CommittedReturn {
   facilityId: string;
   /** `ParkTime`'s own "HH:MM:SS". */
   time: string;
+  /** `Date.now()` when it was written. Absent in records an older build wrote. */
+  at?: number;
 }
+
+/**
+ * How long a committed return time speaks for the party.
+ *
+ * Plans are refetched every tenth tick -- about seven and a half minutes at
+ * the idle cadence, twelve seconds in a burst -- so this outlives a missed
+ * poll comfortably while keeping a stale record's reach to a quarter hour
+ * rather than a day.
+ */
+export const COMMIT_TTL_MS = 15 * 60 * 1000;
 
 export function loadCommits(): CommittedReturn[] {
   const stored = kvdb.getDaily<CommittedReturn[]>(COMMITS_KEY);
@@ -308,10 +328,26 @@ export function loadCommits(): CommittedReturn[] {
   );
 }
 
+/**
+ * The commits still worth believing.
+ *
+ * A record with no `at` was written by a build that did not stamp them, and
+ * its age is unknowable; it is treated as expired rather than trusted for the
+ * rest of the day.
+ */
+export function activeCommits(now = Date.now()): CommittedReturn[] {
+  return loadCommits().filter(
+    c => c.at !== undefined && now - c.at < COMMIT_TTL_MS
+  );
+}
+
 /** Record one committed return time, replacing any earlier one for that ride. */
 export function saveCommit(entry: CommittedReturn): void {
   const rest = loadCommits().filter(c => c.facilityId !== entry.facilityId);
-  kvdb.setDaily<CommittedReturn[]>(COMMITS_KEY, [...rest, entry]);
+  kvdb.setDaily<CommittedReturn[]>(COMMITS_KEY, [
+    ...rest,
+    { at: Date.now(), ...entry },
+  ]);
 }
 
 /** Forget a committed return time, once plans show the reservation is gone. */
