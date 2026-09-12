@@ -229,7 +229,14 @@ export const experiences: ResortData['experiences'] = {
     priority: 1,
     highlight: true,
     avgWait: 33,
-    dropTimes: ['08:47', '13:47'],
+    // No drop times on purpose. These arrived with an upstream data merge and
+    // every source since the 2026 reopening says the ride has no predictable
+    // pop-up schedule. `park.dropTimes` is the union of every experience's, so
+    // a fabricated entry puts the whole of Magic Kingdom into a 1.2s burst at
+    // 08:47 for a drop nobody believes in -- and, worse, gives Big Thunder an
+    // "upcoming drop" that has `shouldHoldTierSlot` decline an offered Tiana's
+    // or Jingle Cruise to keep the Tier 1 slot free for it. If a schedule is
+    // ever observed, the learner records it from real evidence.
   },
   80010114: {
     name: "Buzz Lightyear's Space Ranger Spin",
@@ -1040,16 +1047,17 @@ export const experiences: ResortData['experiences'] = {
     type: 'A',
     geo: [28.353862, -81.5616967],
     tier: 1,
-    // The only Tier 1 in this file that had no priority, which
-    // `comparePriority` reads as Infinity -- worst of everything. So the
-    // party's most valuable Hollywood Studios selection sorted last: attempted
-    // last of any match, never worth a Tier 1 hold, and offered up as the
-    // preferred swap victim to anything with a priority at all, Alien Swirling
-    // Saucers (3.1) included. Placed in the empty 2.x band here: above Runaway
-    // Railway (3) and the Toy Story rides, below the four Hollywood Studios
-    // headliners. Adjust if that is not where you would put it -- the point of
-    // this change is that it has a rank, not that this is the rank.
-    priority: 2,
+    // Ranked, but last of Hollywood Studios' Tier 1s. Two rules pull against
+    // each other here. An unranked Tier 1 reads as Infinity to
+    // `comparePriority` -- attempted last, never worth a Tier 1 hold, and the
+    // preferred thing to give up in a swap -- which is why it carries a number
+    // at all. But a number good enough to beat a real headliner has
+    // `shouldHoldTierSlot` decline an offered one to keep the slot free for
+    // this, which is what docs/PLAN.md section 9 refuted. At 3.1 it is below
+    // Mickey & Minnie's Runaway Railway (3, and the harder get at 41 minutes
+    // average against this ride's 37), so it can be held, attempted and
+    // swapped sensibly without ever outranking something it should not.
+    priority: 3.1,
     avgWait: 37,
     highlight: true,
     dropTimes: ['10:47', '15:47'],
@@ -1297,14 +1305,21 @@ export const experiences: ResortData['experiences'] = {
     geo: [28.3592076, -81.5883195],
     avgWait: 39,
     dropTimes: ['13:47'],
-    priority: 3,
+    // Selectable for most of the day and closed on cold ones, so it sits
+    // below both headliners and below Zootopia rather than above all three.
+    priority: 3.3,
   },
   80010157: {
     name: 'Kilimanjaro Safaris',
     land: africa,
     type: 'A',
     geo: [28.3592779, -81.5921478],
-    priority: 4,
+    // Animal Kingdom's best Multi Pass selection, and it collides with
+    // Expedition Everest at the 12:47 drop -- the same-tick case
+    // `orderByPriority` decides. An upstream merge had it at 4, below Everest,
+    // below Kali and below DINOSAUR, so autopilot attempted the lesser ride
+    // first and a held Safaris was the preferred thing to give up.
+    priority: 3,
     avgWait: 24,
     highlight: true,
     dropTimes: ['09:47', '12:47'],
@@ -1333,7 +1348,9 @@ export const experiences: ResortData['experiences'] = {
     name: 'Zootopia: Better Zoogether',
     land: discIsland,
     type: 'A',
-
+    // A real Multi Pass option that sorted last because it had no rank at all.
+    // Below Everest, above Kali: a large-capacity show for a December trip.
+    priority: 3.2,
     avgWait: 11,
   },
 

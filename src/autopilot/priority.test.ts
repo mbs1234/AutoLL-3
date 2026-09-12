@@ -367,3 +367,102 @@ describe('Magic Kingdom Tier 1 ranking, as shipped', () => {
     expect(isTier1(of(JINGLE_CRUISE))).toBe(true);
   });
 });
+
+// The same treatment for the two rankings this fork corrected after finding
+// them reverted by the same upstream merge, plus the drop schedule that merge
+// invented. Behaviour, not digits.
+describe('Animal Kingdom ranking, as shipped', () => {
+  const SAFARIS = '80010157';
+  const EVEREST = '26068';
+  const KALI = '80010154';
+  const ZOOTOPIA = '412430582';
+  const of = (id: string) => wdw.experience(id) as Experience;
+
+  // They collide at the 12:47 drop, which is the same-tick case
+  // `orderByPriority` decides. Shipped at 4 against Everest's 3.1, autopilot
+  // attempted the lesser ride first through December's busiest drop.
+  it('attempts Kilimanjaro Safaris before Expedition Everest', () => {
+    const ordered = orderByPriority([hit(of(EVEREST)), hit(of(SAFARIS))]);
+    expect(ordered.map(h => h.experience.id)).toEqual([SAFARIS, EVEREST]);
+  });
+
+  it('ranks both headliners above Kali River Rapids', () => {
+    const ordered = orderByPriority([
+      hit(of(KALI)),
+      hit(of(EVEREST)),
+      hit(of(SAFARIS)),
+    ]);
+    expect(ordered.map(h => h.experience.id)).toEqual([SAFARIS, EVEREST, KALI]);
+  });
+
+  // Unranked, it sorted last of everything -- and `chooseSwapVictim` reads
+  // "worst ranked" as "cheapest to give up".
+  it('ranks Zootopia between Everest and Kali', () => {
+    const ordered = orderByPriority([
+      hit(of(KALI)),
+      hit(of(ZOOTOPIA)),
+      hit(of(EVEREST)),
+    ]);
+    expect(ordered.map(h => h.experience.id)).toEqual([
+      EVEREST,
+      ZOOTOPIA,
+      KALI,
+    ]);
+  });
+});
+
+describe('Hollywood Studios Tier 1 ranking, as shipped', () => {
+  const FALCON = '19263735';
+  const RUNAWAY_RAILWAY = '19259335';
+  const of = (id: string, dropTimes?: ParkTime[]) => ({
+    ...(wdw.experience(id) as Experience),
+    ...(dropTimes ? { dropTimes } : {}),
+  });
+
+  // Both Tier 1, so only one can be held before the first tap-in. Millennium
+  // Falcon carries a rank so that an unranked Tier 1 is not sorted last and
+  // surrendered first -- but it must not be a rank that declines the harder
+  // get to hold the slot for the easier one.
+  it('never holds the Tier 1 slot for the Falcon over Runaway Railway', () => {
+    expect(
+      shouldHoldTierSlot(
+        hit(of(RUNAWAY_RAILWAY)),
+        [armed(of(FALCON, [at(10, 47)]))],
+        at(10)
+      )
+    ).toBe(false);
+  });
+
+  it('gives the Falcon a rank at all', () => {
+    expect(of(FALCON).priority).toBeDefined();
+  });
+
+  // Without this the hold assertion above could pass for the dull reason that
+  // one of them is not a Tier 1 at all -- which is exactly how the first draft
+  // of it passed against a parade's facility id.
+  it('has both as Tier 1', () => {
+    expect(isTier1(of(FALCON))).toBe(true);
+    expect(isTier1(of(RUNAWAY_RAILWAY))).toBe(true);
+  });
+
+  // The other direction: Runaway Railway may hold the slot against the Falcon.
+  it('can hold the slot for Runaway Railway over the Falcon', () => {
+    expect(
+      shouldHoldTierSlot(
+        hit(of(FALCON)),
+        [armed(of(RUNAWAY_RAILWAY, [at(11, 47)]))],
+        at(11)
+      )
+    ).toBe(true);
+  });
+});
+
+// PLAN.md 3.4: every current source says the ride has no predictable pop-up
+// schedule since reopening, and `park.dropTimes` is the union of every
+// experience's -- so one invented entry bursts the whole park at 1.2s and
+// hands Big Thunder an "upcoming drop" that suppresses better Tier 1 offers.
+describe('Big Thunder drop times, as shipped', () => {
+  it('ships none', () => {
+    expect(wdw.experience('80010110').dropTimes).toBeUndefined();
+  });
+});
