@@ -26,6 +26,14 @@ the static site from `mbs1234/AutoLL-2@goofy` and the runtime module from
 frozen at v1.0. The inherited reason Lightning Lane booking works at all is
 unchanged; see FORK.md, "Booking". Section numbers below are unchanged.
 
+_2026-09-13._ The release is 0.5.0, and **this document is the record — why an
+item exists, what was refuted, what shipped and what was decided.** Everything
+still outstanding, including every item below still marked not started, partly
+landed or built differently, is collected in `docs/FUTURE.md`; that is the list
+to work from, and nothing outstanding is described in both places. The per-item
+statuses below remain the authority on _what state each item is in_. FUTURE.md
+is the authority on _what to do next_.
+
 A 59-agent review on 2026-09-12 produced the corrections recorded in this
 section, and the fixes for its highest-severity findings landed the same day:
 the saved party never reached the LL client, so autopilot booked for every
@@ -178,6 +186,13 @@ Phase 5 (§8):
 - Live standby in the ranking: not started. `comparePriority` still breaks ties
   on the static `avgWait` (`autopilot/priority.ts:34`), and `LiveDataClient` is
   used only for show times.
+
+**Where the open ones are now tracked.** In `docs/FUTURE.md`: P2.3 → §4.2,
+P2.6 → §3.10, P2.7 → §3.5, P2.9 → §3.6, P3.3 → §3.1, P3.4 → §4.3, P3.5 → §4.4,
+P3.6 → §3.7, P4.1 → §3.2, P4.3 → §3.9, P4.5 → §3.4, P4.7 → §3.3, P4.8 → §3.8,
+P3.1's passkey selector → §3.12, and Phase 5's live standby → §3.11. One half
+is carried by neither list: P2.5's party-night date table, which is declined
+and sits in that file's "decided against" section (§7).
 
 **How to read §5–§8.** Those sections are the original proposals and are still
 written in the present tense throughout, including for work that has since been
@@ -402,8 +417,9 @@ alerts), `offerIsAcceptable`, `shouldModify` and its post-offer re-check, and
 `attemptAutoSwap`. But the app's only `addTarget` call passes `{ experienceId }`
 and the context exposes no setter, so the only way to set one is hand-editing
 localStorage. In practice `inWindow` always returns true and the
-`offer-outside-window` skip reason is unreachable. README:58 tells the user to
-do something the UI cannot do.
+`offer-outside-window` skip reason is unreachable. The README at this plan's
+baseline (`d8dd6c5`:58) tells the user to do something the UI cannot do; the
+2026-09-13 rewrite describes the control that shipped instead.
 
 Add `setTargetWindow` to the context, implement beside `toggleFlag`, render two
 `<input type="time">` per watched row. `parseBound` is module-private and needs
@@ -512,10 +528,11 @@ of bg1's nine attractions. Add demotion using the `ScheduledDropCheck` plumbing
 that already exists in `observe.ts`. This is what makes the crowd-level and
 party-night problems self-correcting without a crowd feed. _Effort: medium._
 
-**P2.4 · Day-before cadence.** README says drops are "a day-of phenomenon" so
-future dates poll at idle. Thrill Data shows Slinky with 34 distinct
-earlier-return release times at 1 day out, Soarin' with 57. Use approach cadence
-during daytime when the watched date is tomorrow. _Effort: small._
+**P2.4 · Day-before cadence.** The baseline README says drops are "a day-of
+phenomenon" so future dates poll at idle. Thrill Data shows Slinky with 34
+distinct earlier-return release times at 1 day out, Soarin' with 57. Use
+approach cadence during daytime when the watched date is tomorrow.
+_Effort: small._
 
 **P2.5 · Party nights.** Mickey's Very Merry Christmas Party: Dec 1, 3, 4, 6, 8,
 10, 11, 13, 15, 17, 18, 20, 22 (MK closes to day guests at 6pm). Jollywood
@@ -730,7 +747,10 @@ only source for what bg1 books. _Effort: medium._
 
 ## 9. Refuted — do not rebuild these
 
-Nineteen findings were adversarially refuted. The most consequential:
+Nineteen findings were adversarially refuted. `docs/FUTURE.md` §7 carries a
+condensed copy of this list, for readers working from that file; **this section
+is the authoritative one**, because it is the one that keeps the arguments. The
+most consequential:
 
 1. **A cascade scoring model.** The gate is 120 minutes from booking, not the
    return time you hold. bg1 also already targets the earliest time and
@@ -807,7 +827,10 @@ Nineteen findings were adversarially refuted. The most consequential:
 
 ## 10. Open questions to settle in park
 
-Instrument these; do not model them from folklore.
+Instrument these; do not model them from folklore. The instrumentation itself —
+log lines, not behaviour changes — is tracked as `docs/FUTURE.md` §5, and it has
+to land before the December 6 freeze, or the ones that need a timestamped record
+cannot be answered on the trip at all.
 
 1. **Does an expired, never-tapped first LL free its slot?** One well-cited
    DISboards report says no until you tap into something else. Log the
@@ -842,25 +865,14 @@ Instrument these; do not model them from folklore.
 
 ## 12. Suggested schedule
 
-_Revised 2026-09-12._ §1, Phase 0 and Phase 1 are done, as is most of Phases 2
-and 4; the original rows for the weeks of Sept 8 and Sept 15–26 are spent. What
-follows is only what is still outstanding, in the order it is worth doing. The
-item list under "Status" is the authority on which items those are.
+_Revised 2026-09-13._ The schedule has moved to `docs/FUTURE.md`, under "A
+suggested order", and is kept there alone: two orderings of the same work would
+disagree within a week of each other.
 
-| When            | What                                                                                 | Gate                                                                                          |
-| --------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| Sept 15 – Oct 3 | Record drop coverage per scheduled drop time, then turn P2.3's `DEMOTION_ENABLED` on | A demotion appears on the Activity screen over real evidence, and no firing drop time is lost |
-| Sept 15 – Oct 3 | P2.6 crowd-gated drops; P2.7 pop-up vs earlier-time                                  | AK's five gated times carry their qualifier; earlier-time bursts run only for held targets    |
-| Oct 6 – Oct 30  | P3.3 expiry rescue; P3.4 park-hop codes handled distinctly                           | A pass about to lapse is modified to a filler; each code schedules or suppresses, not both    |
-| Nov 2 – Nov 20  | P4.8 per-target guest subset; P3.6 reclaimability for swap victims                   | A target books for a subset; autoswap gives up the genuinely cheapest slot, not merely Tier 2 |
-| Nov 23 – Dec 5  | P4.3 booking-window guidance; P2.9 faster learning within a trip                     | The 7:00am screen answers "which three first"; a second same-hour observation counts          |
-| Dec 6 – trip    | Freeze. Full-day dry runs. Instrument §10.                                           | No code changes in the final two weeks                                                        |
-
-§8's live standby ranking is the only Phase 5 item and stays optional. It is the
-largest remaining accuracy gain on a CL10 December day and also a new external
-dependency, so it is the first thing to cut and should not be started after
-early November. If more slips, cut P4.3, then P3.6.
-
-Two halves of partly-landed items are deliberately unscheduled: P3.1's passkey
-selector, which the hand-marked flag substitutes for, and P3.5's day-of tier
-check, which is gated off on purpose. Both are explained in §6.
+Two constraints belong to this document rather than that one. **December 6 is
+the freeze** — no code changes in the final two weeks, only full-day dry runs in
+the harness and in the park, which is also why §10's instrumentation has to be
+in before that date. And **if the weeks slip, §8's live standby ranking is the
+first thing to cut**: it is the only Phase 5 item, the largest remaining
+accuracy gain on a CL10 December day, and a new external dependency on the
+booking path's ordering, so it should not be started after early November.
