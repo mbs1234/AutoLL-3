@@ -13,8 +13,11 @@ followed it; Phase 1a, the cards and the colour policy inside the existing
 Autopilot screen, after that; and Phase 1b, the split into Today, Configure,
 Activity and Timeline with Today as a fifth tab, after that. Phases 2, 3, 4
 and 5 have landed since, each with gaps against what it proposed; every phase
-below ends with a dated note recording what actually shipped. What the
-2026-09-12 review found still outstanding is in §9.
+below ends with a dated note recording what actually shipped. Revised again on
+2026-09-13 for one structural change: the outstanding work moved to
+`docs/FUTURE.md`, which is now the one list of what is left, and this file is
+the record of what was proposed, what landed and what was decided. §9 says
+where the 2026-09-12 review's findings went.
 
 ## 0. Summary
 
@@ -303,7 +306,8 @@ Size: about one session.
 Time Search running end to end against the fakes. Two things it showed at
 once: the Avoid-clashes explanation carried an `&mdash;` inside a string
 literal and rendered the entity (fixed with it), and the day timeline's three
-target columns truncate every name at 360 px, which Phase 2 inherits.
+target columns truncate every name at 360 px, which Phase 2 inherits
+(`FUTURE.md` §2.1).
 
 ### Phase 1: the Autopilot restructure
 
@@ -404,20 +408,20 @@ Still open:
   360 px three full-day targets get about 50 px each and every name is cut.
   What landed instead of a fix is a `title` tooltip, which a touchscreen never
   shows, plus tap-through to the card. The Phase 0b finding this phase
-  inherited is unfixed.
+  inherited is unfixed (`FUTURE.md` §2.1).
 - No enlarged hit area. A bar's height is still its time extent floored by
   `MIN_HEIGHT = 3` percent of a 480 px rail: about 14 px for a half-hour hold
-  and 20 px for an hour.
+  and 20 px for an hour (`FUTURE.md` §2.2).
 - A `setting` subject opens Configure but nothing focuses the Settings
   section. `Configure` accepts a `focus` prop of that kind and reads only
-  `focus.kind === 'target'`.
+  `focus.kind === 'target'` (`FUTURE.md` §2.8).
 
 Of the four test deliverables, only `plancheck.test.ts` gained anything, and
 that is one assertion on the `targets` subject. `PlanCheck.test.tsx` exists
 with nine cases, none of which touches the outcome bar, the per-item buttons
 or the navigation; `daytimeline.test.ts` never asserts `protectedFrom` or
 `protectedTo`; `DayTimeline.test.tsx` has no test for a tap or for the band.
-All three remain outstanding work.
+All three remain outstanding work (`FUTURE.md` §6).
 
 ### Phase 3: Time Search recovery and the shared status row
 
@@ -466,7 +470,7 @@ buttons only at `idle`.
 Second correction: `TimeSearch.test.tsx` was never written, and none of the
 scenarios listed for it has a component test. The hook tests for the phase
 field and `AutopilotStatusRow.test.tsx` did land. The component test remains
-outstanding, as it was in the handoff that first named it.
+outstanding, as it was in the handoff that first named it (`FUTURE.md` §6).
 
 ### Phase 4: pre-trip checklist and polish
 
@@ -499,9 +503,9 @@ box. The deviations:
 - Five of the eight listed steps shipped. Park and date chosen, windows set
   where wanted, and unrecognised attraction IDs are absent. The last of those
   is on Today as a standalone red paragraph outside the checklist, so it is
-  visible but is not a step with a route to fix it.
+  visible but is not a step with a route to fix it (`FUTURE.md` §2.9).
 - The action button renders only for a step that is not done, so a finished
-  step has no route back to review what was set.
+  step has no route back to review what was set (`FUTURE.md` §2.9 as well).
 - The filter box filters the watched cards as well as the add list. On a
   360 px phone that is arguably the better behaviour, since a long watch list
   is what pushes the add list off the screen, but it is not what the plan
@@ -531,7 +535,7 @@ Codex rounds, merged as PRs #14 through #19, each merge followed by a
 successful `deploy.yml` run, the last of them on 2026-09-11. Park use waits on
 the December trip, and the port to AutoLL v1.1 has not happened: none of
 `Toggle`, `TargetCard`, `ContextStrip`, `describe.ts`, `events.ts`, `Today` or
-`Configure` exists in that repository yet.
+`Configure` exists in that repository yet (`FUTURE.md` §6).
 
 ## 6. Decisions for the owner
 
@@ -554,6 +558,9 @@ Six of the seven are settled by what shipped. One is still open.
    whose locks are persisted, adopted from other instances and released under
    rules of their own, so a second running poller is something those locks
    would have to arbitrate rather than merely a second claim on the budget.
+   `FUTURE.md` §4.1 owns the decision now: it reads that arbitration as the
+   same collision class as a Time Search commit taken outside the ledger, and
+   recommends against hoisting before December.
 4. **Retire `DaySummary.tsx`.** Done. The file is gone and Today and Timeline
    cover what it showed.
 5. **Activity** as its own screen. Done: `screens/Activity.tsx`.
@@ -581,9 +588,9 @@ remains:
   matters, as the provider and `useTimeSearch` already do.
 - Re-render cost from a 1.2 s tick across Today, Configure and a timeline;
   memoised derivations, and the harness's live scenario is where to watch for
-  jank. Partly addressed: `PlanCheck` memoises `checkPlan`, but `DayTimeline`
-  still calls `dayTimeline()` on every render, which §2 asked for a `useMemo`
-  around.
+  jank. Partly addressed: `PlanCheck` memoises `checkPlan`. The one place the
+  risk was realised is the `useMemo` §2 asked for around `dayTimeline()`,
+  which is now an item rather than a risk (`FUTURE.md` §2.10).
 - The narrowing in Phase 0a widens the gap to upstream `bg1`. Every later
   upstream merge meets modify-versus-delete conflicts on the removed paths.
   Acceptable for an experimental WDW-only build, and documented in `FORK.md`
@@ -600,41 +607,21 @@ sensor-data module and header construction, which Phase 0a's deletions do not
 touch; "suggest a safe window" on the timeline, deferred until the navigable
 timeline has been used in a park. The Disneyland Plan Check wording
 limitation formerly documented in `FORK.md#disneyland` is not fixed but
-removed, along with Disneyland.
+removed, along with Disneyland. `FUTURE.md` §7 condenses what both plans
+decided against into one list so the same idea is not proposed again as a
+discovery; the arguments are here and in `PLAN.md` §9.
 
 ## 9. What the 2026-09-12 review found
 
-The UI-side items that review left outstanding, recorded here so they are not
-lost. They are candidates for a next phase, not decided work, and none of them
-has been scoped or costed.
+The UI-side items that review left outstanding are now in `docs/FUTURE.md`:
+§2, "The screens", carries every one of them, with the file and line each sits
+at and what doing it would cost. The correctness findings of the same review,
+the ones the fixes of that day did not cover, are its §1. Neither set is
+repeated here, because two lists drift.
 
-- **Names are cut off in the timeline.** Three target columns at 360 px leave
-  about 50 px a bar, and the `title` tooltip standing in for the name is inert
-  on a touchscreen. Carried from Phase 0b through Phase 2.
-- **Timeline bars are 14 to 20 px tall.** `MIN_HEIGHT` is 3 percent of a
-  480 px rail and the enlarged hit area Phase 2 proposed was never added.
-- **Plan Check's "Refresh LL list" gives no feedback.** `actOn` calls
-  `refreshExperiences()` and returns. The refresh does run through the
-  Experiences provider's `loadData`, but that provider's spinner and error
-  flash are rendered by `Today`, which `NavProvider` marks `hidden` while Plan
-  Check sits on top, so a tap produces no spinner, no error and nothing
-  visible until the item recomputes.
-- **Today's freshness line over-claims.** "Plans and LL availability are
-  current as of" is the older of the two `lastUpdated` values, but undefined
-  values are filtered out before the comparison, so one loaded context and one
-  that has never fetched reads as both being current.
-- **Configure can contradict its own heading.** "Watching (4)" counts
-  `targetsHere`, while the list under it is the watched targets intersected
-  with the loaded tipboard. An empty or not-yet-loaded tipboard gives "Nothing
-  selected yet. Pick attractions below." under a heading that says four.
-- **A protected band can bury the hold underneath it.** The band is a
-  full-width absolutely positioned div drawn per lane in start order, with no
-  `pointer-events-none`, so a later hold's band paints over an earlier
-  overlapping hold's button and takes its taps as well.
-- **The undo flash holds one removal.** `removed` on Configure is a single
-  state slot, so a second removal inside the undo window replaces the first
-  and the first target's undo is gone.
-- **The timeline's tooltips are in 24-hour time.** Every bar's `title` is
-  built from `ParkTime.toString()`, so the string a screen reader takes as the
-  description, and the only place the full name survives truncation, reads
-  "20:15:00" where the bar itself shows "8:15 PM" through `<Time>`.
+One of the eight was nearly lost in the move and is worth naming for the
+reason it was: the timeline's `title` tooltips are built by interpolating a
+`ParkTime`, so they read "20:15:00" where the bar shows "8:15 PM". It matters
+twice over — a screen reader takes that string as the bar's description, and
+it is the only place a truncated name survives at all — which is why it is now
+`FUTURE.md` §2.11 rather than a footnote to the truncation item.
