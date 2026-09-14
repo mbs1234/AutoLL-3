@@ -6,3 +6,4 @@ tsconfig.tsbuildinfo
 .coverage
 .DS_Store
 .vite
+.idea/workspace.xml
