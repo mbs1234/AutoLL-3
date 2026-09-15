@@ -27,11 +27,13 @@ function setup({
   guests = jest.fn(
     async (): Promise<Guests> => ({ eligible: [], ineligible: [] })
   ),
+  pollExperiences = jest.fn(async () => []),
   ...state
 }: Partial<AutopilotState> & {
   targets?: WatchTarget[];
   experiences?: (typeof hm)[];
   guests?: jest.Mock;
+  pollExperiences?: jest.Mock;
 } = {}) {
   render(
     <NavContext
@@ -46,7 +48,7 @@ function setup({
               value={{
                 experiences,
                 refreshExperiences: () => {},
-                pollExperiences: async () => [],
+                pollExperiences,
                 loaderElem: null,
               }}
             >
@@ -62,7 +64,6 @@ function setup({
                   value={
                     {
                       targets,
-                      bookingsRemaining: 3,
                       requireWholeParty: true,
                       avoidOverlaps: true,
                       dryRun: false,
@@ -80,7 +81,7 @@ function setup({
       </ParkContext>
     </NavContext>
   );
-  return { guests };
+  return { guests, pollExperiences };
 }
 
 const tapCheck = async () => {
@@ -190,5 +191,62 @@ describe('PlanCheck', () => {
     expect(
       screen.queryByText(/no configuration conflicts/)
     ).not.toBeInTheDocument();
+  });
+
+  /*
+   * The refresh used to call `refreshExperiences`, whose spinner and error
+   * belong to the Experiences provider and are rendered by Today -- hidden
+   * underneath this `fixed inset-0` screen. The request went out and the screen
+   * said nothing, which reads as a broken button; the natural response is to
+   * press it again and spend the shared limiter the poller needs.
+   */
+  describe('the tipboard refresh', () => {
+    const tapRefresh = async () => {
+      await act(async () => {
+        screen.getByText('Refresh LL list').click();
+      });
+    };
+
+    it('says it is refreshing while the request is in flight', async () => {
+      let release = () => {};
+      const pollExperiences = jest.fn(
+        () => new Promise<never[]>(resolve => (release = () => resolve([])))
+      );
+      setup({ experiences: [], pollExperiences });
+      await act(async () => {
+        screen.getByText('Refresh LL list').click();
+      });
+      expect(screen.getByText('Refreshing…')).toBeVisible();
+      await act(async () => release());
+    });
+
+    it('will not fire a second request while one is in flight', async () => {
+      let release = () => {};
+      const pollExperiences = jest.fn(
+        () => new Promise<never[]>(resolve => (release = () => resolve([])))
+      );
+      setup({ experiences: [], pollExperiences });
+      await act(async () => {
+        screen.getByText('Refresh LL list').click();
+      });
+      await act(async () => {
+        screen.getByText('Refreshing…').click();
+      });
+      expect(pollExperiences).toHaveBeenCalledTimes(1);
+      await act(async () => release());
+    });
+
+    // The failure the provider's own toast would have swallowed out of sight.
+    it('reports a refusal on this screen rather than silently', async () => {
+      const pollExperiences = jest.fn(async () => {
+        throw new RateLimitExceeded();
+      });
+      setup({ experiences: [], pollExperiences });
+      await tapRefresh();
+      await waitFor(() =>
+        expect(screen.getByText(/Wait a few seconds/)).toBeVisible()
+      );
+      expect(screen.getByText('Refresh LL list')).toBeVisible();
+    });
   });
 });

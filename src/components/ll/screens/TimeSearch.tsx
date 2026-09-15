@@ -10,6 +10,7 @@ import { Time } from '@/components/Time';
 import ClientsContext from '@/contexts/ClientsContext';
 import NavContext from '@/contexts/NavContext';
 import PlansContext from '@/contexts/PlansContext';
+import TopAutopilotContext from '@/contexts/TopAutopilotContext';
 
 import Home from './Home';
 import { NextLLTimeSearchActivity } from './NextLLActivity';
@@ -42,6 +43,13 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
   const { ll } = use(ClientsContext);
   const { pollPlans } = use(PlansContext);
   const { goBack } = use(NavContext);
+  // The *top-level* engine, not whatever provider happens to be nearest: this
+  // screen can be reached from inside NextLL, whose nested provider is a
+  // short-lived search of its own. The all-day Autopilot is the one still
+  // polling this reservation underneath, and its ledger is the one whose lock
+  // has to be taken. Both publish to the same day-scoped storage, so claiming
+  // through it also covers a second tab.
+  const topAutopilot = use(TopAutopilotContext);
   const [targetText, setTargetText] = useState('');
   const [goal, setGoal] = useState<SearchGoal>({ kind: 'soonest' });
 
@@ -54,6 +62,10 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
     changeTime: (offer, time) => ll.changeOfferTime(offer, time),
     commit: offer => ll.book(offer),
     pollPlans,
+    claimCommit: () =>
+      topAutopilot?.claimAction?.(booking.facilityId, 'modify') ?? true,
+    releaseCommit: () =>
+      topAutopilot?.releaseAction?.(booking.facilityId, 'modify'),
   });
 
   function begin(kind: SearchGoal['kind']) {
@@ -126,6 +138,22 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
               {search.moves} moved)
             </span>
           </p>
+          {search.contended && (
+            <div
+              role="status"
+              className="mt-3 rounded-sm bg-amber-100 p-2 text-amber-900"
+            >
+              <p className="font-semibold">
+                Autopilot is already acting on this reservation.
+              </p>
+              <p className="mt-1">
+                It keeps looking, but will not move this Lightning Lane while
+                the day plan is mid-action on it &mdash; two moves at once is
+                how one of them lands on a time the other just gave up. Turn
+                Autopilot off from Today if you want this search to take over.
+              </p>
+            </div>
+          )}
           {search.pending && (
             <div className="mt-3 rounded-sm bg-amber-100 p-2 text-amber-900">
               <p className="font-semibold">

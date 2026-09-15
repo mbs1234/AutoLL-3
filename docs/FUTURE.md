@@ -24,91 +24,43 @@ usable today; everything here makes it better, and nothing here is required.
 
 ## The short list
 
-If only five things get done, these:
+If only four things get done, these:
 
-1. **Time Search and Autopilot can modify the same pass** (§1.1) — the one
-   remaining collision the shared locks were built to prevent.
-2. **Expiry rescue** (§3.1) — the largest recoverable loss the tool still does
+1. **Expiry rescue** (§3.1) — the largest recoverable loss the tool still does
    not catch: a lapsed pass costs a selection for nothing.
-3. **Plan from the sofa** (§3.2) — a December plan cannot currently be built
+2. **Plan from the sofa** (§3.2) — a December plan cannot currently be built
    without a live tip board, which is the opposite of how this is meant to work.
-4. **The timeline's names and tap targets** (§2.1, §2.2) — the day view cannot
+3. **The timeline's names and tap targets** (§2.1, §2.2) — the day view cannot
    currently tell you which ride a bar is for.
-5. **The overlay IDs** (§3.3) — a watch list built in October against the wrong
+4. **The overlay IDs** (§3.3) — a watch list built in October against the wrong
    Jingle Cruise ID matches nothing in December, silently.
+
+The correctness list above them is empty: §1 was cleared on 2026-09-14, and
+with it the four screen defects that used to sit in §2.
 
 ---
 
 ## 1. Correctness still outstanding
 
-All confirmed by the 2026-09-12 review and still true in the code today. The
-six highest-severity findings from that review were fixed on the day and are
-not repeated here.
+**Nothing, as of 2026-09-14.** Every finding this section carried has been
+fixed. Recorded here rather than deleted, because the section numbers below are
+referenced from `UX-PLAN.md` and from the ordering at the end of this file.
 
-### 1.1 Autopilot and a Time Search can modify the same held pass
+What went, in the order they were listed: a Time Search committing outside the
+shared action ledger, so it and the top-level Autopilot could modify the same
+held pass; Home's on-visible refresh dying at the first tab switch, because
+`useScreenState` compared React elements by identity while `withTabs` replaced
+the active element on every change; a refusal burst flooding the saved activity
+log, because the merge key carried the collapsed row's most-recent time and so
+read every rewrite as a new event; a timed-out booking rendered as
+"Request failed (0)" against this project's own rule that a status-0 result is
+an unknown outcome; and the mount-time drop summary omitting the watched-days
+record, so the Activity screen said "(not watched yet)" about drops it had been
+watching for days.
 
-`useTimeSearch` holds its commit guard in a ref: an in-memory, per-hook lock.
-It never takes the per-attraction action locks the top-level engine shares, and
-its commits go straight to `ll.book(offer)` without passing through the ledger,
-so they are neither locked nor charged. Meanwhile the top-level Autopilot keeps
-polling underneath the Time Search screen.
+Each landed with a test, and each of those tests was checked against a reverted
+fix to prove it fails without it.
 
-_Where:_ `src/components/ll/screens/TimeSearch.tsx:48-55`,
-`src/autopilot/useTimeSearch.ts:110-126`. _Size:_ medium. _Risk:_ a foreground
-search is one the user is standing there asking for, so it must not be silently
-blocked by a lock the engine took — it needs the `releaseAttempt` escape NextLL
-already uses.
-
-### 1.2 Home stops refreshing itself after the first tab switch
-
-`useScreenState` captures the active screen element once and compares by
-identity, while `withTabs` replaces that element on every tab change. From the
-first switch onward the on-visible refresh never fires again, so you take the
-phone out of your pocket at :47 and read availability as old as your last
-manual refresh, with nothing saying it is stale.
-
-_Where:_ `src/hooks/useScreenState.ts:5-10`,
-`src/components/withTabs.tsx:12-19`,
-`src/components/ll/screens/Home.tsx:64,75-81`. _Size:_ small. _Risk:_ the
-comparison has to stop depending on element identity without firing a refresh
-on every tab switch, which would spend the shared rate limit.
-
-### 1.3 A refusal burst still floods the saved activity log
-
-Repeated failures collapse to one row carrying a count and the most recent
-time — but that time is part of the key the save path dedupes on, so each
-rewrite looks like a new event and every earlier copy is appended back. In
-burst cadence the twenty stored rows become twenty copies of one error inside
-half a minute, and the day's real bookings are gone.
-
-_Where:_ `src/autopilot/bookinglog.ts:39-56`, `src/autopilot/storage.ts:86-125`.
-_Size:_ small. _Risk:_ the merge exists because two providers write the same
-log; a key that ignores the time must still tell two genuine events apart.
-
-### 1.4 A timed-out booking is written down as a clean failure
-
-`describeFailure` renders whatever status it is given, so the client timeout
-logs as "Request failed (0)". The engine itself gets this right — the lock and
-the doubt-hold both stand — but the screen contradicts the project's own rule
-that a status-0 result is an unknown outcome, not a failure. On park wifi a 0
-is common and can mean a booking that landed.
-
-_Where:_ `src/autopilot/bookinglog.ts:13-19`. _Size:_ small. _Risk:_ none beyond
-wording: it has to say "no answer, check your plans" without implying a booking
-exists.
-
-### 1.5 Activity says "(not watched yet)" about drops it has been watching for days
-
-The mount-time drop summary omits the watched-days record, so every scheduled
-check comes back with no coverage until something new arrives. That screen is
-the only place you can see whether a built-in drop time has ever fired for you,
-and the same numbers are the evidence the demotion switch (§4.2) would act on.
-
-_Where:_ `src/providers/AutopilotProvider.tsx:381-388`. _Size:_ small (one
-argument). _Risk:_ it makes the demotion evidence look ready before the
-coverage work behind it is done.
-
----
 
 ## 2. The screens
 
@@ -135,46 +87,7 @@ invisible hit area so the drawn geometry stays honest; it was never added.
 _Where:_ `src/components/ll/DayTimeline.tsx:18,24,46`. _Size:_ small. _Risk:_
 adjacent bars' hit areas overlapping.
 
-### 2.3 A held pass's protected band swallows taps on the hold underneath
-
-The band is a full-width absolutely positioned div drawn per lane with no
-`pointer-events-none`, so on a day with two overlapping holds one of them
-cannot be opened.
-
-_Where:_ `src/components/ll/DayTimeline.tsx:113-122`. _Size:_ small (one class).
-
-### 2.4 Plan Check's "Refresh LL list" reports nothing
-
-The refresh runs, but the spinner and error flash belong to Today, which is
-hidden while Plan Check sits on top. Pressing the button and getting silence
-reads as broken, and the natural response is to press it again — spending the
-rate limit the poller needs.
-
-_Where:_ `src/components/ll/screens/PlanCheck.tsx:88-91`. _Size:_ small. _Risk:_
-keep the status local to Plan Check rather than giving the Experiences provider
-a second spinner owner.
-
-### 2.5 Today's freshness line calls never-fetched data current
-
-The line takes the older of the two `lastUpdated` values, but filters out
-undefined ones first — so one loaded context and one that has never fetched
-reads as both current. It is the line that tells you whether to trust the rest
-of the screen, and it over-claims in exactly the state where trusting it is
-wrong.
-
-_Where:_ `src/components/ll/screens/Today.tsx:143-150`. _Size:_ small.
-
-### 2.6 Configure contradicts its own heading
-
-The heading counts saved targets for the park and date; the list under it is
-those targets intersected with the loaded tip board. An unloaded tip board
-gives "Nothing selected yet" under "Watching (4)", which reads as data loss at
-the moment you are checking your plan survived.
-
-_Where:_ `src/components/ll/screens/Configure.tsx:258,275-279`. _Size:_ small —
-the "Not on today's list" group already has the wording to borrow.
-
-### 2.7 A second removal inside the undo window destroys the first undo
+### 2.3 A second removal inside the undo window destroys the first undo
 
 The undo holds one removal in a single state slot. Tidying two rows in a row —
 the ordinary way to hit it — loses the first target's window, rank and flags
@@ -184,7 +97,7 @@ _Where:_ `src/components/ll/screens/Configure.tsx:91-101,296-317`. _Size:_
 small. _Risk:_ keep the flash to one row at a time, or the footer grows
 unpredictably at 360 px.
 
-### 2.8 A Plan Check settings item opens Configure and abandons you
+### 2.4 A Plan Check settings item opens Configure and abandons you
 
 `Configure` accepts a focus of `{kind:'target'}` or `{kind:'setting'}` and
 reads only the target case, so following a settings blocker drops you at the
@@ -194,7 +107,7 @@ _Where:_ `src/components/ll/screens/Configure.tsx:65-67`. _Size:_ small. _Risk:_
 the screen is `fixed inset-0` with its own scroll pane, so scroll to a ref
 rather than a hash.
 
-### 2.9 The pre-trip checklist is missing three steps and has no way back into a finished one
+### 2.5 The pre-trip checklist is missing three steps and has no way back into a finished one
 
 It ships five of its eight steps: party, targets, an action armed,
 notifications, Plan Check. "Park and date chosen", "windows set where wanted"
@@ -207,7 +120,7 @@ _Where:_ `src/autopilot/checklist.ts:30-68`,
 set where wanted" has no objective done state — make it an acknowledgement, not
 a test, or it will never go green.
 
-### 2.10 The timeline recomputes the whole day on every tick
+### 2.6 The timeline recomputes the whole day on every tick
 
 `dayTimeline()` runs in the render body, and in burst cadence the status
 updates every 1.2 seconds while `NavProvider` keeps the screen mounted
@@ -218,7 +131,7 @@ _Where:_ `src/components/ll/DayTimeline.tsx:76`. _Size:_ small. _Risk:_ the
 dependency list must include the held plans, or the timeline freezes after a
 booking.
 
-### 2.11 The timeline's tooltips are in 24-hour time
+### 2.7 The timeline's tooltips are in 24-hour time
 
 Every bar's `title` is built by interpolating a `ParkTime`, whose `toString()`
 is zero-padded `HH:MM:SS` — so the string a screen reader takes as the bar's
@@ -390,8 +303,11 @@ Four things that need an answer before anyone writes anything.
 NextLL mounts its own engine, so leaving the tab stops the search. Hoisting it
 would let a quick search keep running while you look at your plans. The cost
 has grown since the question was framed: the action-lock ledger now means two
-pollers would have to arbitrate the same per-attraction locks, which is the
-same collision class as §1.1.
+pollers would have to arbitrate the same per-attraction locks — the collision
+class §1 used to carry as its Time Search item, fixed on 2026-09-14 by making
+that search take the engine's lock rather than commit outside the ledger. That
+fix is the pattern a hoisted NextLL would have to follow, and it is why this
+remains a decision rather than a straightforward port.
 
 _Recommendation: no, not before December._ A trip is the wrong week to find out
 how two pollers share a lock ledger.
@@ -458,14 +374,21 @@ _Size:_ small, and it must be log lines rather than behaviour changes.
 
 ## 6. Testing and housekeeping
 
-**Four named test deliverables were never written.** `PlanCheck.test.tsx` has
-nine cases and none touches the outcome bar, the per-item buttons or the
-navigation; `daytimeline.test.ts` never asserts the protected span;
-`DayTimeline.test.tsx` has no test for a tap or for the band; `TimeSearch.test.tsx`
-does not exist. The deploy now gates on the full suite, so an untested screen is
-an ungated screen — and several fixes in §2 land in exactly these files. Write
-them alongside those fixes, not as a separate pass, or they will be written to
-match whatever the code happens to do.
+**Two of four named test deliverables are still missing**, down from four on
+2026-09-14: `PlanCheck.test.tsx` now covers the tipboard item's button, its
+in-flight state and its failure, and `DayTimeline.test.tsx` now asserts the
+protected band is drawn non-interactive. Still outstanding: `daytimeline.test.ts`
+never asserts `protectedFrom`/`protectedTo` on the pure lane data, and
+`TimeSearch.test.tsx` does not exist — the hook underneath it is well covered
+(`useTimeSearch.test.ts`, including the shared action lock), but the screen is
+not. The deploy gates on the full suite, so an untested screen is an ungated
+screen. Write them alongside the fixes that land in those files, not as a
+separate pass, or they will be written to match whatever the code happens to do.
+
+**One thing that pass established, worth keeping:** jsdom does no hit-testing,
+so a test that "clicks through" an overlay passes with the overlay bug present.
+Where the fix is a CSS property, assert the property; a behavioural test there
+is a test that cannot fail.
 
 **Nothing pins the storage namespace.** Every key is a literal spread across
 some twenty files and every notification tag is a template — all correctly
@@ -537,9 +460,9 @@ expensive things land first and the freeze catches the cheap ones.
 
 | When | What |
 | ---- | ---- |
-| Now | §1.2 the refresh, §1.4 and §1.5 the two one-liners, §2.3–§2.6 |
-| Late September | §3.1 expiry rescue, §1.1 the Time Search lock, with their tests |
-| October | §3.2 planning offline, §2.1 and §2.2 the timeline, §2.9 the checklist |
+| ~~Now~~ | ~~§1 and §2.3–§2.6~~ — done 2026-09-14 |
+| Now | §3.1 expiry rescue, with its tests |
+| October | §3.2 planning offline, §2.1 and §2.2 the timeline, §2.5 the checklist |
 | Early November | §4.2 and §4.4 decided and acted on, or explicitly dropped; §3.4 the countdown |
 | Late November | §3.3 the overlay IDs against a live tip board; §5 instrumentation |
 | December 6 → trip | Freeze. Full-day dry runs in the harness and in the park. |

@@ -15,7 +15,10 @@ export default function NavProvider({
 }: {
   children: React.JSX.Element;
 }) {
-  const [screens, setScreens] = useState<Screens>({ activeScreen: children });
+  const [screens, setScreens] = useState<Screens>({
+    activeScreen: children,
+    activeKey: 0,
+  });
   const stack = useRef<{ elem: React.JSX.Element; key: number }[]>([
     { elem: children, key: 0 },
   ]);
@@ -73,6 +76,10 @@ export default function NavProvider({
         setScreens({
           activeScreen: stack.current[pos]?.elem ?? <div />,
           prevScreen: stack.current[pos - 1]?.elem,
+          // The stack's own key for this position. A `replace` reuses it, so a
+          // tab change leaves it alone; a push or a pop moves it, which is when
+          // a screen genuinely stops or starts being the active one.
+          activeKey: stack.current[pos]?.key ?? 0,
         });
       }
     }

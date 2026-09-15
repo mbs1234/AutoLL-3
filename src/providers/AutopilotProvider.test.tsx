@@ -9,8 +9,12 @@ import { fireAlert, primeAudio } from '@/autopilot/alert';
 import { CONFIRM_ABSENT_POLLS } from '@/autopilot/autobook';
 import {
   appendDropEvents,
+  coverageBucket,
+  coverageKey,
   loadCoverage,
   loadDropEvents,
+  saveCoverage,
+  saveWatchedDays,
 } from '@/autopilot/observe';
 import { NO_REFUSALS, refusedCalls } from '@/autopilot/refusal';
 import {
@@ -66,6 +70,8 @@ setTime('09:00');
 
 const BZ = '80010114';
 const DB = '80010129';
+/** Haunted Mansion: the fixture gives it drop times at 13:30 and 15:30. */
+const HM = '80010208';
 
 function available(
   id: string,
@@ -97,6 +103,7 @@ function Probe() {
     setRequireWholeParty,
     lastSkip,
     sessionLog,
+    dropSummaries,
   } = use(AutopilotContext);
   return (
     <div>
@@ -115,6 +122,12 @@ function Probe() {
         {lastSkip ? `${lastSkip.name}: ${lastSkip.reason}` : ''}
       </span>
       <span data-testid="sessionLog">{sessionLog.length}</span>
+      <span data-testid="coveredDays">
+        {dropSummaries.reduce(
+          (n, d) => n + d.scheduled.reduce((m, c) => m + c.coveredDays, 0),
+          0
+        )}
+      </span>
       <span data-testid="refused">
         {refusedCalls(refusals ?? NO_REFUSALS, syncedParkTime()).join(',')}
       </span>
@@ -1288,6 +1301,41 @@ describe('AutopilotProvider persistence and diagnostics', () => {
       await jest.advanceTimersByTimeAsync(5000);
     });
     expect(screen.getByTestId('lastSkip')).toHaveTextContent(/^$/);
+  });
+});
+
+/*
+ * The drop record as it reads before today's first poll.
+ *
+ * The summary built at mount omitted the watched-days argument the poll-time
+ * one passes, and `coveredDays` is gated on it -- so every scheduled drop time
+ * came back with no coverage and the Activity screen said "(not watched yet)"
+ * about times it had been watching for days, until something new arrived to
+ * force a re-summary. That screen is the only place a built-in drop time's
+ * record is visible, and the same numbers are the evidence the demotion switch
+ * would act on.
+ */
+describe('AutopilotProvider drop coverage at mount', () => {
+  const EARLIER = ['2021-09-27', '2021-09-28'];
+
+  beforeEach(() => {
+    saveWatchList([{ experienceId: HM }]);
+    const key = (date: string) => coverageKey(mk.id, date);
+    // The poller was running across Haunted Mansion's 13:30 drop on both days,
+    // and Haunted Mansion was armed on both.
+    saveCoverage(
+      Object.fromEntries(
+        EARLIER.map(date => [key(date), [coverageBucket(new ParkTime(13, 30))]])
+      )
+    );
+    saveWatchedDays(Object.fromEntries(EARLIER.map(date => [key(date), [HM]])));
+  });
+
+  it('reports what earlier days covered, before any poll', () => {
+    setupBooking({ experiences: [available(HM, new ParkTime(11))] });
+    expect(
+      Number(screen.getByTestId('coveredDays').textContent)
+    ).toBeGreaterThan(0);
   });
 });
 

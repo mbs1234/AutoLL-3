@@ -60,6 +60,14 @@ export interface TimeSearchState {
   stop?: SearchStop;
   /** Set once a commit's outcome could not be determined. */
   unresolved?: ParkTime;
+  /**
+   * The top-level engine holds the action lock for this reservation.
+   *
+   * Reported rather than acted on. A foreground search is one the user is
+   * standing there asking for, so it keeps looking and says why it is not
+   * committing, instead of stopping with no explanation.
+   */
+  contended?: boolean;
   cycles: number;
   moves: number;
   lastError?: string;
@@ -87,6 +95,20 @@ export interface TimeSearchDeps {
   confirmEveryMove?: boolean;
   /** A confirmed swap is one replacement, not an unattended chain of moves. */
   stopAfterConfirmedMove?: boolean;
+  /**
+   * Take the top-level engine's per-attraction action lock before committing.
+   *
+   * Without it this hook's commits went straight to `ll.book(offer)`, outside
+   * the ledger the engine shares -- so Autopilot, still polling underneath this
+   * screen, could modify the same held pass in the same few seconds. Returns
+   * false when the lock is already held, which is reported rather than treated
+   * as a failure.
+   *
+   * Optional: the tests that drive this hook directly do not need a ledger.
+   */
+  claimCommit?: () => boolean;
+  /** Give the lock back when the commit provably did not happen. */
+  releaseCommit?: () => void;
 }
 
 /**
@@ -132,7 +154,34 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
    * those locks, but it must preserve one whose request has left the device.
    */
   const commitInFlightRef = useRef(false);
+  /**
+   * Whether this search currently holds the engine's per-attraction lock.
+   *
+   * Claimed before the first commit of a run and held for the rest of it: the
+   * top-level Autopilot keeps polling underneath this screen, and a lock that
+   * were taken and given back between cycles would leave a window on every one
+   * of them. Released when the run stops -- except when a commit's outcome is
+   * unknown, where a move may have landed and nothing else may pile on.
+   */
+  const holdsLockRef = useRef(false);
   const wakeOwner = useRef({}).current;
+
+  /** Take the engine's lock, or report that something else has it. */
+  const claimLock = useCallback(() => {
+    if (holdsLockRef.current) return true;
+    const claim = depsRef.current.claimCommit;
+    // Unwired (the hook's own tests, and any caller with no ledger to share):
+    // behave exactly as before rather than refusing to commit.
+    if (!claim) return true;
+    holdsLockRef.current = claim();
+    return holdsLockRef.current;
+  }, []);
+
+  const dropLock = useCallback(() => {
+    if (!holdsLockRef.current) return;
+    holdsLockRef.current = false;
+    depsRef.current.releaseCommit?.();
+  }, []);
 
   const stop = useCallback(
     (reason: SearchStop) => {
@@ -142,6 +191,12 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       if (guard.phase === 'committing' && !commitInFlightRef.current) {
         guard.release();
       }
+      // The `releaseAttempt` escape. Held to the end of the run so Autopilot
+      // cannot move the same reservation mid-search, and given back here so it
+      // does not retire the attraction for the rest of the session. The one
+      // exception is an unknown outcome: a move may have landed, so the lock
+      // stands for exactly the reason the engine's own doubt rules keep it.
+      if (guard.phase !== 'unknown') dropLock();
       const stoppedReason =
         reason === 'stopped' && guard.phase === 'awaiting'
           ? 'unconfirmed'
@@ -155,7 +210,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       }));
       void releaseScreenAwake(wakeOwner);
     },
-    [wakeOwner]
+    [wakeOwner, dropLock]
   );
 
   /**
@@ -249,6 +304,17 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
           guard.decline(want);
           return;
         }
+        // Last gate before the move leaves the device: the engine's lock for
+        // this attraction. Refused means Autopilot (or a second tab, or the
+        // provider NextLL nests) is already acting on this reservation, and
+        // committing on top of that is the collision the shared ledger exists
+        // to prevent. The search keeps looking and says so rather than dying.
+        if (!claimLock()) {
+          guard.release();
+          setState(s => ({ ...s, contended: true, phase: guard.phase }));
+          return;
+        }
+        setState(s => (s.contended ? { ...s, contended: false } : s));
         commitInFlightRef.current = true;
         const moved = await depsRef.current.commit(quoted);
         guard.markCommitted();
@@ -332,6 +398,17 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         guard.decline(want);
         return;
       }
+      // Last gate before the move leaves the device: the engine's lock for
+      // this attraction. Refused means Autopilot (or a second tab, or the
+      // provider NextLL nests) is already acting on this reservation, and
+      // committing on top of that is the collision the shared ledger exists
+      // to prevent. The search keeps looking and says so rather than dying.
+      if (!claimLock()) {
+        guard.release();
+        setState(s => ({ ...s, contended: true, phase: guard.phase }));
+        return;
+      }
+      setState(s => (s.contended ? { ...s, contended: false } : s));
       commitInFlightRef.current = true;
       const moved = await depsRef.current.commit(quoted);
       guard.markCommitted();
@@ -398,7 +475,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       cancelled = true;
       void releaseScreenAwake(wakeOwner);
     };
-  }, [state.running, stop, wakeOwner]);
+  }, [state.running, stop, wakeOwner, claimLock]);
 
   return {
     ...state,

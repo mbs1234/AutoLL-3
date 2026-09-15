@@ -24,6 +24,17 @@ const STYLE: Record<PlanCheckLevel, string> = {
   ready: 'bg-green-100 text-green-900',
 };
 
+/**
+ * The action button's words.
+ *
+ * A function rather than a ternary in the JSX: Prettier rejects a nested one,
+ * and the refreshing state needs a third string.
+ */
+function tipboardLabel(kind: string, refreshing: boolean): string {
+  if (kind !== 'tipboard') return 'Open Configure';
+  return refreshing ? 'Refreshing\u2026' : 'Refresh LL list';
+}
+
 const LABEL: Record<PlanCheckLevel, string> = {
   blocker: 'Fix before enabling',
   review: 'Review',
@@ -35,7 +46,7 @@ export default function PlanCheck() {
   const { park } = use(ParkContext);
   const { bookingDate } = use(BookingDateContext);
   const { ll } = use(ClientsContext);
-  const { experiences, refreshExperiences } = use(ExperiencesContext);
+  const { experiences, pollExperiences } = use(ExperiencesContext);
   const { plans } = use(PlansContext);
   const { goTo } = use(NavContext);
   const { loadData, loaderElem } = useDataLoader();
@@ -77,13 +88,42 @@ export default function PlanCheck() {
 
   function actOn(item: (typeof items)[number]) {
     if (!item.subject) return;
-    if (item.subject.kind === 'tipboard') return refreshExperiences();
+    if (item.subject.kind === 'tipboard') return refreshTipboard();
     if (item.subject.kind === 'targets') return goTo(<Configure />);
     return goTo(<Configure focus={item.subject} />);
   }
 
   const [party, setParty] = useState<Guests>();
   const [checking, setChecking] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  /**
+   * Refresh the tipboard and say so on *this* screen.
+   *
+   * It used to call `refreshExperiences`, whose spinner and error flash belong
+   * to the Experiences provider and are rendered by Today -- which is hidden
+   * underneath this `fixed inset-0` screen. So the request went out and the
+   * screen said nothing, which reads as a broken button, and the natural
+   * response is to press it again and spend the shared `RateLimit(5)` the
+   * poller needs.
+   *
+   * `pollExperiences` is the awaitable half of the same fetch: it resolves when
+   * the data lands and rejects when the Lightning Lane request fails, so this
+   * screen's own `loadData` can own the spinner and the error. That keeps the
+   * status local rather than giving the provider a second spinner owner. The
+   * `refreshing` guard replaces the throttle `refreshExperiences` applied --
+   * one request in flight at a time, from the one screen that is on top.
+   */
+  function refreshTipboard() {
+    if (refreshing) return;
+    setRefreshing(true);
+    loadData(async () => void (await pollExperiences()), {
+      messages: {
+        [RATE_LIMIT_EXCEEDED]:
+          'Too many requests just now. Wait a few seconds and try again.',
+      },
+    }).finally(() => setRefreshing(false));
+  }
   // A party answer is about one park and one date. This screen stays mounted
   // in the nav stack, so without this it could outlive both.
   useEffect(() => setParty(undefined), [park.id, bookingDate]);
@@ -162,10 +202,13 @@ export default function PlanCheck() {
             <span className="font-semibold">{LABEL[item.level]}:</span>{' '}
             {item.text}
             {item.subject && (
-              <Button type="small" className="mt-2" onClick={() => actOn(item)}>
-                {item.subject.kind === 'tipboard'
-                  ? 'Refresh LL list'
-                  : 'Open Configure'}
+              <Button
+                type="small"
+                className="mt-2"
+                disabled={item.subject.kind === 'tipboard' && refreshing}
+                onClick={() => actOn(item)}
+              >
+                {tipboardLabel(item.subject.kind, refreshing)}
               </Button>
             )}
           </li>

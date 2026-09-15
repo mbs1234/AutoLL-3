@@ -109,6 +109,35 @@ describe('DayTimeline', () => {
     expect(bar(hm.name).title).toMatch(/end time unknown/);
   });
 
+  /*
+   * The protected band -- the shaded span around a held pass that the booker
+   * refuses to place anything into -- is a full-width absolutely positioned div
+   * drawn once per lane, so on a day with two overlapping holds the upper
+   * lane's band lies over the lower lane's bar. Without `pointer-events-none`
+   * it swallowed the tap and that booking could not be opened at all, which is
+   * the one thing the navigable timeline exists to do.
+   */
+  it('draws the protected band so it cannot take a tap', () => {
+    // Asserted as a class rather than by clicking through it: jsdom does no
+    // hit-testing, so `element.click()` on a covered bar succeeds whatever is
+    // drawn on top, and a test written that way passes with the bug present.
+    // The class is the only part of this a unit test can actually prove.
+    setup(
+      [
+        createBooking(hm, { startTime: time(12) }),
+        createBooking(sm, { startTime: time(12) }),
+      ],
+      []
+    );
+    const bands = [
+      ...document.querySelectorAll<HTMLElement>('[aria-hidden][style*="top"]'),
+    ];
+    expect(bands.length).toBeGreaterThan(0);
+    for (const el of bands) {
+      expect(el.className).toContain('pointer-events-none');
+    }
+  });
+
   it('gives simultaneous holds separate columns rather than stacking them', () => {
     setup(
       [

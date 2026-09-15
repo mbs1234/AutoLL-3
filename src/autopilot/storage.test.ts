@@ -152,6 +152,50 @@ describe('booking log merging', () => {
     expect(loadBookingLog()).toHaveLength(LOG_LIMIT);
   });
 
+  /*
+   * The flood. `addLogEntry` collapses a refusal burst into one row carrying a
+   * count and the time of the *most recent* occurrence -- so with the time in
+   * the merge key every rewrite of that row looked like a new event, the stored
+   * copy was kept as well, and the twenty rows became twenty copies of one
+   * error inside half a minute. The day's real bookings went with them.
+   */
+  it('does not append a new row each time a repeat count climbs', () => {
+    const booking = { name: 'Slinky', at: at(9), status: 'booked' as const };
+    saveBookingLog([booking]);
+    for (let n = 1; n <= 12; ++n) {
+      saveBookingLog([
+        {
+          name: 'A',
+          at: at(10, n),
+          status: 'failed',
+          detail: 'boom',
+          repeated: n,
+        },
+        booking,
+      ]);
+    }
+    const stored = loadBookingLog();
+    expect(stored.filter(e => e.status === 'failed')).toHaveLength(1);
+    expect(stored[0]?.repeated).toBe(12);
+    // The point of the cap: the day's real booking survives the burst.
+    expect(stored.map(e => e.name)).toContain('Slinky');
+  });
+
+  // The merge key ignores the time for a failure, so it must still tell two
+  // genuine failures apart -- by attraction, and by what went wrong.
+  it('still separates failures on different attractions and details', () => {
+    saveBookingLog([
+      { name: 'A', at: at(10), status: 'failed', detail: 'boom' },
+    ]);
+    saveBookingLog([
+      { name: 'B', at: at(10, 1), status: 'failed', detail: 'boom' },
+    ]);
+    saveBookingLog([
+      { name: 'A', at: at(10, 2), status: 'failed', detail: 'different' },
+    ]);
+    expect(loadBookingLog()).toHaveLength(3);
+  });
+
   it('round-trips a repeat count', () => {
     saveBookingLog([
       { name: 'A', at: at(10), status: 'failed', detail: 'boom', repeated: 7 },

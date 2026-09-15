@@ -406,6 +406,40 @@ describe('Configure watch count', () => {
     );
   });
 
+  /*
+   * The heading and the list are the same fact stated twice, and with the
+   * tipboard unloaded they disagreed loudly: "Nothing selected yet. Pick
+   * attractions below." under "Watching (4)", which reads as data loss at the
+   * moment you are checking your plan survived the trip out.
+   */
+  it('does not call a saved plan empty while the tipboard is unloaded', () => {
+    setup({ experiences: [], watched: [BZ, ...elsewhere] });
+    expect(screen.queryByText(/Nothing selected yet/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Still saved/)).toBeVisible();
+    expect(screen.getByText(/LL list is not loaded/)).toBeVisible();
+  });
+
+  // The other reachable way to show an empty list: every saved target is on
+  // today's tipboard but none of them is offering Multi Pass, so the watchable
+  // list -- which is filtered on `flex` -- comes back empty while the heading
+  // still counts them. Rarer than the unloaded case, and just as wrong to call
+  // "nothing selected".
+  it('does not call a saved plan empty when nothing on it offers Multi Pass', () => {
+    setup({
+      experiences: [nonLLExperience(BZ)],
+      targets: [{ experienceId: BZ }],
+    });
+    expect(screen.queryByText(/Nothing selected yet/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Still saved/)).toBeVisible();
+  });
+
+  // And the genuinely empty case still says so, or the fix would have replaced
+  // one wrong message with another.
+  it('does say nothing is selected when nothing is', () => {
+    setup({ experiences: [llExperience(BZ)], targets: [] });
+    expect(screen.getByText(/Nothing selected yet/)).toBeVisible();
+  });
+
   it('names the ones the tipboard has stopped listing', () => {
     setup({
       experiences: [llExperience(BZ)],

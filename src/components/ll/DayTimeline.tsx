@@ -111,9 +111,15 @@ export default function DayTimeline({
           ))}
           {timeline.lanes.map(lane => (
             <Fragment key={lane.id}>
+              {/* `pointer-events-none` because this band is a full-width
+                  absolutely positioned div drawn per lane, stacked above the
+                  bars. Without it, on a day with two overlapping holds the
+                  upper lane's band covers the lower lane's bar and that
+                  booking cannot be opened at all. It is decoration: it carries
+                  `aria-hidden` and has no handler of its own. */}
               <div
                 aria-hidden
-                className="absolute inset-x-0 bg-blue-50"
+                className="pointer-events-none absolute inset-x-0 bg-blue-50"
                 style={protectedStyle(lane)}
               />
               <button

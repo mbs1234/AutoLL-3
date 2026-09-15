@@ -137,6 +137,14 @@ committed return times are now shared through the day's storage, so the same
 attraction is not attempted twice in one drop and neither engine books a time
 that lands on what the other just took.
 
+**And a Time Search joins the same queue.** Searching for a better return time
+runs a third engine, against a reservation autopilot is still polling
+underneath the screen — and its moves used to go out without taking any lock at
+all. It now takes the same per-attraction lock as everything else, holds it for
+the run so nothing else can move that pass mid-search, and gives it back when
+the search ends. If autopilot has the reservation first, the search says so on
+screen and keeps looking, rather than committing on top of it.
+
 **Nothing caps the day's bookings.** v1.0 and earlier AutoLL-3 releases rationed
 autopilot to a set number of actions per park day. That cap rested on a
 misreading of Disney's rules: what you spend once is a *redemption*, not a
@@ -213,9 +221,9 @@ the whole of its advantage.
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
-- Plan Check's "Refresh LL list" gives no visible feedback while it runs.
-- Today can say data is current when only one of its two sources has loaded.
-- Home stops auto-refreshing on return-to-tab after the first tab switch.
+- Undoing two target removals in a row loses the first one's window and rank.
+- A Plan Check item that names a setting opens Configure at the top of a long
+  screen rather than at the setting.
 
 These and everything else still outstanding are listed in
 [docs/FUTURE.md](docs/FUTURE.md), with what each would cost to fix.

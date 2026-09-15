@@ -161,6 +161,22 @@ describe('Today', () => {
     expect(screen.getByText(/current as of 3 min ago/)).toBeVisible();
   });
 
+  /*
+   * This is the line that tells you whether to trust the rest of the screen, so
+   * it must not claim currency it does not have. It used to filter the
+   * undefined values out and take the minimum of what was left, which read one
+   * loaded context beside one that had never fetched as "both current" --
+   * over-claiming in exactly the state where believing it is wrong.
+   */
+  it.each([
+    ['the LL list has never loaded', { plansUpdated: Date.now() }],
+    ['plans have never loaded', { experiencesUpdated: Date.now() }],
+    ['neither has loaded', {}],
+  ])('says nothing about freshness when %s', (_case, updates) => {
+    setup(updates);
+    expect(screen.queryByText(/current as of/)).not.toBeInTheDocument();
+  });
+
   it('lists what is held on the date, with the grace scan', () => {
     setup({ plans: [createBooking(hm)] });
     expect(
