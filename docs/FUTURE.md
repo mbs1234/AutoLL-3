@@ -1,8 +1,10 @@
 # What is left
 
-Written 2026-09-13, against AutoLL-3 at 0.5.0, and revised 2026-09-14 when the
-day's action allowance was removed (§7). This is the standing list of
-what is not done: the items still open from `PLAN.md` and `UX-PLAN.md`, the
+Written 2026-09-13, against AutoLL-3 at 0.5.0. Revised 2026-09-14 when the day's
+action allowance was removed (§7) and the 2026-09-12 review's correctness list
+was cleared (§1), and again on 2026-09-15 to record two decisions: foreground
+precedence for a Time Search (§2.3) and Park Hopper (§4.3). This is the standing
+list of what is not done: the items still open from `PLAN.md` and `UX-PLAN.md`, the
 defects the 2026-09-12 review confirmed and the fixes of that day did not
 cover, the decisions waiting on an answer, the questions only a park day can
 settle, and — at the end, deliberately — the things already decided against, so
@@ -87,7 +89,47 @@ invisible hit area so the drawn geometry stays honest; it was never added.
 _Where:_ `src/components/ll/DayTimeline.tsx:18,24,46`. _Size:_ small. _Risk:_
 adjacent bars' hit areas overlapping.
 
-### 2.3 A second removal inside the undo window destroys the first undo
+### 2.3 A Time Search defers to a lock that means nothing about right now
+
+**Decided 2026-09-15: the foreground search should win.** The work is not done;
+what follows is the decision and the shape of it.
+
+A Time Search now takes the top-level engine's per-attraction lock before
+committing, which is what stopped the two from moving the same held pass at
+once. But when the lock is already held it defers, reports the contention and
+keeps looking — and that is the wrong side of the trade, because of what the
+lock actually means. Autopilot never gives a `modify` lock back:
+`releaseAttempt` runs only under `repeatMoves`, which is NextLL's setting, not
+Autopilot's (`providers/AutopilotProvider.tsx:1258`). So a held `modify:<id>`
+does not mean "Autopilot is busy with this reservation"; it means "Autopilot
+moved it at some point since you switched it on", possibly at 9am when it is now
+4pm. The search is then blocked by a marker for something long finished.
+
+The second argument is sharper. Autopilot's `automodify` only ever moves a pass
+*earlier* — it sees one candidate per tick. A Time Search is the only thing that
+can move one *later* on purpose, which is what a dinner reservation needs. So
+the blocked case is not two engines wanting the same thing; it can be the tool
+refusing to do the one thing only it can do, because it once did the opposite.
+
+_What to build._ `claimAction` refuses **only** while a request for that
+attraction is genuinely in flight — the provider tracks that; the ledger does
+not, since `unresolved` is the book path's doubt-hold and says nothing about a
+modify. Otherwise the foreground search takes the lock over, which also keeps
+Autopilot out for the rest of the search, since `shouldModify` checks
+`hasAttempted`. `useTimeSearch` already retries its claim each cycle, so a
+refusal costs one six-second cycle and it then proceeds. The banner copy on
+`TimeSearch.tsx` changes with it: today it says Autopilot is acting on this
+reservation, which would become true only in the moment it is.
+
+_Where:_ `src/providers/AutopilotProvider.tsx:414-440`,
+`src/autopilot/useTimeSearch.ts`, `src/components/ll/screens/TimeSearch.tsx`.
+_Size:_ small. _Risk:_ the retry-token path at
+`providers/AutopilotProvider.tsx:946` releases a lock and proceeds when a retry
+is due — check that Autopilot cannot reclaim the attraction out from under a
+running search. Tests both directions: it takes over a stale lock, and it waits
+out a live one.
+
+### 2.4 A second removal inside the undo window destroys the first undo
 
 The undo holds one removal in a single state slot. Tidying two rows in a row —
 the ordinary way to hit it — loses the first target's window, rank and flags
@@ -97,7 +139,7 @@ _Where:_ `src/components/ll/screens/Configure.tsx:91-101,296-317`. _Size:_
 small. _Risk:_ keep the flash to one row at a time, or the footer grows
 unpredictably at 360 px.
 
-### 2.4 A Plan Check settings item opens Configure and abandons you
+### 2.5 A Plan Check settings item opens Configure and abandons you
 
 `Configure` accepts a focus of `{kind:'target'}` or `{kind:'setting'}` and
 reads only the target case, so following a settings blocker drops you at the
@@ -107,7 +149,7 @@ _Where:_ `src/components/ll/screens/Configure.tsx:65-67`. _Size:_ small. _Risk:_
 the screen is `fixed inset-0` with its own scroll pane, so scroll to a ref
 rather than a hash.
 
-### 2.5 The pre-trip checklist is missing three steps and has no way back into a finished one
+### 2.6 The pre-trip checklist is missing three steps and has no way back into a finished one
 
 It ships five of its eight steps: party, targets, an action armed,
 notifications, Plan Check. "Park and date chosen", "windows set where wanted"
@@ -120,7 +162,7 @@ _Where:_ `src/autopilot/checklist.ts:30-68`,
 set where wanted" has no objective done state — make it an acknowledgement, not
 a test, or it will never go green.
 
-### 2.6 The timeline recomputes the whole day on every tick
+### 2.7 The timeline recomputes the whole day on every tick
 
 `dayTimeline()` runs in the render body, and in burst cadence the status
 updates every 1.2 seconds while `NavProvider` keeps the screen mounted
@@ -131,7 +173,7 @@ _Where:_ `src/components/ll/DayTimeline.tsx:76`. _Size:_ small. _Risk:_ the
 dependency list must include the held plans, or the timeline freezes after a
 booking.
 
-### 2.7 The timeline's tooltips are in 24-hour time
+### 2.8 The timeline's tooltips are in 24-hour time
 
 Every bar's `title` is built by interpolating a `ParkTime`, whose `toString()`
 is zero-padded `HH:MM:SS` — so the string a screen reader takes as the bar's
@@ -296,7 +338,8 @@ to attractions you marked as acceptable.
 
 ## 4. Decisions before code
 
-Four things that need an answer before anyone writes anything.
+Three things that still need an answer before anyone writes anything. §4.3 was
+answered on 2026-09-15 and is kept below, struck through, with the reasoning.
 
 ### 4.1 Should a NextLL search survive a tab switch? — UX-PLAN §6.3
 
@@ -325,15 +368,22 @@ _Risk:_ the store starts empty and needs three covered days, so a short trip
 barely reaches the threshold — and demotion is the only part of drop learning
 that can remove a real burst target.
 
-### 4.3 Will the December party use Park Hopper? — P3.4
+### 4.3 ~~Will the December party use Park Hopper?~~ — P3.4. Dropped
 
-The two hopping refusal codes are handled identically today, which is wrong for
-both: one carries a time and should schedule a poll, the other has no timer and
-should suppress cross-park targets until the tap-in detector fires. It only
-pays if the party actually holds a Hopper and intends to use it. Settle that
-first; if the answer is no, this drops off the list entirely.
+**Answered 2026-09-15: no work needed.** The party will hold Park Hopper through
+an annual pass, but intends one park per day and does not want hopping
+automated. So the distinction this item asked for — `TOO_EARLY_FOR_PARK_HOPPING`
+carries a time and should schedule a poll, `TOO_EARLY_FOR_NEXT_PARK` has no
+timer and should suppress cross-park targets — has nothing to act on: a plan
+that never crosses parks never meets either code.
 
-_Where:_ `src/api/ll.ts:111-126`. _Size:_ medium.
+Kept rather than deleted, with the reasoning, because holding a Hopper and not
+using it is not the same answer as not holding one. If a day does turn into two
+parks, the two codes are still handled identically and the item is live again.
+Nothing else depends on it: watch targets carry their own park and date since
+P4.1, so a one-park-a-day plan cannot produce a cross-park attempt by accident.
+
+_Where:_ `src/api/ll.ts:111-126`. _Size:_ medium, if it ever comes back.
 
 ### 4.4 Should the live tier check run on a park day? — P3.5
 
@@ -398,6 +448,39 @@ phone and they all run on the same Disney origin. _Size:_ small. Keep it to a
 bare-prefix match after any quote character, which is the shape v1.0 settled on
 after two misses.
 
+**Nine Dependabot pull requests are open and none should be merged in a
+hurry.** `.github/dependabot.yml` sweeps npm and GitHub Actions weekly, and all
+nine date from 2026-09-09. The plan, decided 2026-09-15:
+
+- **Merge now:** #7, jest 30.0.5 to 30.5.1. A patch bump on the test runner, and
+  the only one where deferring buys nothing.
+- **Close:** #9, TypeScript 5.9.2 to 7.0.2, the one red check. TypeScript 7
+  removed `baseUrl` and forbids non-relative `paths`, and `tsconfig.json` uses
+  both (`TS5102`, `TS5090`); the fix is to drop `baseUrl` and write
+  `"paths": {"@/*": ["./src/*"]}`. Worth knowing that `tsc` never compiles the
+  shipped code here — `build` is `vite build`, and `tsc --noEmit` is only the
+  gate — so this changes what the gate catches, not what reaches the phone. That
+  gate is still the only typecheck there is. A brand-new major three months
+  before the trip is not worth it; Dependabot reopens it when someone is ready.
+- **After the trip:** #5 `@eslint/compat`, #6 `@testing-library/jest-dom` and #8
+  `@tailwindcss/vite`. #8 is the only npm bump with a user-visible surface — it
+  generates the shipped CSS — so it wants a harness pass at 360 px rather than a
+  merge on green CI.
+- **After the trip, and one at a time while watching:** the four Actions bumps.
+  #1 `checkout` and #3 `setup-node` are already partly stale, since `check.yml`
+  and `deploy.yml` moved to v5 after these were opened and only
+  `data-freshness.yml` is still on v4. #2 `upload-pages-artifact` and #4
+  `deploy-pages` touch **only `deploy.yml`**, and `deploy.yml` runs on push to
+  `main` — never on a pull request. Their green `check` therefore says nothing
+  about them at all, and merging either is an unverified change to the two steps
+  that publish the build. The deploy gates independently, so a failure leaves
+  Pages serving the build already on the phone rather than breaking it; the cost
+  is debugging a publish pipeline instead of booking Lightning Lanes.
+
+Worth considering separately: moving the schedule to monthly, or pausing it
+until January. Standing PRs nobody intends to merge make a red check stop
+meaning anything.
+
 **The port back to AutoLL v1.1 has not started.** Phase 1 deliberately kept the
 new work in new files so the port would be cheap, and none of them exists in
 that repository yet. AutoLL is the frozen build that still works if this one
@@ -460,9 +543,9 @@ expensive things land first and the freeze catches the cheap ones.
 
 | When | What |
 | ---- | ---- |
-| ~~Now~~ | ~~§1 and §2.3–§2.6~~ — done 2026-09-14 |
-| Now | §3.1 expiry rescue, with its tests |
-| October | §3.2 planning offline, §2.1 and §2.2 the timeline, §2.5 the checklist |
+| ~~2026-09-14~~ | ~~All of §1, and the four screen defects §2 then carried~~ — done. The §2 numbers have moved since; do not read them across. |
+| Now | §2.3 foreground precedence (decided, small), then §3.1 expiry rescue |
+| October | §3.2 planning offline, §2.1 and §2.2 the timeline, §2.6 the checklist |
 | Early November | §4.2 and §4.4 decided and acted on, or explicitly dropped; §3.4 the countdown |
 | Late November | §3.3 the overlay IDs against a live tip board; §5 instrumentation |
 | December 6 → trip | Freeze. Full-day dry runs in the harness and in the park. |

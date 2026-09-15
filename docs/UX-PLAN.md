@@ -425,7 +425,7 @@ contradicting its own heading.)
   and 20 px for an hour (`FUTURE.md` §2.2).
 - A `setting` subject opens Configure but nothing focuses the Settings
   section. `Configure` accepts a `focus` prop of that kind and reads only
-  `focus.kind === 'target'` (`FUTURE.md` §2.4).
+  `focus.kind === 'target'` (`FUTURE.md` §2.5).
 
 Of the four test deliverables, only `plancheck.test.ts` gained anything, and
 that is one assertion on the `targets` subject. `PlanCheck.test.tsx` exists
@@ -514,9 +514,9 @@ box. The deviations:
 - Five of the eight listed steps shipped. Park and date chosen, windows set
   where wanted, and unrecognised attraction IDs are absent. The last of those
   is on Today as a standalone red paragraph outside the checklist, so it is
-  visible but is not a step with a route to fix it (`FUTURE.md` §2.9).
+  visible but is not a step with a route to fix it (`FUTURE.md` §2.6).
 - The action button renders only for a step that is not done, so a finished
-  step has no route back to review what was set (`FUTURE.md` §2.9 as well).
+  step has no route back to review what was set (`FUTURE.md` §2.6 as well).
 - The filter box filters the watched cards as well as the add list. On a
   360 px phone that is arguably the better behaviour, since a long watch list
   is what pushes the add list off the screen, but it is not what the plan
@@ -601,7 +601,7 @@ remains:
   memoised derivations, and the harness's live scenario is where to watch for
   jank. Partly addressed: `PlanCheck` memoises `checkPlan`. The one place the
   risk was realised is the `useMemo` §2 asked for around `dayTimeline()`,
-  which is now an item rather than a risk (`FUTURE.md` §2.10).
+  which is now an item rather than a risk (`FUTURE.md` §2.7).
 - The narrowing in Phase 0a widens the gap to upstream `bg1`. Every later
   upstream merge meets modify-versus-delete conflicts on the removed paths.
   Acceptable for an experimental WDW-only build, and documented in `FORK.md`
@@ -635,4 +635,4 @@ reason it was: the timeline's `title` tooltips are built by interpolating a
 `ParkTime`, so they read "20:15:00" where the bar shows "8:15 PM". It matters
 twice over — a screen reader takes that string as the bar's description, and
 it is the only place a truncated name survives at all — which is why it is now
-`FUTURE.md` §2.11 rather than a footnote to the truncation item.
+`FUTURE.md` §2.8 rather than a footnote to the truncation item.
