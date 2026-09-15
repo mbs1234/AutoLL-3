@@ -26,6 +26,22 @@ the static site from `mbs1234/AutoLL-2@goofy` and the runtime module from
 frozen at v1.0. The inherited reason Lightning Lane booking works at all is
 unchanged; see FORK.md, "Booking". Section numbers below are unchanged.
 
+_2026-09-14._ **P1.8's day allowance was removed outright**, on the owner's
+decision, and `docs/FUTURE.md` §7 carries the argument. The short version is
+that P1.8 rested on a false premise. Its cap was justified by "every action
+consumes a real entitlement" (`autobook.ts`), but Disney counts a *redemption*,
+not a booking: an attraction can be booked, cancelled and rebooked all day
+without affecting what the party may hold. `resolveBook`'s own comment in the
+same file stated the rule correctly, so the file contradicted itself. The
+consequences the cap really guarded were a runaway *request* loop — which is
+`RateLimit(5)`'s job, and it says so — and the one-way cost of a *modify* or
+*swap*, which a shared day-count bounds badly: bookings, the frequent and
+harmless kind, spent the budget and then locked out the booking the user wanted.
+The per-attraction action locks, Disney's three-at-a-time rule and the rate
+limiter are what bound the booker now. Removing it also retired the §1.1 defect
+`FUTURE.md` carried (the `Math.max` ratchet that re-charged a refused booking
+after a reload, and let two tabs each hold a full allowance).
+
 _2026-09-13._ The release is 0.5.0, and **this document is the record — why an
 item exists, what was refuted, what shipped and what was decided.** Everything
 still outstanding, including every item below still marked not started, partly
@@ -73,7 +89,8 @@ P1.5–P1.8, with three of the four items corrected by the code:
 - **P1.8** landed with the ceiling enforced on the effective budget rather than
   only on the setting, since the refill total is persisted and therefore
   editable; and dry run stops at an exhausted budget rather than being exempt
-  from it.
+  from it. **Reversed 2026-09-14: the allowance is gone entirely.** See the
+  note below and `docs/FUTURE.md` §7.
 
 Two fixes fell out that no item asked for: the acting loop was reading the
 previous render's plans on the tick that polled them, and `heldMPToday` now also

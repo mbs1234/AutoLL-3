@@ -11,8 +11,7 @@ export type PlanCheckSubject =
   | { kind: 'target'; experienceId: string }
   | { kind: 'targets' }
   | { kind: 'setting'; setting: 'dryRun' | 'wholeParty' | 'overlaps' }
-  | { kind: 'tipboard' }
-  | { kind: 'budget' };
+  | { kind: 'tipboard' };
 
 export interface PlanCheckItem {
   level: PlanCheckLevel;
@@ -26,7 +25,6 @@ export interface PlanCheckInput {
   date: string;
   experiences: Experience[];
   plans: Booking[];
-  bookingsRemaining: number;
   requireWholeParty: boolean;
   avoidOverlaps: boolean;
   /**
@@ -133,14 +131,6 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
     push(
       'review',
       'This plan watches and alerts only; no booking, move, or swap action is armed.'
-    );
-  }
-
-  if (armedAtAll.length > 0 && input.bookingsRemaining <= 0) {
-    push(
-      'blocker',
-      'Today’s Autopilot action budget is exhausted. Add more actions before enabling it.',
-      { kind: 'budget' }
     );
   }
 

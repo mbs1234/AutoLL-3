@@ -1,6 +1,7 @@
 # What is left
 
-Written 2026-09-13, against AutoLL-3 at 0.5.0. This is the standing list of
+Written 2026-09-13, against AutoLL-3 at 0.5.0, and revised 2026-09-14 when the
+day's action allowance was removed (§7). This is the standing list of
 what is not done: the items still open from `PLAN.md` and `UX-PLAN.md`, the
 defects the 2026-09-12 review confirmed and the fixes of that day did not
 cover, the decisions waiting on an answer, the questions only a park day can
@@ -23,20 +24,17 @@ usable today; everything here makes it better, and nothing here is required.
 
 ## The short list
 
-If only six things get done, these:
+If only five things get done, these:
 
-1. **The action allowance** (§1.1) — it is the only thing standing between an
-   unattended autopilot and a day's entitlements, and it is wrong in both
-   directions.
-2. **Time Search and Autopilot can modify the same pass** (§1.2) — the one
+1. **Time Search and Autopilot can modify the same pass** (§1.1) — the one
    remaining collision the shared locks were built to prevent.
-3. **Expiry rescue** (§3.1) — the largest recoverable loss the tool still does
+2. **Expiry rescue** (§3.1) — the largest recoverable loss the tool still does
    not catch: a lapsed pass costs a selection for nothing.
-4. **Plan from the sofa** (§3.2) — a December plan cannot currently be built
+3. **Plan from the sofa** (§3.2) — a December plan cannot currently be built
    without a live tip board, which is the opposite of how this is meant to work.
-5. **The timeline's names and tap targets** (§2.1, §2.2) — the day view cannot
+4. **The timeline's names and tap targets** (§2.1, §2.2) — the day view cannot
    currently tell you which ride a bar is for.
-6. **The overlay IDs** (§3.3) — a watch list built in October against the wrong
+5. **The overlay IDs** (§3.3) — a watch list built in October against the wrong
    Jingle Cruise ID matches nothing in December, silently.
 
 ---
@@ -47,22 +45,7 @@ All confirmed by the 2026-09-12 review and still true in the code today. The
 six highest-severity findings from that review were fixed on the day and are
 not repeated here.
 
-### 1.1 The day's action allowance is under-counted and double-granted
-
-`persistBudget` merges with `Math.max` on both `spent` and `granted`, which
-breaks in two directions. When Disney refuses a booking outright,
-`resolveRejected` hands the action back — but a lowered number can never reach
-storage, so a reload re-charges the day for a booking that provably never
-happened. And two tabs each carry their own ledger, so each can be granted a
-full allowance while storage reads as the larger of the two.
-
-_Where:_ `src/providers/AutopilotProvider.tsx:314-321`,
-`src/autopilot/autobook.ts:404-424`. _Size:_ small. _Risk:_ the ratchet guard
-that stops a stale tab writing yesterday's numbers has to survive — persist
-this instance's delta rather than its total, which means a stored shape change
-and a migration for the current day.
-
-### 1.2 Autopilot and a Time Search can modify the same held pass
+### 1.1 Autopilot and a Time Search can modify the same held pass
 
 `useTimeSearch` holds its commit guard in a ref: an in-memory, per-hook lock.
 It never takes the per-attraction action locks the top-level engine shares, and
@@ -76,7 +59,7 @@ search is one the user is standing there asking for, so it must not be silently
 blocked by a lock the engine took — it needs the `releaseAttempt` escape NextLL
 already uses.
 
-### 1.3 Home stops refreshing itself after the first tab switch
+### 1.2 Home stops refreshing itself after the first tab switch
 
 `useScreenState` captures the active screen element once and compares by
 identity, while `withTabs` replaces that element on every tab change. From the
@@ -90,7 +73,7 @@ _Where:_ `src/hooks/useScreenState.ts:5-10`,
 comparison has to stop depending on element identity without firing a refresh
 on every tab switch, which would spend the shared rate limit.
 
-### 1.4 A refusal burst still floods the saved activity log
+### 1.3 A refusal burst still floods the saved activity log
 
 Repeated failures collapse to one row carrying a count and the most recent
 time — but that time is part of the key the save path dedupes on, so each
@@ -102,7 +85,7 @@ _Where:_ `src/autopilot/bookinglog.ts:39-56`, `src/autopilot/storage.ts:86-125`.
 _Size:_ small. _Risk:_ the merge exists because two providers write the same
 log; a key that ignores the time must still tell two genuine events apart.
 
-### 1.5 A timed-out booking is written down as a clean failure
+### 1.4 A timed-out booking is written down as a clean failure
 
 `describeFailure` renders whatever status it is given, so the client timeout
 logs as "Request failed (0)". The engine itself gets this right — the lock and
@@ -114,7 +97,7 @@ _Where:_ `src/autopilot/bookinglog.ts:13-19`. _Size:_ small. _Risk:_ none beyond
 wording: it has to say "no answer, check your plans" without implying a booking
 exists.
 
-### 1.6 Activity says "(not watched yet)" about drops it has been watching for days
+### 1.5 Activity says "(not watched yet)" about drops it has been watching for days
 
 The mount-time drop summary omits the watched-days record, so every scheduled
 check comes back with no coverage until something new arrives. That screen is
@@ -408,7 +391,7 @@ NextLL mounts its own engine, so leaving the tab stops the search. Hoisting it
 would let a quick search keep running while you look at your plans. The cost
 has grown since the question was framed: the action-lock ledger now means two
 pollers would have to arbitrate the same per-attraction locks, which is the
-same collision class as §1.2.
+same collision class as §1.1.
 
 _Recommendation: no, not before December._ A trip is the wrong week to find out
 how two pollers share a lock ledger.
@@ -515,8 +498,20 @@ Frozen Ever After and Remy, swapping Tower of Terror and Toy Story Mania,
 re-ranking Glimmering Greenhouses, demoting Jingle Cruise. A test asserting
 every Tier 1 carries an average wait.
 
-**Engine.** A cascade model scoring offers by how much they delay the next
-booking — the gate is 120 minutes from booking, not a function of the return
+**Engine.** A day's action allowance — removed outright on 2026-09-14, and it
+should not come back as a count of bookings. The cap's stated reason was that
+"every action consumes a real entitlement", which is false: Disney counts a
+*redemption*, not a booking, so an attraction can be booked, cancelled and
+rebooked all day at no cost to what you may hold. `resolveBook`'s own comment
+said so while the allowance contradicted it. What is genuinely one-way is a
+*modify* or a *swap* — each gives up a held return time that may not come back —
+and a day-count was a poor instrument for that: it let the harmless, frequent
+kind (bookings) spend the budget, then locked out the booking the user actually
+wanted. A runaway *request* loop was never its job either; `RateLimit(5)` and
+its five-second cooldown exist for that and say so. If the one-way risk needs
+bounding, bound moves and swaps on their own terms — see §3.7, which is the
+honest version of it. A cascade model scoring offers by how much they delay the
+next booking — the gate is 120 minutes from booking, not a function of the return
 time you hold. Rejecting offers that land after park close — Disney does not
 sell them, so the guard is a no-op. Feeding learned drop times into the Tier 1
 hold — a false positive costs a wasted request in the cadence and a forfeited
@@ -542,8 +537,8 @@ expensive things land first and the freeze catches the cheap ones.
 
 | When | What |
 | ---- | ---- |
-| Now | §1.1 the allowance, §1.3 the refresh, §1.5 and §1.6 the two one-liners, §2.3–§2.6 |
-| Late September | §3.1 expiry rescue, §1.2 the Time Search lock, with their tests |
+| Now | §1.2 the refresh, §1.4 and §1.5 the two one-liners, §2.3–§2.6 |
+| Late September | §3.1 expiry rescue, §1.1 the Time Search lock, with their tests |
 | October | §3.2 planning offline, §2.1 and §2.2 the timeline, §2.9 the checklist |
 | Early November | §4.2 and §4.4 decided and acted on, or explicitly dropped; §3.4 the countdown |
 | Late November | §3.3 the overlay IDs against a live tip board; §5 instrumentation |

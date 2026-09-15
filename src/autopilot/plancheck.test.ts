@@ -17,7 +17,6 @@ const base = (): PlanCheckInput => ({
   date: TODAY,
   experiences: [hm, jc, sm],
   plans: [],
-  bookingsRemaining: 3,
   requireWholeParty: true,
   avoidOverlaps: true,
   dryRun: false,
@@ -47,10 +46,9 @@ describe('checkPlan', () => {
     ]);
   });
 
-  it('finds an impossible window and an exhausted action budget', () => {
+  it('finds an impossible window', () => {
     const items = checkPlan({
       ...base(),
-      bookingsRemaining: 0,
       targets: [
         {
           experienceId: hm.id,
@@ -62,10 +60,6 @@ describe('checkPlan', () => {
     });
     expect(items).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          level: 'blocker',
-          text: expect.stringMatching(/budget/),
-        }),
         expect.objectContaining({
           level: 'blocker',
           text: expect.stringMatching(/impossible/),

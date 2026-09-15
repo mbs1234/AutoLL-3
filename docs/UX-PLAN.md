@@ -1,8 +1,12 @@
 # AutoLL-3 UI/UX plan
 
 Written 2026-09-07 against AutoLL-2 `d390133`, carried forward into AutoLL-3
-with the rest of the fork, and revised 2026-09-12 against the code as it
-stands here. The repository it describes is AutoLL-3: `package.json` names
+with the rest of the fork, revised 2026-09-12 against the code as it stands
+here, and again on 2026-09-14 where the day's action allowance was removed
+(`FUTURE.md` §7): the actions-left line on Today and Configure, the "actions
+left" segment of the shared status row, the actions-per-day field, the
+exhaustion notice with its top-up button, and the Plan Check budget blocker are
+all gone. The repository it describes is AutoLL-3: `package.json` names
 `autoll-3`, the storage namespace is `autoll3.*`, and the build is published
 at <https://mbs1234.github.io/AutoLL-3>. Inputs: the Codex UI/UX review of
 2026-09-07 (twelve suggestions), a line-by-line read of every screen it names,
@@ -394,7 +398,10 @@ Size: about one session.
 **Landed 2026-09-10 (`c1870b9`, `aa83e10`), recorded here 2026-09-12, with
 three things still open.** `PlanCheckItem.subject` carries five variants, not
 the four above: `{ kind: 'targets' }` was added for "no saved targets for this
-park and date", which names no single target. `PlanCheck.tsx` has the outcome
+park and date", which names no single target. _Four since 2026-09-14:
+`{ kind: 'budget' }` and its inline "Add 3 actions for today" went with the
+day's action allowance, along with the exhaustion blocker they acted on — see
+`FUTURE.md` §7._ `PlanCheck.tsx` has the outcome
 bar and a button on every item that has a subject. `TimelineLane` carries
 `protectedFrom` and `protectedTo`, `DayTimeline` draws the span as a lighter
 band behind the bar, both columns of bars are real buttons with names, and

@@ -1,8 +1,4 @@
-import {
-  DEFAULT_SETTINGS,
-  saveBudget,
-  saveSettings,
-} from '@/autopilot/storage';
+import { DEFAULT_SETTINGS, saveSettings } from '@/autopilot/storage';
 import { PollerStatus } from '@/autopilot/usePoller';
 import { WatchTarget, saveWatchList } from '@/autopilot/watchlist';
 import { HOME_TAB_KEY } from '@/components/ll/screens/Home';
@@ -119,9 +115,6 @@ const running: Partial<AutopilotState> = {
   isWatched: id => armed.some(t => t.experienceId === id),
   bookingLog: log,
   bookedCount: 1,
-  bookingsRemaining: 2,
-  actionBudget: 3,
-  maxActionsPerDay: 3,
   notifications: 'granted',
   lastHit: {
     experienceId: IDS.spaceMountain,
@@ -204,19 +197,6 @@ export const SCENARIOS: Scenario[] = [
     },
   },
   {
-    id: 'budget-gone',
-    title: 'Budget spent (static)',
-    blurb: "Watching, with all three of the day's actions used.",
-    script: DEFAULT_SCRIPT,
-    seed: seedCommon,
-    autopilot: {
-      ...running,
-      status: idle,
-      bookingsRemaining: 0,
-      bookedCount: 3,
-    },
-  },
-  {
     id: 'refused',
     title: 'Disney refusing requests (static)',
     blurb:
@@ -268,7 +248,7 @@ export const SCENARIOS: Scenario[] = [
     id: 'plancheck',
     title: 'Plan check with blockers',
     blurb:
-      "An impossible window, a target that is not on the tipboard, a window swallowed by lunch's protected time, and a spent budget.",
+      "An impossible window, a target that is not on the tipboard, and a window swallowed by lunch's protected time.",
     script: DEFAULT_SCRIPT,
     seed: () => {
       seedCommon();
@@ -291,8 +271,6 @@ export const SCENARIOS: Scenario[] = [
           before: inMinutes(120),
         }),
       ]);
-      saveSettings({ ...DEFAULT_SETTINGS, maxActionsPerDay: 3 });
-      saveBudget({ spent: 3, granted: 0 });
     },
     screen: 'plancheck',
   },

@@ -1,7 +1,6 @@
 import { use, useEffect, useState } from 'react';
 
 import { Experience } from '@/api/ll';
-import { MAX_ACTIONS_PER_DAY, MIN_ACTIONS_PER_DAY } from '@/autopilot/autobook';
 import { WatchTarget, targetApplies } from '@/autopilot/watchlist';
 import Button from '@/components/Button';
 import Disclosure from '@/components/Disclosure';
@@ -21,40 +20,6 @@ export const CONFIGURE = 'Configure';
 export const UNDO_MS = 8000;
 
 /**
- * The day's allowance, committed on blur rather than per keystroke.
- *
- * Typing "15" passes through "1", and a controlled input writing straight
- * through would set the day's budget to 1 mid-keystroke -- enough, with two
- * actions already spent, to mark it exhausted and stop autopilot acting until
- * the second digit landed.
- */
-function BudgetInput({
-  value,
-  onCommit,
-}: {
-  value: number;
-  onCommit: (actions: number) => void;
-}) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
-  return (
-    <label className="mt-1 flex flex-wrap items-center gap-2 text-sm">
-      <span className="text-gray-600">Actions allowed per day</span>
-      <input
-        type="number"
-        min={MIN_ACTIONS_PER_DAY}
-        max={MAX_ACTIONS_PER_DAY}
-        step={1}
-        className="w-20 rounded-sm border border-gray-300 px-1 py-0.5"
-        value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={() => onCommit(Number(draft))}
-      />
-    </label>
-  );
-}
-
-/**
  * Choosing what Autopilot watches and what it may do about it.
  *
  * Setup, done once: the three safeguards, a card per watched attraction with
@@ -72,10 +37,6 @@ export default function Configure({
     isWatched,
     addTarget,
     removeTarget,
-    bookingsRemaining,
-    actionBudget,
-    maxActionsPerDay,
-    setMaxActionsPerDay,
     requireWholeParty,
     setRequireWholeParty,
     dryRun,
@@ -116,13 +77,6 @@ export default function Configure({
   const anyBookThenMove = targetsHere.some(t => t.bookThenMove);
   const pausedCount = targetsHere.filter(t => t.paused).length;
   const anyAutoSwap = targetsHere.some(t => t.autoSwap);
-  // Any armed action spends the budget, so any of them should see the count.
-  // Gating it on auto-book alone hid it from anyone running only book-then-move
-  // or swap -- both of which imply booking.
-  const anyAction = targetsHere.some(
-    t => t.autoBook || t.autoModify || t.bookThenMove || t.autoSwap
-  );
-
   // Only Multi Pass attractions can be watched: matching reads the `flex`
   // field, and bg1 has no Single Pass booking flow, so offering Single Pass
   // headliners here would promise something it cannot deliver.
@@ -333,18 +287,6 @@ export default function Configure({
         </p>
       )}
 
-      {anyAction && (
-        <>
-          <p className="mt-2 text-sm font-semibold">
-            {bookingsRemaining} of {actionBudget} actions left today.
-          </p>
-          <BudgetInput
-            value={maxActionsPerDay}
-            onCommit={setMaxActionsPerDay}
-          />
-        </>
-      )}
-
       {/* The long form of what each chip means, folded: a person setting up
           a day reads it once; a person in the park has the summary line. */}
       {watched.length > 0 && (
@@ -401,12 +343,6 @@ export default function Configure({
                 The swap is a single request, so the old reservation is only
                 released if the new one is secured. With a slot free it simply
                 books instead.
-              </p>
-            )}
-            {anyAction && (
-              <p>
-                Bookings, moves and swaps share one budget for the park day. It
-                survives a reload and turning Autopilot off and on.
               </p>
             )}
           </div>

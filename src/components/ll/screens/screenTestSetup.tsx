@@ -156,9 +156,6 @@ export function renderScreen(
                     bookingLog: [],
                     sessionLog: [],
                     bookedCount: 0,
-                    bookingsRemaining: 3,
-                    actionBudget: 10,
-                    maxActionsPerDay: 10,
                     ...mocks,
                     ...rest,
                   }}

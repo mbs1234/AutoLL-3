@@ -66,9 +66,6 @@ export default function Today({ ref }: HomeTabProps) {
     lastHit,
     lastSkip,
     bookingLog,
-    bookingsRemaining,
-    actionBudget,
-    refillBudget,
     dryRun,
     refusals,
     passkeyStatus,
@@ -183,13 +180,7 @@ export default function Today({ ref }: HomeTabProps) {
           {enabled ? 'Turn off autopilot' : 'Turn on autopilot'}
         </Button>
         <LatestEvent event={activity} />
-        <AutopilotStatus
-          status={status}
-          bookingsRemaining={bookingsRemaining}
-          actionBudget={actionBudget}
-          onRefill={refillBudget}
-          refusals={refusals ?? NO_REFUSALS}
-        />
+        <AutopilotStatus status={status} refusals={refusals ?? NO_REFUSALS} />
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -358,9 +349,6 @@ export default function Today({ ref }: HomeTabProps) {
           <p className="text-xs text-gray-600">
             {armed} armed
             {paused > 0 ? `, ${paused} paused` : ''}
-            {armed > 0
-              ? ` · ${bookingsRemaining} of ${actionBudget} actions left`
-              : ''}
           </p>
           <ul className="text-sm">
             {plan.map(target => (

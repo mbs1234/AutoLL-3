@@ -280,15 +280,6 @@ describe('shouldSwap()', () => {
     l.markAttempted('new', 'modify');
     expect(shouldSwap(target(), incoming('new', 1.0), full(), l).ok).toBe(true);
   });
-
-  it('refuses at the session cap', () => {
-    const l = new AutoBookLedger(1);
-    l.markBooked();
-    expect(shouldSwap(target(), incoming('new', 1.0), full(), l)).toEqual({
-      ok: false,
-      reason: 'budget-exhausted',
-    });
-  });
 });
 
 describe('attemptAutoSwap()', () => {

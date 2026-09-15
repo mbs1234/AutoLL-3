@@ -1,15 +1,10 @@
-import {
-  DEFAULT_ACTIONS_PER_DAY,
-  MAX_ACTIONS_PER_DAY,
-  MIN_ACTIONS_PER_DAY,
-} from '@/autopilot/autobook';
+import '@/autopilot/autobook';
 import { BookingLogEntry } from '@/contexts/AutopilotContext';
 import { ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
 import { setTime } from '@/testing';
 
 import {
-  BUDGET_KEY,
   COMMITS_KEY,
   COMMIT_TTL_MS,
   DEFAULT_SETTINGS,
@@ -20,13 +15,10 @@ import {
   activeCommits,
   clearCommit,
   loadBookingLog,
-  loadBudget,
   loadCommits,
   loadLocks,
   loadSettings,
-  sanitizeBudget,
   saveBookingLog,
-  saveBudget,
   saveCommit,
   saveLocks,
   saveSettings,
@@ -223,44 +215,6 @@ describe('settings persistence', () => {
   it('survives garbage', () => {
     kvdb.set(SETTINGS_KEY, 'not an object');
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
-  });
-});
-
-describe('the day budget', () => {
-  it('clamps a stored allowance into range on read', () => {
-    expect(sanitizeBudget(12)).toBe(12);
-    expect(sanitizeBudget(0)).toBe(MIN_ACTIONS_PER_DAY);
-    expect(sanitizeBudget(9999)).toBe(MAX_ACTIONS_PER_DAY);
-    expect(sanitizeBudget(7.8)).toBe(7);
-    expect(sanitizeBudget('nonsense')).toBe(DEFAULT_ACTIONS_PER_DAY);
-    expect(sanitizeBudget(undefined)).toBe(DEFAULT_ACTIONS_PER_DAY);
-  });
-
-  it('round-trips the day record', () => {
-    saveBudget({ spent: 3, granted: 6 });
-    expect(loadBudget()).toEqual({ spent: 3, granted: 6 });
-  });
-
-  it('starts clean when nothing is stored', () => {
-    expect(loadBudget()).toEqual({ spent: 0, granted: 0 });
-  });
-
-  // `granted` adds to the ceiling and lives in localStorage, so leaving it
-  // unbounded would let an edited value remove the limit entirely -- the exact
-  // failure the ceiling exists to prevent.
-  it('clamps a hand-edited refill total', () => {
-    kvdb.setDaily(BUDGET_KEY, { spent: -5, granted: 100_000 });
-    expect(loadBudget()).toEqual({ spent: 0, granted: MAX_ACTIONS_PER_DAY });
-  });
-
-  // Day-scoped through kvdb, so a new park day starts clean without anything
-  // having to notice the rollover.
-  it('ignores a record from another park day', () => {
-    kvdb.set(BUDGET_KEY, {
-      date: '2020-01-01',
-      value: { spent: 9, granted: 3 },
-    });
-    expect(loadBudget()).toEqual({ spent: 0, granted: 0 });
   });
 });
 

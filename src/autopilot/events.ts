@@ -18,7 +18,6 @@ export const SKIP_TEXT: Record<string, string> = {
   'not-full': 'a slot was free, so it booked instead of swapping',
   'no-worse-reservation': 'nothing held was worth giving up',
   'already-attempted': 'a booking for it was already held or in flight',
-  'budget-exhausted': "today's action budget was used up",
   'outside-window': 'the advertised time was outside the window',
   'overlaps-plans': 'it clashed with something already booked',
   'not-modifiable': 'Disney marked the reservation unmodifiable',

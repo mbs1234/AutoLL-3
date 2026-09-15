@@ -246,15 +246,6 @@ describe('shouldModify()', () => {
     const t = target({ autoModify: false, bookThenMove: true });
     expect(shouldModify(t, existingLL(at(19)), at(11), ledger()).ok).toBe(true);
   });
-
-  it('refuses at the session cap', () => {
-    const l = new AutoBookLedger(1);
-    l.markBooked();
-    expect(shouldModify(target(), existingLL(at(19)), at(11), l)).toEqual({
-      ok: false,
-      reason: 'budget-exhausted',
-    });
-  });
 });
 
 describe('attemptAutoModify()', () => {

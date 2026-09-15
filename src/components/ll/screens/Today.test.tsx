@@ -94,29 +94,6 @@ describe('Today', () => {
     ).toHaveTextContent('Plan Check reviewed');
   });
 
-  it('offers a top-up once the day budget is gone, and only while running', () => {
-    const { refillBudget } = setup({
-      watched: [BZ],
-      targets: [{ experienceId: BZ, autoBook: true }],
-      bookingsRemaining: 0,
-      status: { mode: 'idle', consecutiveFailures: 0, polls: 3 },
-    });
-    expect(screen.getByText(/actions are used up/)).toBeVisible();
-    screen.getByText('Add 3 actions for today').click();
-    expect(refillBudget).toHaveBeenCalled();
-  });
-
-  // Off, an exhausted budget is a fact about earlier today rather than the
-  // reason nothing is happening now.
-  it('says nothing about the budget while switched off', () => {
-    setup({
-      watched: [BZ],
-      targets: [{ experienceId: BZ, autoBook: true }],
-      bookingsRemaining: 0,
-    });
-    expect(screen.queryByText(/actions are used up/)).not.toBeInTheDocument();
-  });
-
   it('shows the most recent find', () => {
     setup({
       lastHit: {
@@ -209,10 +186,8 @@ describe('Today', () => {
         { experienceId: BZ, autoBook: true, rank: 2, after: new ParkTime(10) },
         { experienceId: DB, autoModify: true, paused: true, rank: 1 },
       ],
-      bookingsRemaining: 3,
     });
     expect(screen.getByText(/1 armed, 1 paused/)).toBeVisible();
-    expect(screen.getByText(/3 of 10 actions left/)).toBeVisible();
     const items = screen
       .getByRole('heading', { name: 'Plan (2)' })
       .parentElement!.querySelectorAll('li');

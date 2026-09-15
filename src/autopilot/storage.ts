@@ -1,15 +1,9 @@
-import {
-  DEFAULT_ACTIONS_PER_DAY,
-  MAX_ACTIONS_PER_DAY,
-  MIN_ACTIONS_PER_DAY,
-} from '@/autopilot/autobook';
 import { BookingLogEntry } from '@/contexts/AutopilotContext';
 import { ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
 
 export const LOG_KEY = 'autoll3.autopilot.log';
 export const SETTINGS_KEY = 'autoll3.autopilot.settings';
-export const BUDGET_KEY = 'autoll3.autopilot.budget';
 export const LOCKS_KEY = 'autoll3.autopilot.locks';
 export const COMMITS_KEY = 'autoll3.autopilot.commits';
 /** Newest first, capped: the log is a glance at recent activity, not history. */
@@ -158,34 +152,12 @@ export interface AutopilotSettings {
    * it defaults on.
    */
   avoidOverlaps: boolean;
-  /**
-   * How many actions autopilot may take in one park day.
-   *
-   * Bookings, moves and swaps share it. Day-scoped rather than session-scoped
-   * because a session cap refilled itself on every reload, so it bounded
-   * nothing; see `DEFAULT_ACTIONS_PER_DAY`.
-   */
-  maxActionsPerDay: number;
-}
-
-/**
- * A stored allowance, forced into range.
- *
- * Applied on read as well as on write. The value reaches localStorage where
- * anything can put anything in it, and a budget is the one setting where a
- * junk value spends real entitlements.
- */
-export function sanitizeBudget(value: unknown): number {
-  const n = Math.floor(Number(value));
-  if (!Number.isFinite(n)) return DEFAULT_ACTIONS_PER_DAY;
-  return Math.min(MAX_ACTIONS_PER_DAY, Math.max(MIN_ACTIONS_PER_DAY, n));
 }
 
 export const DEFAULT_SETTINGS: AutopilotSettings = {
   requireWholeParty: false,
   dryRun: false,
   avoidOverlaps: true,
-  maxActionsPerDay: DEFAULT_ACTIONS_PER_DAY,
 };
 
 /** Not day-scoped: a preference about the party, not about a visit. */
@@ -200,7 +172,6 @@ export function loadSettings(): AutopilotSettings {
     // deliberate: the two above cost bookings when wrongly on, this one costs
     // a wasted slot when wrongly off.
     avoidOverlaps: stored?.avoidOverlaps !== false,
-    maxActionsPerDay: sanitizeBudget(stored?.maxActionsPerDay),
   };
 }
 
@@ -208,44 +179,12 @@ export function saveSettings(settings: AutopilotSettings): void {
   kvdb.set<AutopilotSettings>(SETTINGS_KEY, settings);
 }
 
-/** Today's spend and any refills granted, both charged against the allowance. */
-export interface DailyBudget {
-  spent: number;
-  granted: number;
-}
-
-/**
- * What autopilot has already used today.
- *
- * Day-scoped through kvdb's daily helpers, so a new park day starts clean
- * without anything having to notice the rollover. This is the state that makes
- * the cap mean something: it survives the reload that used to reset it.
- *
- * `granted` is clamped like the setting is. It is a persisted number that adds
- * to the ceiling, so leaving it unbounded would let an edited or corrupted
- * value remove the limit -- the exact failure the ceiling exists to prevent.
- */
-export function loadBudget(): DailyBudget {
-  const stored = kvdb.getDaily<Partial<DailyBudget>>(BUDGET_KEY);
-  const count = (value: unknown) => {
-    const n = Math.floor(Number(value));
-    return Number.isFinite(n)
-      ? Math.min(MAX_ACTIONS_PER_DAY, Math.max(0, n))
-      : 0;
-  };
-  return { spent: count(stored?.spent), granted: count(stored?.granted) };
-}
-
-export function saveBudget(budget: DailyBudget): void {
-  kvdb.setDaily<DailyBudget>(BUDGET_KEY, budget);
-}
-
 /**
  * Per-attraction action locks (`AutoBookLedger.attemptedKeys()`), shared so a
  * second tab or a nested provider (NextLL nests one inside the app's own) can
  * see what another instance has already attempted today.
  *
- * Day-scoped, like the budget. Written as the union of what is already stored
+ * Day-scoped, like the commits. Written as the union of what is already stored
  * and what this instance holds, so a lock another instance took is never lost
  * to a slower write from this one.
  *
@@ -289,7 +228,7 @@ export function saveLocks(
  * itinerary, which it unions in "since a booking made a minute ago may be in
  * plans and not yet in the offer", extended across instances.
  *
- * Day-scoped, like the locks and the budget. Only the start time is recorded,
+ * Day-scoped, like the locks. Only the start time is recorded,
  * so the span derived from it is the wider open-ended one -- the conservative
  * direction for something we know less about than a parsed plan.
  *

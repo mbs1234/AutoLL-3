@@ -21,50 +21,6 @@ import { WatchTarget, inWindow } from './watchlist';
 const THROTTLE_STATUS = 429;
 
 /**
- * Cap on automatic actions per park day.
- *
- * A runaway booker is expensive in a way a runaway poller is not: every action
- * consumes a real entitlement and may displace one already held. So there is a
- * cap, and bookings, moves and swaps share it.
- *
- * It counts the *day*, not the session, because a session-scoped cap did not
- * bound anything. The ledger lived in a `useRef`, so turning autopilot off and
- * on refilled it -- and so did a plain page reload, which on a phone that
- * backgrounds a tab mid-day is the ordinary path rather than the exotic one.
- * The number that was meant to be a safety limit was in practice a limit on
- * how many actions could happen between reloads, which is not a quantity
- * anyone cares about.
- *
- * Ten rather than three: a day-scoped budget has to cover a whole park day of
- * legitimate booking, and three was calibrated against a cap that refilled
- * itself. Refills are still available, deliberately, but now they are a
- * decision rather than a side effect of the page reloading.
- */
-export const DEFAULT_ACTIONS_PER_DAY = 10;
-
-/** Floor and ceiling on the day's allowance, applied to every path that sets it. */
-export const MIN_ACTIONS_PER_DAY = 1;
-/**
- * The day's hard ceiling, enforced on the effective budget rather than only on
- * the setting.
- *
- * The setting, the persisted refill total, and their sum are each clamped to
- * it. Clamping only the setting would leave the refill total -- a number
- * persisted in localStorage and therefore editable -- able to remove the limit
- * entirely, which is the exact failure the ceiling exists to prevent.
- *
- * It is a headroom limit, not a recommendation: the default of ten is what
- * anyone gets without asking, and this only bounds how far someone who has
- * decided otherwise can raise it. Fifty is well above a plausible park day,
- * which is the point -- it should never be the thing standing between a real
- * day's booking and a top-up, only between a bug and the whole day.
- */
-export const MAX_ACTIONS_PER_DAY = 50;
-
-/** How many actions one refill grants, up to `MAX_ACTIONS_PER_DAY`. */
-export const REFILL_ACTIONS = 3;
-
-/**
  * Consecutive plans polls that must show an attraction unheld before its
  * booking lock is released.
  *
@@ -78,7 +34,6 @@ export const CONFIRM_ABSENT_POLLS = 2;
 export type SkipReason =
   | 'not-enabled'
   | 'no-longer-wanted'
-  | 'budget-exhausted'
   | 'already-attempted'
   | 'waiting-to-retry'
   | 'no-eligible-guests'
@@ -171,11 +126,10 @@ export class AutoBookLedger {
    * Booking attempts committed but not yet confirmed either way.
    *
    * A booking request that throws leaves real doubt: it may have succeeded
-   * server-side. Until a later plans poll settles it, such an attempt counts
-   * against the session allowance exactly as a confirmed booking does, so the
-   * cap bounds *entitlements possibly spent* rather than only those observed.
-   * Keyed by experience id; only `book` attempts land here, since only they
-   * can create an entitlement that nothing else accounts for.
+   * server-side. Until a later plans poll settles it the attempt is neither a
+   * booking nor a non-booking, so it is held here rather than counted. Keyed by
+   * experience id; only `book` attempts land here, since only they can create
+   * an entitlement that nothing else accounts for.
    */
   protected unresolved = new Set<string>();
   /** Consecutive polls each attraction has been observed unheld. */
@@ -192,9 +146,8 @@ export class AutoBookLedger {
   /**
    * Dry-run marks: log-once bookkeeping for a request that never went out.
    *
-   * Held apart from real attempts so a rehearsal neither consumes the session
-   * allowance nor takes part in settling, which would re-log it every time the
-   * lock released.
+   * Held apart from real attempts so a rehearsal does not take part in
+   * settling, which would re-log it every time the lock released.
    */
   protected rehearsed = new Set<string>();
   /**
@@ -232,11 +185,6 @@ export class AutoBookLedger {
   protected owned = new Set<string>();
 
   /**
-   * @param budget         today's ceiling: the setting plus any refills granted.
-   * @param carried        actions already charged earlier today, from storage.
-   * @param onSpend        called with the new total whenever the charge
-   *                       changes, so the day's spend survives the reload
-   *                       that used to reset it.
    * @param onAttemptChange called whenever a lock is taken or released, so a
    *                       caller sharing this state across tabs can persist
    *                       and re-read it -- see `attemptedKeys`/`adoptAttempted`.
@@ -246,9 +194,6 @@ export class AutoBookLedger {
    *                       never let one go.
    */
   constructor(
-    protected budget = DEFAULT_ACTIONS_PER_DAY,
-    protected carried = 0,
-    protected readonly onSpend: (spent: number) => void = () => undefined,
     protected readonly onAttemptChange: (
       released?: readonly string[]
     ) => void = () => undefined
@@ -289,36 +234,16 @@ export class AutoBookLedger {
     }
   }
 
-  /** Everything charged against today: earlier runs, this run, and doubt-holds. */
-  get spent(): number {
-    return this.carried + this.booked + this.unresolved.size;
-  }
-
-  /** Today's ceiling, for display. */
-  get budgetToday(): number {
-    return this.budget;
-  }
-
-  /** Raise or lower the day's ceiling. Never changes what has been spent. */
-  setBudget(budget: number): void {
-    this.budget = budget;
-  }
-
   /**
    * Start a new park day in place, for an instance that did not remount.
    *
-   * Distinct from `reset()`, which deliberately keeps the day's spend: turning
-   * autopilot off and on must not be a way to get more actions. A new park day
-   * is the opposite case -- the allowance genuinely renews, and yesterday's
-   * spend is not a charge against today. Everything day-scoped goes with it,
-   * locks included, because a lock exists to stop a second action on an
-   * attraction *today*.
+   * Everything day-scoped goes, locks included, because a lock exists to stop a
+   * second action on an attraction *today*.
    *
    * `released` is cleared too, so nothing carries a decision made yesterday
    * into a day it says nothing about.
    */
-  startNewDay(carried = 0): void {
-    this.carried = carried;
+  startNewDay(): void {
     this.attempted.clear();
     this.owned.clear();
     this.released.clear();
@@ -328,19 +253,10 @@ export class AutoBookLedger {
     this.confirmed.clear();
     this.rehearsed.clear();
     this.booked = 0;
-    this.notify();
-  }
-
-  protected notify(): void {
-    this.onSpend(this.spent);
   }
 
   get bookedCount(): number {
     return this.booked;
-  }
-
-  get remaining(): number {
-    return Math.max(0, this.budget - this.spent);
   }
 
   hasAttempted(experienceId: string, kind: ActionKind = 'book'): boolean {
@@ -389,29 +305,25 @@ export class AutoBookLedger {
     // settle -- it marks only so the rehearsal logs once.
     if (rehearsal) this.rehearsed.add(experienceId);
     else this.unresolved.add(experienceId);
-    this.notify();
   }
 
   /**
-   * Give back the doubt-hold for a book attempt that provably never landed.
+   * Settle a book attempt that provably never landed.
    *
-   * The hold exists because the lock is taken *before* the request goes out: a
-   * timed-out booking may have succeeded server-side, so the allowance treats
-   * it as spent until plans say otherwise. That is right when the outcome is
-   * unknown and needless when it is not. Disney refusing the call outright, or
-   * our own limiter never sending it, establishes that nothing was booked --
-   * and leaving the hold then charged the day for a booking that does not
-   * exist, which on the default allowance of ten is a tenth of the day gone per
-   * lost race.
+   * The doubt exists because the lock is taken *before* the request goes out:
+   * a timed-out booking may have succeeded server-side, so until a plans poll
+   * says otherwise the attempt is neither a booking nor a non-booking. Disney
+   * refusing the call outright, or our own limiter never sending it,
+   * establishes that nothing was booked, so there is nothing left to settle.
    *
    * The attempt lock is deliberately *not* released. Autopilot keeps one action
    * per attraction per session, which is what stops it thrashing a reservation
    * while availability shifts; only NextLL wants the retry, and it has
-   * `releaseAttempt` for that. This gives back the charge without giving back
-   * the action.
+   * `releaseAttempt` for that. This resolves the doubt without giving back the
+   * action.
    */
   resolveRejected(experienceId: string): void {
-    if (this.unresolved.delete(experienceId)) this.notify();
+    this.unresolved.delete(experienceId);
     // The lock stays here and leaves the shared copy. Keeping it locally is
     // the anti-thrash rule above; keeping it *shared* would hand a permanent
     // skip to every other instance, since only the instance that owns a lock
@@ -440,13 +352,11 @@ export class AutoBookLedger {
     this.owned.delete(key);
     this.released.add(key);
     this.onAttemptChange([key]);
-    // A book attempt also takes a doubt-hold against the allowance, on the
-    // chance that a request whose outcome we never learned did succeed. This
-    // is only ever called for one we did learn about -- Disney rejected it,
-    // or our own limiter never sent it -- so there is nothing left to doubt,
-    // and leaving the hold would charge the day for a booking that does not
-    // exist.
-    if (kind === 'book' && this.unresolved.delete(experienceId)) this.notify();
+    // A book attempt is also held in doubt, on the chance that a request whose
+    // outcome we never learned did succeed. This is only ever called for one we
+    // did learn about -- Disney rejected it, or our own limiter never sent it --
+    // so there is nothing left to doubt.
+    if (kind === 'book') this.unresolved.delete(experienceId);
   }
 
   /**
@@ -460,7 +370,6 @@ export class AutoBookLedger {
   markBooked(experienceId?: string): void {
     if (experienceId !== undefined) this.unresolved.delete(experienceId);
     ++this.booked;
-    this.notify();
   }
 
   /**
@@ -475,8 +384,8 @@ export class AutoBookLedger {
    * So the lock is released by evidence rather than held for the session:
    *
    * - `stillHeld` -- the reservation exists. Keep the lock (a second booking
-   *   would be rejected anyway), and if the attempt was still in doubt, charge
-   *   the allowance now, since `markBooked` never ran.
+   *   would be rejected anyway), and if the attempt was still in doubt, count it
+   *   as booked now, since `markBooked` never ran.
    * - `!stillHeld` -- nothing is held, so the attempt either failed or has been
    *   cancelled since. Both make rebooking legal.
    *
@@ -513,20 +422,18 @@ export class AutoBookLedger {
       this.absences.delete(experienceId);
       this.confirmed.add(experienceId);
       if (this.unresolved.delete(experienceId)) ++this.booked;
-      this.notify();
       return;
     }
     // A spent entitlement leaves plans exactly as a cancellation does, and
     // Disney will not sell it again: an unredeemed pass whose window lapses
-    // counts as ridden. Releasing the lock here would spend the session
-    // allowance rebooking something that cannot be rebooked -- but an
-    // entitlement cannot be spent unless a booking created it, so an attempt
-    // still in doubt is hereby confirmed rather than left uncounted.
+    // counts as ridden. Releasing the lock here would have the booker keep
+    // trying to rebook something that cannot be rebooked -- but an entitlement
+    // cannot be spent unless a booking created it, so an attempt still in doubt
+    // is hereby confirmed rather than left uncounted.
     if (spent) {
       this.absences.delete(experienceId);
       if (this.unresolved.delete(experienceId)) {
         ++this.booked;
-        this.notify();
       }
       return;
     }
@@ -554,7 +461,6 @@ export class AutoBookLedger {
     this.owned.delete(`book:${experienceId}`);
     this.unshared.delete(`book:${experienceId}`);
     this.released.add(`book:${experienceId}`);
-    this.notify();
     // A cancellation settled here is a release like any other, and it has to
     // reach the shared copy. Without this the lock survives in storage and the
     // next mount adopts it, so the rebooking this branch exists to permit
@@ -563,18 +469,12 @@ export class AutoBookLedger {
   }
 
   /**
-   * Clear this run's locks, keeping the day's charge.
+   * Clear this run's locks.
    *
    * The per-attraction locks are session state -- they exist so one run cannot
-   * thrash a reservation -- and clearing them on every enable is right. What is
-   * deliberately *not* cleared is the spend: it folds into `carried` first, so
-   * turning autopilot off and on is no longer how you get more actions. That
-   * used to be the only refill there was, and it came bundled with a wipe of
-   * the drop-detection baseline, so buying three more actions cost the first
-   * poll's ability to see a drop at all.
+   * thrash a reservation -- and clearing them on every enable is right.
    */
   reset(): void {
-    this.carried = this.spent;
     // Withdraw only what this instance put there. Clearing `attempted` alone
     // leaves the shared copy intact, and the first tick of the new run adopts
     // it straight back -- which made this reset a no-op for any lock that had
@@ -589,7 +489,6 @@ export class AutoBookLedger {
     this.confirmed.clear();
     this.rehearsed.clear();
     this.booked = 0;
-    this.notify();
     if (mine.length > 0) this.onAttemptChange(mine);
   }
 }
@@ -601,7 +500,7 @@ export class AutoBookLedger {
  */
 export function shouldAttempt(
   target: WatchTarget,
-  ledger: Pick<AutoBookLedger, 'hasAttempted' | 'remaining'>
+  ledger: Pick<AutoBookLedger, 'hasAttempted'>
 ): { ok: true } | { ok: false; reason: SkipReason } {
   // bookThenMove and autoSwap both imply booking when a slot is free.
   if (!target.autoBook && !target.bookThenMove && !target.autoSwap) {
@@ -610,7 +509,6 @@ export function shouldAttempt(
   if (ledger.hasAttempted(target.experienceId)) {
     return { ok: false, reason: 'already-attempted' };
   }
-  if (ledger.remaining <= 0) return { ok: false, reason: 'budget-exhausted' };
   return { ok: true };
 }
 

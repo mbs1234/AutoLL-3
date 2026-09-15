@@ -97,12 +97,7 @@ export function NextLLChooser({ ref }: Partial<HomeTabProps> = {}) {
   const [mode, setMode] = useState<'choose' | 'book' | 'modify'>('choose');
   if (mode === 'book') {
     return (
-      <AutopilotProvider
-        watchListKey={NEXTLL_WATCHLIST_KEY}
-        rapid
-        budgeted={false}
-        repeatMoves
-      >
+      <AutopilotProvider watchListKey={NEXTLL_WATCHLIST_KEY} rapid repeatMoves>
         <NextLL ref={ref} onBack={() => setMode('choose')} />
       </AutopilotProvider>
     );
