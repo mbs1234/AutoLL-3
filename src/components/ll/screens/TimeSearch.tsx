@@ -144,13 +144,13 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
               className="mt-3 rounded-sm bg-amber-100 p-2 text-amber-900"
             >
               <p className="font-semibold">
-                Autopilot is already acting on this reservation.
+                Waiting for Autopilot to finish a request&hellip;
               </p>
               <p className="mt-1">
-                It keeps looking, but will not move this Lightning Lane while
-                the day plan is mid-action on it &mdash; two moves at once is
-                how one of them lands on a time the other just gave up. Turn
-                Autopilot off from Today if you want this search to take over.
+                It has one out for this attraction right now, and two at once is
+                how one of them lands on a time the other just gave up. This
+                search takes over as soon as that returns &mdash; a few seconds
+                at most.
               </p>
             </div>
           )}

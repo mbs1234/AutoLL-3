@@ -137,13 +137,20 @@ committed return times are now shared through the day's storage, so the same
 attraction is not attempted twice in one drop and neither engine books a time
 that lands on what the other just took.
 
-**And a Time Search joins the same queue.** Searching for a better return time
-runs a third engine, against a reservation autopilot is still polling
-underneath the screen — and its moves used to go out without taking any lock at
-all. It now takes the same per-attraction lock as everything else, holds it for
-the run so nothing else can move that pass mid-search, and gives it back when
-the search ends. If autopilot has the reservation first, the search says so on
-screen and keeps looking, rather than committing on top of it.
+**And a Time Search takes precedence.** Searching for a better return time runs
+a third engine, against a reservation autopilot is still polling underneath the
+screen — and its moves used to go out without taking any lock at all. It now
+takes the same per-attraction lock as everything else and holds it for the run,
+so nothing else can move that pass mid-search.
+
+When they want the same reservation, the search you started wins. It waits only
+while autopilot has a request genuinely in the air — a few seconds, and the
+screen says so — then takes over. It does not defer to autopilot's lock, because
+that lock is never given back: it records that autopilot moved the ride at some
+point since you switched it on, which may have been hours earlier. That matters
+most in the case only the search can serve, since autopilot sees one return time
+per check and can therefore only move a pass *earlier*, while a search can aim
+at a particular time and move one later on purpose — for a dinner reservation.
 
 **Nothing caps the day's bookings.** v1.0 and earlier AutoLL-3 releases rationed
 autopilot to a set number of actions per park day. That cap rested on a

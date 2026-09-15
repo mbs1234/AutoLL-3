@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
-import { use } from 'react';
+import { use, useState } from 'react';
 
 import { mk, wdw } from '@/__fixtures__/resort';
 import { RequestError } from '@/api/client';
@@ -104,7 +104,10 @@ function Probe() {
     lastSkip,
     sessionLog,
     dropSummaries,
+    claimAction,
+    releaseAction,
   } = use(AutopilotContext);
+  const [claimed, setClaimed] = useState<string>('');
   return (
     <div>
       <button onClick={() => setEnabled(!enabled)}>toggle</button>
@@ -121,6 +124,13 @@ function Probe() {
       <span data-testid="lastSkip">
         {lastSkip ? `${lastSkip.name}: ${lastSkip.reason}` : ''}
       </span>
+      <button onClick={() => setClaimed(String(claimAction?.(BZ, 'modify')))}>
+        claim BZ modify
+      </button>
+      <button onClick={() => releaseAction?.(BZ, 'modify')}>
+        release BZ modify
+      </button>
+      <span data-testid="claimed">{claimed}</span>
       <span data-testid="sessionLog">{sessionLog.length}</span>
       <span data-testid="coveredDays">
         {dropSummaries.reduce(
@@ -2442,6 +2452,106 @@ describe('AutopilotProvider acting on a plan that changed mid-tick', () => {
  * mount adopted a released one straight back -- which disabled that attraction
  * for the rest of the park day while the screen named no reason.
  */
+/*
+ * Foreground precedence.
+ *
+ * A Time Search claims through this provider. The lock it would be blocked by
+ * says "Autopilot moved this at some point since you switched it on" -- a
+ * modify lock is never given back except under repeatMoves -- so deferring to
+ * it blocked a deliberate action on something possibly hours finished. The
+ * refusal is now narrowed to the moment a request is genuinely in the air.
+ */
+describe('AutopilotProvider foreground precedence', () => {
+  const claim = async () => {
+    await act(async () => {
+      screen.getByText('claim BZ modify').click();
+    });
+    return screen.getByTestId('claimed').textContent;
+  };
+
+  it('grants a claim on an attraction nothing is acting on', async () => {
+    setupBooking();
+    expect(await claim()).toBe('true');
+  });
+
+  // The case that used to be refused: Autopilot has already used its one move
+  // on this attraction, so the lock stands for the session with nothing behind
+  // it. A search asking now is asking about a finished action.
+  it('grants a claim over a lock left by a finished action', async () => {
+    saveLocks([`modify:${BZ}`]);
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    setupBooking();
+    await enable();
+    // One tick, so `adoptAttempted` pulls the stored lock into the ledger.
+    // Without this the ledger has never heard of it and the claim would be
+    // granted for the wrong reason.
+    await runTicks(2);
+    expect(loadLocks()).toContain(`modify:${BZ}`);
+    expect(await claim()).toBe('true');
+  });
+
+  // The one refusal worth making: a request is out right now.
+  it('refuses while a request for that attraction is in the air', async () => {
+    let releaseOffer = () => {};
+    const offerDelay = new Promise<void>(resolve => {
+      releaseOffer = resolve;
+    });
+    saveWatchList([
+      { experienceId: BZ, autoModify: true, bookThenMove: false },
+    ]);
+    setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      offerDelay,
+    });
+    await enable();
+    // Let the tick reach the offer, which is now held open.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(IDLE_INTERVAL_MS);
+    });
+    expect(await claim()).toBe('false');
+    await act(async () => releaseOffer());
+  });
+
+  /*
+   * Once the search holds a lock, the engine underneath must not reclaim it.
+   *
+   * Only reachable with `repeatMoves`, which is what mints a retry token
+   * (`retryAtRef` is set under that flag alone). The top-level Autopilot never
+   * mints one, so its retry branch is dead -- but NextLL's nested provider runs
+   * with the flag, and the guard is what stops that path handing an attraction
+   * back to a poller while somebody is watching a search on it. The rejection
+   * has to land on the *commit*, not the offer: all three helpers take their
+   * lock after the offer round trip, so a 410 there leaves nothing locked and
+   * mints nothing.
+   */
+  it('does not take a foreground lock back on a due retry', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { offer } = setupBooking({
+      repeatMoves: true,
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      bookErrors: [410],
+    });
+    await enable();
+    await waitFor(() => expect(offer).toHaveBeenCalled());
+    const afterRejection = offer.mock.calls.length;
+    await claim();
+    // Well past RETRY_AFTER_MS, when the token would otherwise fall due.
+    await runTicks(Math.ceil(RETRY_AFTER_MS / IDLE_INTERVAL_MS) + 4);
+    expect(offer.mock.calls.length).toBe(afterRejection);
+  });
+
+  it('lets the engine have it back once the search releases', async () => {
+    setupBooking();
+    expect(await claim()).toBe('true');
+    await act(async () => {
+      screen.getByText('release BZ modify').click();
+    });
+    expect(loadLocks()).not.toContain(`modify:${BZ}`);
+  });
+});
+
 describe('AutopilotProvider shared action locks', () => {
   it('publishes a lock it takes', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
