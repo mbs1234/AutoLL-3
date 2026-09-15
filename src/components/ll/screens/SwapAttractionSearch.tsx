@@ -12,6 +12,7 @@ import { Time } from '@/components/Time';
 import ClientsContext from '@/contexts/ClientsContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import PlansContext from '@/contexts/PlansContext';
+import TopAutopilotContext from '@/contexts/TopAutopilotContext';
 
 import { NextLLTimeSearchActivity } from './NextLLActivity';
 
@@ -36,6 +37,8 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
   const { ll } = use(ClientsContext);
   const { experiences } = use(ExperiencesContext);
   const { pollPlans } = use(PlansContext);
+  // The all-day engine, not a nested one -- see the same note on TimeSearch.
+  const topAutopilot = use(TopAutopilotContext);
   const [targetId, setTargetId] = useState('');
   const target = experiences.find(
     (exp): exp is Experience => exp.id === targetId && !!exp.flex
@@ -68,6 +71,13 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
     changeTime: (offer, time) => ll.changeOfferTime(offer, time),
     commit: offer => ll.book(offer),
     pollPlans,
+    // Keyed to the reservation being given up, and taken as a `swap`: that is
+    // what this is, and it is the kind `chooseSwapVictim` locks on, so the two
+    // cannot both surrender the same held pass.
+    claimCommit: () =>
+      topAutopilot?.claimAction?.(booking.facilityId, 'swap') ?? true,
+    releaseCommit: () =>
+      topAutopilot?.releaseAction?.(booking.facilityId, 'swap'),
     findHeld: findHeldByEntitlement,
     confirmEveryMove: true,
     stopAfterConfirmedMove: true,

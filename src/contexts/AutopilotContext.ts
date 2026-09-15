@@ -1,6 +1,7 @@
 import { createContext } from 'react';
 
 import { AlertPermission } from '@/autopilot/alert';
+import { ActionKind } from '@/autopilot/autobook';
 import { DropSummary } from '@/autopilot/observe';
 import { NO_REFUSALS, RefusalState } from '@/autopilot/refusal';
 import { PollerStatus } from '@/autopilot/usePoller';
@@ -117,6 +118,26 @@ export interface AutopilotState {
    */
   sessionLog: BookingLogEntry[];
   bookedCount: number;
+  /**
+   * Take the shared per-attraction action lock, for a foreground search.
+   *
+   * `useTimeSearch` runs its own engine against a reservation the top-level
+   * Autopilot is still polling underneath, and its commits went straight to
+   * `ll.book(offer)` -- outside the ledger, so neither engine knew the other
+   * was about to modify the same held pass. These two let the search join the
+   * same lock the engine takes, which is what stops both from acting on one
+   * entitlement at once.
+   *
+   * Returns false when the lock is already held elsewhere. The caller must not
+   * treat that as a reason to fail silently: a foreground search is one the
+   * user is standing there asking for, so it reports the contention and keeps
+   * looking rather than dying.
+   *
+   * Optional, because the many places that stub this context do not need them.
+   */
+  claimAction?: (experienceId: string, kind: ActionKind) => boolean;
+  /** Give the lock back, for an action that provably did not happen. */
+  releaseAction?: (experienceId: string, kind: ActionKind) => void;
   /** Act only when every party member is eligible. Persisted. */
   requireWholeParty: boolean;
   setRequireWholeParty: (on: boolean) => void;

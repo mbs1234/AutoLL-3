@@ -82,8 +82,28 @@ export function loadBookingLog(): BookingLogEntry[] {
  * Entries carry no id. Name, time to the second, status and the two times are
  * specific enough in practice: two distinct events for the same attraction in
  * the same second with the same outcome would be one event reported twice.
+ *
+ * A *failure* is keyed differently, and has to be: `addLogEntry` collapses a
+ * repeat of the failure already at the top into one row carrying a count and
+ * **the time of the most recent occurrence**. With the time in the key, every
+ * rewrite of that row looked like a new event, so the merge below kept the
+ * stored copy as well and appended it back. In burst cadence that turned the
+ * twenty stored rows into twenty copies of one error inside half a minute, and
+ * the day's real bookings were gone.
+ *
+ * So a failure is keyed by exactly what `addLogEntry` collapses on -- name,
+ * status and detail, with no time -- which keeps the two rules in agreement:
+ * whatever the log would fold into one row, the merge treats as one row. Two
+ * genuine failures are still told apart by attraction and by detail, which is
+ * the same resolution the on-screen log offers.
+ *
+ * The cost is that when both providers have hit the same failure on the same
+ * attraction, the merged row carries the writer's count rather than the sum.
+ * Summing is not available: a provider rewrites its own row as the count
+ * climbs, so adding the stored value would compound its own earlier writes.
  */
 function logKey(e: BookingLogEntry): string {
+  if (e.status === 'failed') return ['failed', e.name, e.detail].join('|');
   return [e.name, String(e.at), e.status, e.returnTime, e.fromTime].join('|');
 }
 

@@ -135,12 +135,16 @@ export default function Today({ ref }: HomeTabProps) {
     notifications,
     planChecked,
   });
-  // This line describes both data sets, so use the older successful fetch;
-  // calling the pair fresh when only one has refreshed would be misleading.
-  const updatedAt = [experiencesUpdated, plansUpdated].filter(
-    (updated): updated is number => updated !== undefined
-  );
-  const lastUpdated = updatedAt.length > 0 ? Math.min(...updatedAt) : undefined;
+  // This line describes both data sets, so it reports the older of the two
+  // fetches -- and only once *both* have fetched. Filtering the undefined ones
+  // out first and taking the minimum of what was left meant one loaded context
+  // beside one that had never fetched read as though both were current, which
+  // over-claims in exactly the state where trusting this line is wrong: it is
+  // the line that tells you whether to believe the rest of the screen.
+  const updatedAt = [experiencesUpdated, plansUpdated];
+  const lastUpdated = updatedAt.every(updated => updated !== undefined)
+    ? Math.min(...updatedAt)
+    : undefined;
   const freshness =
     lastUpdated === undefined
       ? undefined

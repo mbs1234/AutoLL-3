@@ -14,6 +14,14 @@ export function describeFailure(outcome: {
   error: string;
   httpStatus?: number;
 }): string {
+  // A status of 0 is no answer at all -- the client timed out, or the network
+  // dropped the request -- and this project's rule is that such a result is an
+  // unknown outcome, not a failure. The engine already treats it that way: the
+  // attempt lock stands and the booking stays in doubt until plans settle it.
+  // Rendering it as "Request failed (0)" contradicted that on the one screen
+  // the user reads, and on park wifi a 0 is common and can mean a booking that
+  // landed.
+  if (outcome.httpStatus === 0) return 'No answer — check your plans';
   if (outcome.httpStatus !== undefined) {
     return `Request failed (${outcome.httpStatus})`;
   }

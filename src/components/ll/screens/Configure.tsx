@@ -101,6 +101,34 @@ export default function Configure({
             !experiences.some(exp => exp.id === target.experienceId)
         );
 
+  /**
+   * What to say when the watched list renders empty.
+   *
+   * The heading counts saved targets for this park and date; this list is those
+   * targets intersected with the loaded tipboard. With the tipboard unloaded
+   * the two disagree, and the old copy said "Nothing selected yet" under
+   * "Watching (4)" -- which reads as data loss at the moment you are checking
+   * your plan survived. Built as a variable rather than nested ternaries in the
+   * JSX, which Prettier rejects.
+   */
+  let emptyWatched: string;
+  if (targetsHere.length === 0) {
+    emptyWatched = 'Nothing selected yet. Pick attractions below.';
+  } else if (filterText.trim()) {
+    emptyWatched = 'No watched attractions match that filter.';
+  } else if (experiences.length === 0) {
+    emptyWatched =
+      `Still saved, but the LL list is not loaded, so none of the ` +
+      `${targetsHere.length} can be shown. Refresh it from Today or Plan check.`;
+  } else {
+    // Borrowed from the "not on this park's list today" wording above: the
+    // targets exist, the tipboard is loaded, and it simply does not carry them
+    // -- a re-themed ride's new facility ID is what this looks like.
+    emptyWatched =
+      `Still saved, but none of the ${targetsHere.length} are on today's ` +
+      `LL list, so Autopilot cannot act on them.`;
+  }
+
   return (
     <Screen title={CONFIGURE} theme={park.theme} subhead={<ContextStrip />}>
       <p>
@@ -227,11 +255,7 @@ export default function Configure({
         </p>
       )}
       {watched.length === 0 ? (
-        <p className="text-sm text-gray-600">
-          {targetsHere.length > 0 && filterText.trim()
-            ? 'No watched attractions match that filter.'
-            : 'Nothing selected yet. Pick attractions below.'}
-        </p>
+        <p className="text-sm text-gray-600">{emptyWatched}</p>
       ) : (
         <ul className="mt-2 space-y-2">
           {watched.map(exp => (

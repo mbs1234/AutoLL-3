@@ -324,11 +324,20 @@ export default function AutopilotProvider({
   const coverageRef = useRef<Coverage>(loadCoverage());
   const [dropSummaries, setDropSummaries] = useState<DropSummary[]>(() => {
     // Whatever was learned on earlier visits, before today's first poll.
+    //
+    // `watchedByDay` is passed here as well as at the poll site below, and
+    // leaving it off was not a harmless default: without it every scheduled
+    // drop time reports no covered days, so the Activity screen said
+    // "(not watched yet)" about times it had been watching for days, until
+    // something new arrived to trigger a re-summary. That screen is the only
+    // place a built-in drop time's record is visible, and the same numbers are
+    // the evidence the demotion switch would act on.
     return summarizeDrops(
       loadDropEvents(),
       coverageRef.current,
       park.dropSchedule,
-      park.id
+      park.id,
+      watchedDaysRef.current
     );
   });
   const [bookedCount, setBookedCount] = useState(0);
@@ -393,6 +402,40 @@ export default function AutopilotProvider({
   useEffect(
     () => () => void releaseScreenAwake(wakeLockOwner),
     [wakeLockOwner]
+  );
+
+  /**
+   * Lend the shared action lock to a foreground search.
+   *
+   * `useTimeSearch` drives its own engine against a reservation this provider
+   * keeps polling underneath, and its commits used to go straight to
+   * `ll.book(offer)` -- outside the ledger entirely, so nothing stopped both
+   * from modifying the same held pass in the same few seconds. Routing the
+   * search's commit through the same per-attraction lock is what makes the two
+   * exclusive, and because the lock is published to the day's storage it also
+   * covers a second tab and the provider NextLL nests inside this one.
+   *
+   * Returns false when the lock is already held. The caller decides what to do
+   * about it; this only reports.
+   */
+  const claimAction = useCallback((experienceId: string, kind: ActionKind) => {
+    if (ledgerRef.current.hasAttempted(experienceId, kind)) return false;
+    ledgerRef.current.markAttempted(experienceId, kind);
+    return true;
+  }, []);
+
+  /**
+   * Give the lock back for an action that provably did not happen.
+   *
+   * The same escape `repeatMoves` uses. Without it a search's own first commit
+   * would lock the attraction against its own next cycle, which for something
+   * whose entire promise is "keep trying" is the feature failing silently.
+   */
+  const releaseAction = useCallback(
+    (experienceId: string, kind: ActionKind) => {
+      ledgerRef.current.releaseAttempt(experienceId, kind);
+    },
+    []
   );
 
   const bumpSkip = useCallback((reason: string, name?: string) => {
@@ -1702,6 +1745,8 @@ export default function AutopilotProvider({
         bookingLog,
         sessionLog,
         bookedCount,
+        claimAction,
+        releaseAction,
         requireWholeParty: settings.requireWholeParty,
         setRequireWholeParty: on =>
           setSettings(prev => ({ ...prev, requireWholeParty: on })),

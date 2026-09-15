@@ -65,6 +65,9 @@ function setup({
   confirmEveryMove,
   stopAfterConfirmedMove,
   findHeld,
+  claimCommit,
+  releaseCommit,
+  getTimes,
 }: {
   goal?: SearchGoal;
   held?: ParkTime;
@@ -75,13 +78,16 @@ function setup({
   confirmEveryMove?: boolean;
   stopAfterConfirmedMove?: boolean;
   findHeld?: TimeSearchDeps['findHeld'];
+  claimCommit?: jest.Mock;
+  releaseCommit?: jest.Mock;
+  getTimes?: TimeSearchDeps['getTimes'];
 } = {}) {
   let current = held;
   const deps: TimeSearchDeps = {
     booking: booking(held),
     goal,
     createOffer: jest.fn(async () => offerAt(current)),
-    getTimes: jest.fn(async () => times),
+    getTimes: getTimes ?? jest.fn(async () => times),
     changeTime: quoted ?? jest.fn(async (_o, t: ParkTime) => offerAt(t)),
     commit:
       commit ??
@@ -95,6 +101,8 @@ function setup({
     confirmEveryMove,
     stopAfterConfirmedMove,
     findHeld,
+    claimCommit,
+    releaseCommit,
   };
   const view = renderHook(() => useTimeSearch(deps));
   return { ...view, deps };
@@ -300,6 +308,92 @@ describe('useTimeSearch', () => {
     expect(result.current.guard.phase).not.toBe('unknown');
     await runCycles(3);
     expect(result.current.stop).not.toBe('failed');
+  });
+
+  /*
+   * The engine's per-attraction lock.
+   *
+   * This hook drives a second booking engine against a reservation the
+   * all-day Autopilot is still polling underneath the screen. Its commits used
+   * to go straight to `ll.book(offer)`, outside the shared ledger entirely, so
+   * nothing stopped both from modifying the same held pass within a few
+   * seconds of each other.
+   */
+  describe('the shared action lock', () => {
+    it('takes the lock before a move leaves the device', async () => {
+      const claimCommit = jest.fn(() => true);
+      const commit = jest.fn(async () => booking(at(11)));
+      const { result } = setup({ claimCommit, commit });
+      act(() => result.current.start());
+      await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
+      expect(claimCommit).toHaveBeenCalled();
+      expect(claimCommit.mock.invocationCallOrder[0]).toBeLessThan(
+        commit.mock.invocationCallOrder[0]!
+      );
+    });
+
+    // Refused means the engine is already acting on this reservation. A
+    // foreground search is one the user is standing there asking for, so it
+    // says so and keeps looking rather than committing on top or dying.
+    it('does not commit while the engine holds the lock', async () => {
+      const claimCommit = jest.fn(() => false);
+      const commit = jest.fn(async () => booking(at(11)));
+      const { result } = setup({ claimCommit, commit });
+      act(() => result.current.start());
+      await runCycles(3);
+      expect(commit).not.toHaveBeenCalled();
+      expect(result.current.contended).toBe(true);
+      expect(result.current.running).toBe(true);
+      expect(result.current.stop).toBeUndefined();
+    });
+
+    // Claimed once and held for the run: taking and giving it back between
+    // cycles would leave the engine a window on every one of them.
+    it('claims once across several moves in a run', async () => {
+      const claimCommit = jest.fn(() => true);
+      // A grid that improves between cycles, so the search genuinely moves
+      // more than once. A fixed grid gives one move and proves nothing here.
+      const grids = [[[at(13)]], [[at(11)]], [[at(9)]]];
+      let cycle = 0;
+      const { result } = setup({
+        claimCommit,
+        getTimes: async () => grids[Math.min(cycle++, grids.length - 1)]!,
+      });
+      act(() => result.current.start());
+      await runCycles(5);
+      expect(result.current.moves).toBeGreaterThan(1);
+      expect(claimCommit).toHaveBeenCalledTimes(1);
+    });
+
+    // The `releaseAttempt` escape. Without it the search's own lock would
+    // retire the attraction for the rest of the engine's session.
+    it('gives the lock back when the search stops', async () => {
+      const releaseCommit = jest.fn();
+      const { result } = setup({
+        claimCommit: jest.fn(() => true),
+        releaseCommit,
+      });
+      act(() => result.current.start());
+      await waitFor(() => expect(result.current.moves).toBeGreaterThan(0));
+      act(() => result.current.cancel());
+      expect(releaseCommit).toHaveBeenCalled();
+    });
+
+    // The one case where it must not come back: a commit whose outcome nobody
+    // learned may have moved the reservation, and the engine must not pile on.
+    it('keeps the lock when a commit outcome is unknown', async () => {
+      const releaseCommit = jest.fn();
+      const commit = jest.fn().mockRejectedValue(new Error('no response'));
+      const { result } = setup({
+        claimCommit: jest.fn(() => true),
+        releaseCommit,
+        commit,
+      });
+      act(() => result.current.start());
+      await waitFor(() => expect(result.current.stop).toBe('failed'));
+      expect(result.current.guard.phase).toBe('unknown');
+      expect(releaseCommit).not.toHaveBeenCalled();
+    });
   });
 
   // No offer right now is an ordinary outcome mid-day, not a fault.

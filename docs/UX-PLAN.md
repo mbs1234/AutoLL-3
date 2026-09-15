@@ -408,7 +408,11 @@ band behind the bar, both columns of bars are real buttons with names, and
 `Timeline.tsx` wires a target tap to Configure and a lane tap to Booking
 details.
 
-Still open:
+Still open — all three, unchanged. (The 2026-09-14 batch fixed four *other*
+screen defects this phase's work had left behind, which were tracked in
+`FUTURE.md` §2 rather than here: the protected band swallowing taps, Plan
+Check's silent refresh, Today's over-claiming freshness line, and Configure
+contradicting its own heading.)
 
 - The names still truncate. `DayTimeline` is a `3rem 1fr 1fr` grid and
   `pack()` splits the Targets column again for every simultaneous bar, so at
@@ -421,7 +425,7 @@ Still open:
   and 20 px for an hour (`FUTURE.md` §2.2).
 - A `setting` subject opens Configure but nothing focuses the Settings
   section. `Configure` accepts a `focus` prop of that kind and reads only
-  `focus.kind === 'target'` (`FUTURE.md` §2.8).
+  `focus.kind === 'target'` (`FUTURE.md` §2.4).
 
 Of the four test deliverables, only `plancheck.test.ts` gained anything, and
 that is one assertion on the `targets` subject. `PlanCheck.test.tsx` exists

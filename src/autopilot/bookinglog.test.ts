@@ -31,6 +31,20 @@ describe('describeFailure()', () => {
     expect(detail).not.toContain('swid-123');
   });
 
+  // A status of 0 is no answer at all. The engine treats it as an unknown
+  // outcome -- the lock stands and the booking stays in doubt -- and the screen
+  // has to agree, because on park wifi a 0 is common and can mean a booking
+  // that landed. Reading "Request failed (0)" and cancelling on the strength of
+  // it is how you end up holding two.
+  it('does not call a no-answer result a failure', () => {
+    const detail = describeFailure({
+      error: 'Network request failed',
+      httpStatus: 0,
+    });
+    expect(detail).not.toMatch(/failed/i);
+    expect(detail).toMatch(/check your plans/i);
+  });
+
   // No status is the client timeout and the dynamic-import failure, both of
   // which still carry a message worth reading.
   it('keeps a plain message when there is no status', () => {
