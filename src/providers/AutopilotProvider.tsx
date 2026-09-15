@@ -277,6 +277,30 @@ export default function AutopilotProvider({
   // under today. Every day-scoped write is guarded against this ref.
   const parkDayRef = useRef(parkDate());
 
+  /**
+   * Actions with a request out right now, keyed `${kind}:${experienceId}`.
+   *
+   * The ledger cannot answer this. Its lock is taken *before* the request goes
+   * out and, for a modify, never given back -- `releaseAttempt` runs only under
+   * `repeatMoves` -- so `hasAttempted` says what happened at some point today,
+   * not what is happening now. A foreground search deferring to that was
+   * deferring to a marker for something possibly hours finished.
+   *
+   * Per instance, and unavoidably so: a second tab's in-flight request is not
+   * observable from here. The shared locks record that an action was taken, not
+   * that one is in the air.
+   */
+  const actingRef = useRef(new Set<string>());
+  /**
+   * Locks a foreground search holds, so this engine does not take them back.
+   *
+   * The retry path below releases a lock whose wait has run out and acts. That
+   * is right for a lock this engine took and had rejected; it is wrong for one
+   * a Time Search is holding for the length of its run, which would hand the
+   * attraction back to the poller underneath the screen the user is looking at.
+   */
+  const foregroundRef = useRef(new Set<string>());
+
   const cacheRef = useRef(new GuestCache());
   // What the party held as of the last plans poll. Undefined until the first
   // poll of a run establishes the baseline rather than firing on it.
@@ -419,8 +443,23 @@ export default function AutopilotProvider({
    * about it; this only reports.
    */
   const claimAction = useCallback((experienceId: string, kind: ActionKind) => {
-    if (ledgerRef.current.hasAttempted(experienceId, kind)) return false;
+    const key = `${kind}:${experienceId}`;
+    // The only refusal. A request is out for this attraction right now, and a
+    // second one on the same entitlement is the collision worth preventing.
+    // The caller retries next cycle, which outlasts any single request.
+    if (actingRef.current.has(key)) return false;
+    // Otherwise the foreground wins, even against a lock this engine holds.
+    // That lock means "Autopilot moved this at some point since you switched it
+    // on" -- possibly at 9am when it is now 4pm -- and blocking a deliberate
+    // action on it is the wrong trade. It matters most in the case only the
+    // foreground can serve: `automodify` sees one candidate per tick and can
+    // therefore only move a pass *earlier*, while a Time Search is the only
+    // thing that can move one later on purpose, for a dinner reservation.
+    //
+    // Taking the lock also keeps this engine out for the rest of the search,
+    // since `shouldAttempt` and `shouldModify` both consult `hasAttempted`.
     ledgerRef.current.markAttempted(experienceId, kind);
+    foregroundRef.current.add(key);
     return true;
   }, []);
 
@@ -433,6 +472,7 @@ export default function AutopilotProvider({
    */
   const releaseAction = useCallback(
     (experienceId: string, kind: ActionKind) => {
+      foregroundRef.current.delete(`${kind}:${experienceId}`);
       ledgerRef.current.releaseAttempt(experienceId, kind);
     },
     []
@@ -930,6 +970,15 @@ export default function AutopilotProvider({
         if (ledgerRef.current.hasAttempted(experience.id, kind)) {
           // Held for good, unless this is a rejection whose wait has run out.
           const retryAt = retryAtRef.current.get(`${kind}:${experience.id}`);
+          // A lock a foreground search is holding is never taken back here,
+          // whatever the retry token says. The token was minted for this
+          // engine's own rejected attempt; the lock now belongs to a search the
+          // user is watching, and reclaiming it would put the poller back on an
+          // attraction somebody is actively managing.
+          if (foregroundRef.current.has(`${kind}:${experience.id}`)) {
+            bumpSkip('already-attempted', experience.name);
+            continue;
+          }
           if (retryAt === undefined || Date.now() < retryAt) {
             // Both cases are reported. A lock with no retry token used to
             // `continue` in silence, which is the worst way for this to fail:
@@ -1088,6 +1137,15 @@ export default function AutopilotProvider({
             !settingsRef.current.requireWholeParty ||
             wholePartyEligible(offerGuests);
 
+          // From here until the helper returns, this instance has a request out
+          // for this attraction -- the offer round trip and, if it gets that
+          // far, the commit. `claimAction` refuses a foreground search only
+          // inside this window, which is the only moment where two requests
+          // would genuinely overlap. The ledger cannot answer this on its own:
+          // its lock is taken before the request and, for a modify, never given
+          // back, so it says what happened at some point today rather than what
+          // is happening now.
+          actingRef.current.add(`${kind}:${experience.id}`);
           if (kind === 'swap') {
             // Atomic on Disney's side: the mod endpoint takes both the new
             // experience and the one being given up, so the old reservation is
@@ -1163,6 +1221,10 @@ export default function AutopilotProvider({
             error: error instanceof Error ? error.message : String(error),
             httpStatus,
           };
+        } finally {
+          // Closes the window opened above, on every path out. Deleting a key
+          // that was never added is a no-op, so an early throw is safe.
+          actingRef.current.delete(`${kind}:${experience.id}`);
         }
 
         // Anything the helpers returned settles their own call. A success clears
