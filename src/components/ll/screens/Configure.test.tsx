@@ -121,26 +121,10 @@ describe('Configure auto-book', () => {
       watched: [BZ],
       targets: [{ experienceId: BZ, autoBook: true }],
       bookedCount: 1,
-      bookingsRemaining: 2,
     });
-    expect(screen.getByText(/2 of 10 actions left today/)).toBeVisible();
     open('What these actions do');
     expect(screen.getByText(/Automatic booking is on/)).toBeVisible();
   });
-
-  // Book-then-move and swap both imply booking, so both spend the budget.
-  // Gating the count on auto-book alone hid it from anyone using only those.
-  it.each(['bookThenMove', 'autoSwap', 'autoModify'])(
-    'shows the day budget for a target armed only with %s',
-    flag => {
-      setup({
-        watched: [BZ],
-        targets: [{ experienceId: BZ, [flag]: true }],
-        bookingsRemaining: 2,
-      });
-      expect(screen.getByText(/2 of 10 actions left today/)).toBeVisible();
-    }
-  );
 
   it('says nothing about booking when no target is armed', () => {
     setup({ watched: [BZ] });
@@ -382,35 +366,6 @@ describe('Configure unknown attractions', () => {
   it('says nothing when every listed attraction is known', () => {
     setup({});
     expect(screen.queryByText(/does not recognise/)).not.toBeInTheDocument();
-  });
-});
-
-describe('Configure day allowance', () => {
-  const field = () => screen.getByLabelText('Actions allowed per day');
-
-  // Typing "15" passes through "1". A controlled input writing straight
-  // through would set the day's budget to 1 mid-keystroke.
-  it('commits on blur rather than on every keystroke', () => {
-    const { setMaxActionsPerDay } = setup({
-      watched: [BZ],
-      targets: [{ experienceId: BZ, autoBook: true }],
-      maxActionsPerDay: 10,
-    });
-    fireEvent.change(field(), { target: { value: '1' } });
-    fireEvent.change(field(), { target: { value: '15' } });
-    expect(setMaxActionsPerDay).not.toHaveBeenCalled();
-    fireEvent.blur(field());
-    expect(setMaxActionsPerDay).toHaveBeenCalledTimes(1);
-    expect(setMaxActionsPerDay).toHaveBeenCalledWith(15);
-  });
-
-  it('shows the allowance currently set', () => {
-    setup({
-      watched: [BZ],
-      targets: [{ experienceId: BZ, autoSwap: true }],
-      maxActionsPerDay: 12,
-    });
-    expect(field()).toHaveValue(12);
   });
 });
 

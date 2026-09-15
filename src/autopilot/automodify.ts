@@ -57,7 +57,6 @@ export type ModifySkipReason =
   | 'offer-outside-window'
   | 'offer-not-an-improvement'
   | 'already-attempted'
-  | 'budget-exhausted'
   | 'no-eligible-guests'
   | 'partial-party'
   | 'overlaps-plans';
@@ -118,7 +117,7 @@ export function shouldModify(
   target: WatchTarget,
   existing: LLMP | undefined,
   candidateTime: ParkTime,
-  ledger: Pick<AutoBookLedger, 'hasAttempted' | 'remaining'>,
+  ledger: Pick<AutoBookLedger, 'hasAttempted'>,
   minImprovementMinutes = improvementBar(target)
 ): { ok: true; existing: LLMP } | { ok: false; reason: ModifySkipReason } {
   // bookThenMove implies moving.
@@ -132,7 +131,6 @@ export function shouldModify(
   if (ledger.hasAttempted(target.experienceId, 'modify')) {
     return { ok: false, reason: 'already-attempted' };
   }
-  if (ledger.remaining <= 0) return { ok: false, reason: 'budget-exhausted' };
   if (!inWindow(candidateTime, target)) {
     return { ok: false, reason: 'offer-outside-window' };
   }

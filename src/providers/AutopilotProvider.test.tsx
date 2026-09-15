@@ -6,12 +6,7 @@ import { RequestError } from '@/api/client';
 import { Booking } from '@/api/itinerary';
 import { Experience, FlexExperience } from '@/api/ll';
 import { fireAlert, primeAudio } from '@/autopilot/alert';
-import {
-  CONFIRM_ABSENT_POLLS,
-  DEFAULT_ACTIONS_PER_DAY,
-  MAX_ACTIONS_PER_DAY,
-  REFILL_ACTIONS,
-} from '@/autopilot/autobook';
+import { CONFIRM_ABSENT_POLLS } from '@/autopilot/autobook';
 import {
   appendDropEvents,
   loadCoverage,
@@ -30,10 +25,8 @@ import {
   CommittedReturn,
   DEFAULT_SETTINGS,
   loadBookingLog,
-  loadBudget,
   loadCommits,
   loadLocks,
-  saveBudget,
   saveCommit,
   saveLocks,
   saveSettings,
@@ -95,10 +88,6 @@ function Probe() {
     setEnabled,
     status,
     targets,
-    bookingsRemaining,
-    actionBudget,
-    refillBudget,
-    setMaxActionsPerDay,
     refusals,
     passkeyStatus,
     togglePaused,
@@ -112,19 +101,15 @@ function Probe() {
   return (
     <div>
       <button onClick={() => setEnabled(!enabled)}>toggle</button>
-      <button onClick={refillBudget}>refill</button>
       <button onClick={() => togglePaused(BZ)}>pause BZ</button>
       <button onClick={() => toggleAutoBook(BZ)}>unarm BZ</button>
       <button onClick={() => setTargetWindow(BZ, 'before', '11:30')}>
         narrow BZ
       </button>
-      <button onClick={() => setMaxActionsPerDay(20)}>raise budget</button>
       <button onClick={() => setDryRun(true)}>dry run on</button>
       <button onClick={() => setRequireWholeParty(true)}>whole party on</button>
       <span data-testid="mode">{status.mode}</span>
       <span data-testid="targets">{targets.length}</span>
-      <span data-testid="remaining">{bookingsRemaining}</span>
-      <span data-testid="budget">{actionBudget}</span>
       <span data-testid="passkey">{passkeyStatus}</span>
       <span data-testid="lastSkip">
         {lastSkip ? `${lastSkip.name}: ${lastSkip.reason}` : ''}
@@ -676,7 +661,16 @@ describe('AutopilotProvider auto-booking', () => {
     setPolledPlans([]);
     await runTicks(RELEASE_TICKS);
     expect(book.mock.calls.length).toBeGreaterThan(1);
-    expect(book.mock.calls.length).toBeLessThanOrEqual(DEFAULT_ACTIONS_PER_DAY);
+    // What paces the rebooking is the attempt lock, not a day's allowance: a
+    // release costs CONFIRM_ABSENT_POLLS consecutive absences, and plans are
+    // polled once every PLANS_EVERY_N_TICKS ticks. Over this many ticks that is
+    // at most two releases, so at most three bookings -- far below the ~40
+    // ticks run. Without this bound the loop would be free to rebook on every
+    // plans poll.
+    const plansPolls = RELEASE_TICKS / PLANS_EVERY_N_TICKS;
+    expect(book.mock.calls.length).toBeLessThanOrEqual(
+      1 + Math.floor(plansPolls / CONFIRM_ABSENT_POLLS)
+    );
   });
 
   // The regression this guards: plans polls are ~24s apart in a drop burst,
@@ -1722,140 +1716,6 @@ describe('AutopilotProvider eligibility cache', () => {
 });
 
 /**
- * The action budget. Session-scoped, it bounded nothing: the ledger lived in a
- * ref, so turning autopilot off and on refilled it -- and so did a plain page
- * reload, which on a phone that backgrounds a tab mid-day is the ordinary path.
- */
-describe('AutopilotProvider action budget', () => {
-  // Dry run stops at the budget too. It spends nothing, so exempting it looks
-  // free -- but a rehearsal exists to show what the live run would have done,
-  // and a live run with no budget left does nothing.
-  it('rehearses nothing once the day budget is spent', async () => {
-    saveWatchList([{ experienceId: BZ, autoBook: true }]);
-    saveSettings({ ...DEFAULT_SETTINGS, dryRun: true });
-    saveBudget({ spent: DEFAULT_ACTIONS_PER_DAY, granted: 0 });
-    const { offer } = setupBooking();
-    await enable();
-    await act(async () => {
-      await jest.advanceTimersByTimeAsync(60_000);
-    });
-    expect(offer).not.toHaveBeenCalled();
-    expect(loadBookingLog()).toEqual([]);
-  });
-
-  it('keeps the day count across turning autopilot off and on', async () => {
-    saveWatchList([{ experienceId: BZ, autoBook: true }]);
-    // Mutable, so availability can be taken away before the re-arm: with the
-    // attraction still on offer, the second run would legitimately book it
-    // again and the assertion would be measuring that instead.
-    const experiences = [available(BZ, new ParkTime(11))];
-    const { book } = setupBooking({ experiences });
-    await enable();
-    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
-    const afterBooking = Number(screen.getByTestId('remaining').textContent);
-    expect(afterBooking).toBe(DEFAULT_ACTIONS_PER_DAY - 1);
-    experiences.length = 0;
-    await enable(); // off
-    await enable(); // on again
-    expect(Number(screen.getByTestId('remaining').textContent)).toBe(
-      afterBooking
-    );
-  });
-
-  // A reload is the ordinary way this used to reset, and the one nobody chose.
-  it('starts from what storage says was already spent today', async () => {
-    saveBudget({ spent: 4, granted: 0 });
-    setupBooking();
-    expect(Number(screen.getByTestId('remaining').textContent)).toBe(
-      DEFAULT_ACTIONS_PER_DAY - 4
-    );
-  });
-
-  it('tops the day up on request, without touching what was spent', async () => {
-    saveBudget({ spent: DEFAULT_ACTIONS_PER_DAY, granted: 0 });
-    setupBooking();
-    expect(Number(screen.getByTestId('remaining').textContent)).toBe(0);
-    await act(async () => {
-      screen.getByText('refill').click();
-    });
-    expect(Number(screen.getByTestId('remaining').textContent)).toBe(
-      REFILL_ACTIONS
-    );
-    expect(Number(screen.getByTestId('budget').textContent)).toBe(
-      DEFAULT_ACTIONS_PER_DAY + REFILL_ACTIONS
-    );
-  });
-
-  // The ceiling is enforced on the sum, not just on the setting: `granted` is
-  // persisted, so an edited value must not be able to lift it.
-  it('will not let refills lift the day ceiling', async () => {
-    saveBudget({ spent: 0, granted: MAX_ACTIONS_PER_DAY });
-    setupBooking();
-    expect(Number(screen.getByTestId('budget').textContent)).toBe(
-      MAX_ACTIONS_PER_DAY
-    );
-  });
-
-  // The point of the whole item: without the write, a reload starts the day
-  // over. Booking after a refill exercises both halves of the record at once.
-  it('keeps the day spend and the refill in storage, so a reload sees both', async () => {
-    saveWatchList([{ experienceId: BZ, autoBook: true }]);
-    const { book } = setupBooking({
-      experiences: [available(BZ, new ParkTime(11))],
-    });
-    await act(async () => {
-      screen.getByText('refill').click();
-    });
-    await enable();
-    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
-    expect(loadBudget()).toEqual({ spent: 1, granted: REFILL_ACTIONS });
-  });
-
-  // The allowance lives in settings but is enforced by the ledger, so a change
-  // has to travel: raising it while the budget is spent must free actions up.
-  it('carries a changed allowance into the ledger', async () => {
-    saveBudget({ spent: 12, granted: 0 });
-    setupBooking();
-    expect(Number(screen.getByTestId('remaining').textContent)).toBe(0);
-    await act(async () => {
-      screen.getByText('raise budget').click();
-    });
-    expect(Number(screen.getByTestId('budget').textContent)).toBe(20);
-    expect(Number(screen.getByTestId('remaining').textContent)).toBe(8);
-  });
-
-  // A tab that outlives 4am must not write yesterday's numbers under today's
-  // date: a reload would then start the new day already exhausted, and the
-  // user cannot undo it by reloading again.
-  it('refuses to write the day record once the park day has turned', async () => {
-    saveWatchList([{ experienceId: BZ, autoBook: true }]);
-    saveBudget({ spent: 6, granted: 0 });
-    const { book } = setupBooking({
-      experiences: [available(BZ, new ParkTime(11))],
-    });
-    // 4am has passed: the same mounted tab is now on the next park day.
-    jest.setSystemTime(new Date(`${TOMORROW}T07:00-0400`));
-    await enable();
-    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
-    // Nothing stamped with tomorrow: the record still belongs to the day it
-    // describes, so tomorrow's first mount reads a clean one.
-    expect(loadBudget()).toEqual({ spent: 0, granted: 0 });
-  });
-
-  it('will not book once the day budget is spent', async () => {
-    saveWatchList([{ experienceId: BZ, autoBook: true }]);
-    saveBudget({ spent: DEFAULT_ACTIONS_PER_DAY, granted: 0 });
-    const { offer, book } = setupBooking();
-    await enable();
-    await act(async () => {
-      await jest.advanceTimersByTimeAsync(60_000);
-    });
-    expect(offer).not.toHaveBeenCalled();
-    expect(book).not.toHaveBeenCalled();
-  });
-});
-
-/**
  * Disney refusing the booking path outright. The failure lands on eligibility,
  * one step before an offer exists, so without this autopilot polls, alerts and
  * learns drops looking entirely healthy while never acting.
@@ -2035,23 +1895,6 @@ describe('AutopilotProvider repeated moves', () => {
     expect(book.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  // The doubt-hold a book attempt charges must come back with the lock, or a
-  // run of lost races quietly spends the day's allowance on bookings that do
-  // not exist.
-  it('gives the allowance back for a booking that never happened', async () => {
-    saveWatchList([{ experienceId: BZ, bookThenMove: true }]);
-    setupBooking({ repeatMoves: true, bookErrors: Array(50).fill(410) });
-    await enable();
-    await waitFor(() =>
-      expect(screen.getByTestId('remaining')).toHaveTextContent('9')
-    );
-    await runTicks(WAITED);
-    // Back to the full allowance between attempts: nothing was ever booked.
-    expect(Number(screen.getByTestId('remaining').textContent)).toBeGreaterThan(
-      8
-    );
-  });
-
   /**
    * The gap between "rejected" and "locked".
    *
@@ -2169,7 +2012,6 @@ describe('AutopilotProvider with a second provider mounted inside it', () => {
                     {inner && (
                       <AutopilotProvider
                         watchListKey="autoll3.nextll.watchlist"
-                        budgeted={false}
                         repeatMoves
                       >
                         <div />
@@ -2613,9 +2455,9 @@ describe('AutopilotProvider shared action locks', () => {
  *
  * Everything day-scoped here was read once at mount, and this provider does not
  * remount: a phone tab that backgrounds overnight was still holding yesterday
- * at 7am. `persistBudget` and the log write refuse to write in that state, which
- * kept the staleness out of storage but left the tab acting on it -- yesterday's
- * spend, yesterday's locks, yesterday's activity log.
+ * at 7am. The log write refuses to write in that state, which kept the
+ * staleness out of storage but left the tab acting on it -- yesterday's locks,
+ * yesterday's activity log.
  */
 describe('AutopilotProvider park-day rollover', () => {
   // Each of these leaves the clock in the next park day, so it has to be put
@@ -2638,19 +2480,6 @@ describe('AutopilotProvider park-day rollover', () => {
     await crossRollover();
     // `enabled` false puts the poller back to 'off'.
     expect(screen.getByTestId('mode')).toHaveTextContent('off');
-  });
-
-  // The allowance genuinely renews on a new park day, unlike an off/on toggle.
-  it('renews the action budget', async () => {
-    saveWatchList([{ experienceId: BZ, autoBook: true }]);
-    const { book } = setupBooking();
-    await enable();
-    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
-    const spentRemaining = Number(screen.getByTestId('remaining').textContent);
-    await crossRollover();
-    expect(Number(screen.getByTestId('remaining').textContent)).toBeGreaterThan(
-      spentRemaining
-    );
   });
 
   // A lock exists to stop a second action on an attraction *today*.

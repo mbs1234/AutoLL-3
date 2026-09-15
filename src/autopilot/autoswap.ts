@@ -22,7 +22,6 @@ export type SwapSkipReason =
   | 'no-worse-reservation'
   | 'offer-outside-window'
   | 'already-attempted'
-  | 'budget-exhausted'
   | 'no-eligible-guests'
   | 'partial-party'
   | 'overlaps-plans';
@@ -126,7 +125,7 @@ export function shouldSwap(
   target: WatchTarget,
   incoming: Ranked,
   held: LLMP[],
-  ledger: Pick<AutoBookLedger, 'hasAttempted' | 'remaining'>
+  ledger: Pick<AutoBookLedger, 'hasAttempted'>
 ): { ok: true; victim: LLMP } | { ok: false; reason: SwapSkipReason } {
   if (!target.autoSwap) return { ok: false, reason: 'not-enabled' };
   // Already holding it makes this a move, not a swap; that path handles it.
@@ -137,7 +136,6 @@ export function shouldSwap(
   if (ledger.hasAttempted(target.experienceId, 'swap')) {
     return { ok: false, reason: 'already-attempted' };
   }
-  if (ledger.remaining <= 0) return { ok: false, reason: 'budget-exhausted' };
   const victim = chooseSwapVictim(held, incoming);
   if (!victim) return { ok: false, reason: 'no-worse-reservation' };
   return { ok: true, victim };

@@ -32,10 +32,6 @@ export default function AutopilotStatusRow() {
   const armed = autopilot.targetsHere.filter(
     target => acts(target) && !target.paused
   ).length;
-  const actionText = `${autopilot.bookingsRemaining} action${
-    autopilot.bookingsRemaining === 1 ? '' : 's'
-  } left`;
-
   return (
     <button
       className="w-full border-t border-white/25 bg-black/10 px-3 py-1.5 text-center text-xs"
@@ -43,7 +39,7 @@ export default function AutopilotStatusRow() {
     >
       <span className="font-semibold">Autopilot:</span>{' '}
       {MODE_TEXT[autopilot.status.mode]}
-      {autopilot.dryRun && ' · Dry run'} · {armed} armed · {actionText}
+      {autopilot.dryRun && ' · Dry run'} · {armed} armed
     </button>
   );
 }

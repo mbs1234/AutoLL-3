@@ -57,16 +57,14 @@ morning get made in November.
 **Plan Check, a preflight that makes no requests.** It reads the plan already
 on screen and returns blockers first: an impossible return window, a target
 that is not on today's tip board, a window sitting entirely inside the
-protected time around a pass you already hold, dry run still on, the day's
-action budget spent. Every item that names something fixable carries a button
-that goes there — or, for a spent budget and a stale tip board, fixes it inline.
-In v1.0 the equivalent information arrived after the fact, as a tally of skip
-counts.
+protected time around a pass you already hold, dry run still on. Every item that
+names something fixable carries a button that goes there — or, for a stale tip
+board, refreshes it inline. In v1.0 the equivalent information arrived after the
+fact, as a tally of skip counts.
 
 **A preview harness.** `npm run harness` runs the real screens against fake
-Disney clients in a phone-sized frame, with eighteen scenarios wired up — a
-drop burst, a spent budget, Disney refusing requests, every Time Search
-recovery state. It is how the failure cases get looked at in September rather
+Disney clients in a phone-sized frame, with seventeen scenarios wired up — a
+drop burst, Disney refusing requests, every Time Search recovery state. It is how the failure cases get looked at in September rather
 than in a queue in December.
 
 ### On the park day
@@ -139,10 +137,15 @@ committed return times are now shared through the day's storage, so the same
 attraction is not attempted twice in one drop and neither engine books a time
 that lands on what the other just took.
 
-**A refused booking no longer costs you a tenth of the day.** A booking takes a
-hold against the day's allowance because a timed-out request may have
-succeeded. When Disney refuses outright — the ordinary outcome of a contested
-drop — that is proof nothing was booked, and the action is given back.
+**Nothing caps the day's bookings.** v1.0 and earlier AutoLL-3 releases rationed
+autopilot to a set number of actions per park day. That cap rested on a
+misreading of Disney's rules: what you spend once is a *redemption*, not a
+booking, so an attraction can be booked, cancelled and rebooked all day without
+costing you anything you could otherwise hold. What bounds the booker is what
+should: one booking and one move per attraction per session, three Multi Pass
+selections at a time, and a shared rate limiter. The count, the top-up button
+and the "actions left" line are all gone, and a contested drop can no longer
+ration you out of the booking you were waiting for.
 
 ### When something goes wrong
 
@@ -213,8 +216,6 @@ the whole of its advantage.
 - Plan Check's "Refresh LL list" gives no visible feedback while it runs.
 - Today can say data is current when only one of its two sources has loaded.
 - Home stops auto-refreshing on return-to-tab after the first tab switch.
-- The day's action allowance is under-counted after a reload following a
-  refused booking, and two open tabs can each be granted a full allowance.
 
 These and everything else still outstanding are listed in
 [docs/FUTURE.md](docs/FUTURE.md), with what each would cost to fix.

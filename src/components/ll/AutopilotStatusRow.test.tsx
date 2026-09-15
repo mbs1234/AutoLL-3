@@ -31,11 +31,6 @@ const state: AutopilotState = {
   bookingLog: [],
   sessionLog: [],
   bookedCount: 0,
-  bookingsRemaining: 2,
-  actionBudget: 3,
-  refillBudget: () => {},
-  maxActionsPerDay: 3,
-  setMaxActionsPerDay: () => {},
   requireWholeParty: false,
   setRequireWholeParty: () => {},
   dryRun: false,
@@ -69,7 +64,7 @@ describe('AutopilotStatusRow', () => {
   it('summarises the day plan and opens Today', () => {
     const changeTab = setup();
     const row = screen.getByRole('button', { name: /Autopilot:/ });
-    expect(row).toHaveTextContent('Checking often · 1 armed · 2 actions left');
+    expect(row).toHaveTextContent('Checking often · 1 armed');
     fireEvent.click(row);
     expect(changeTab).toHaveBeenCalledWith('Today');
   });

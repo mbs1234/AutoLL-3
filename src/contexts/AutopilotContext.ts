@@ -1,7 +1,6 @@
 import { createContext } from 'react';
 
 import { AlertPermission } from '@/autopilot/alert';
-import { DEFAULT_ACTIONS_PER_DAY } from '@/autopilot/autobook';
 import { DropSummary } from '@/autopilot/observe';
 import { NO_REFUSALS, RefusalState } from '@/autopilot/refusal';
 import { PollerStatus } from '@/autopilot/usePoller';
@@ -118,20 +117,6 @@ export interface AutopilotState {
    */
   sessionLog: BookingLogEntry[];
   bookedCount: number;
-  bookingsRemaining: number;
-  /** Today's ceiling: the setting plus any refills granted. */
-  actionBudget: number;
-  /**
-   * Grant a few more actions for today, without touching anything else.
-   *
-   * The old way to get more was to turn autopilot off and on, which also wiped
-   * the drop-detection baseline -- so buying actions cost the next poll's
-   * ability to see a drop.
-   */
-  refillBudget: () => void;
-  /** The day's allowance as set by the user, before refills. Persisted. */
-  maxActionsPerDay: number;
-  setMaxActionsPerDay: (actions: number) => void;
   /** Act only when every party member is eligible. Persisted. */
   requireWholeParty: boolean;
   setRequireWholeParty: (on: boolean) => void;
@@ -194,11 +179,6 @@ export default createContext<AutopilotState>({
   bookingLog: [],
   sessionLog: [],
   bookedCount: 0,
-  bookingsRemaining: DEFAULT_ACTIONS_PER_DAY,
-  actionBudget: DEFAULT_ACTIONS_PER_DAY,
-  refillBudget: () => undefined,
-  maxActionsPerDay: DEFAULT_ACTIONS_PER_DAY,
-  setMaxActionsPerDay: () => undefined,
   requireWholeParty: false,
   setRequireWholeParty: () => undefined,
   dryRun: false,

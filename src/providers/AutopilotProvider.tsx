@@ -14,8 +14,6 @@ import {
   AutoBookLedger,
   AutoBookOutcome,
   ClashCheck,
-  MAX_ACTIONS_PER_DAY,
-  REFILL_ACTIONS,
   attemptAutoBook,
   shouldAttempt,
 } from '@/autopilot/autobook';
@@ -84,13 +82,10 @@ import {
   activeCommits,
   clearCommit,
   loadBookingLog,
-  loadBudget,
   loadCommits,
   loadLocks,
   loadSettings,
-  sanitizeBudget,
   saveBookingLog,
-  saveBudget,
   saveCommit,
   saveLocks,
   saveSettings,
@@ -174,7 +169,6 @@ export default function AutopilotProvider({
   children,
   watchListKey = WATCHLIST_KEY,
   rapid = false,
-  budgeted = true,
   repeatMoves = false,
 }: {
   children: React.ReactNode;
@@ -186,16 +180,6 @@ export default function AutopilotProvider({
   watchListKey?: string;
   /** Poll flat-out rather than pacing to the drop schedule. */
   rapid?: boolean;
-  /**
-   * Whether the park day's action budget applies.
-   *
-   * It exists so a bug in matching cannot burn a day of Lightning Lanes, which
-   * is a real risk for something armed in the morning and left running. A
-   * hand-started search for one named attraction, watched by the person who
-   * started it, is bounded by its own shape instead -- and sharing the budget
-   * would mean a morning of Autopilot silently disabling an afternoon search.
-   */
-  budgeted?: boolean;
   /** Allow the same reservation to be moved more than once. */
   repeatMoves?: boolean;
 }) {
@@ -285,40 +269,13 @@ export default function AutopilotProvider({
   const plansRef = useRef(plans);
   plansRef.current = plans;
 
-  // Today's record, read once on mount. `kvdb's daily helpers give a fresh one
-  // on a new park day -- but only to a fresh mount, and this provider does not
-  // remount: a phone tab that backgrounds overnight is still holding yesterday
-  // at 7am. `setDaily` stamps the date at *write* time, so a write from that
-  // tab would republish yesterday's spend under today, and a reload would then
-  // start the new day already exhausted.
-  const budgetTodayRef = useRef(loadBudget());
-  const budgetDateRef = useRef(parkDate());
-  const grantedRef = useRef(budgetTodayRef.current.granted);
-  // Whether the exhausted skip has already been counted for this exhaustion.
-  const budgetSkipRef = useRef(false);
-
-  /**
-   * Write the day's charge, unless the park day has turned under us.
-   *
-   * Both writers funnel through here. Refusing the write leaves the stale tab
-   * showing yesterday's count until it reloads, which is no worse than the
-   * `bookingDate` beside it -- that is captured once too. What matters is that
-   * the staleness is not written down where tomorrow will read it as fact.
-   *
-   * Merged against what is currently stored, not simply overwritten: both
-   * `spent` and a refill's contribution to `granted` only ever grow over a
-   * park day, so a slower write from a tab that has not yet seen another
-   * tab's (or a nested provider's) more recent spend must not ratchet the
-   * stored total back down.
-   */
-  const persistBudget = (spent: number) => {
-    if (parkDate() !== budgetDateRef.current) return;
-    const stored = loadBudget();
-    saveBudget({
-      spent: Math.max(spent, stored.spent),
-      granted: Math.max(grantedRef.current, stored.granted),
-    });
-  };
+  // The park day this instance believes it is on, read once on mount. `kvdb`'s
+  // daily helpers give a fresh bucket on a new park day -- but only to a fresh
+  // mount, and this provider does not remount: a phone tab that backgrounds
+  // overnight is still holding yesterday at 7am. `setDaily` stamps the date at
+  // *write* time, so a write from that tab would republish yesterday's state
+  // under today. Every day-scoped write is guarded against this ref.
+  const parkDayRef = useRef(parkDate());
 
   const cacheRef = useRef(new GuestCache());
   // What the party held as of the last plans poll. Undefined until the first
@@ -326,28 +283,15 @@ export default function AutopilotProvider({
   const entitlementsRef = useRef<ReadonlySet<string> | undefined>(undefined);
   const ledgerRef = useRef(
     new AutoBookLedger(
-      // Clamped on the sum, not just on the setting: `granted` is persisted,
-      // so an edited value must not be able to lift the ceiling. Read from
-      // `settings` rather than `loadSettings()`: `useRef` keeps only the first
-      // value but evaluates its argument on every render, so a load here would
-      // parse localStorage on each one.
-      budgeted
-        ? Math.min(
-            MAX_ACTIONS_PER_DAY,
-            settings.maxActionsPerDay + budgetTodayRef.current.granted
-          )
-        : Infinity,
-      budgeted ? budgetTodayRef.current.spent : 0,
-      spent => (budgeted ? persistBudget(spent) : undefined),
       // Shares this instance's action locks with any other tab or nested
       // provider (e.g. NextLL) watching the same park day, so the two do not
       // independently book, modify or swap the same attraction. See
       // `AutoBookLedger.adoptAttempted` and `storage.ts`'s `saveLocks`. Guarded
-      // the same way as `persistBudget`, for the same reason: a backgrounded
-      // tab settling something after the real day has turned must not write
-      // yesterday's locks into today's bucket.
+      // against `parkDayRef`: a backgrounded tab settling something after the
+      // real day has turned must not write yesterday's locks into today's
+      // bucket.
       released => {
-        if (parkDate() === budgetDateRef.current) {
+        if (parkDate() === parkDayRef.current) {
           saveLocks(ledgerRef.current.attemptedKeys(), released);
         }
       }
@@ -388,33 +332,6 @@ export default function AutopilotProvider({
     );
   });
   const [bookedCount, setBookedCount] = useState(0);
-  // Mirrors the ledger rather than being derived from `bookedCount`: an
-  // attempt still awaiting confirmation holds a slot too.
-  const [bookingsRemaining, setBookingsRemaining] = useState(
-    () => ledgerRef.current.remaining
-  );
-  const [actionBudget, setActionBudget] = useState(
-    () => ledgerRef.current.budgetToday
-  );
-
-  /**
-   * Push the current ceiling into the ledger and onto the screen.
-   *
-   * The ceiling is the setting plus whatever refills have been granted today,
-   * clamped to `MAX_ACTIONS_PER_DAY` on the sum. Changing it never changes what
-   * has been spent -- lowering the allowance below today's spend simply leaves
-   * nothing remaining.
-   */
-  const applyBudget = useCallback(() => {
-    if (!budgeted) return;
-    const budget = Math.min(
-      MAX_ACTIONS_PER_DAY,
-      settingsRef.current.maxActionsPerDay + grantedRef.current
-    );
-    ledgerRef.current.setBudget(budget);
-    setActionBudget(budget);
-    setBookingsRemaining(ledgerRef.current.remaining);
-  }, [budgeted]);
 
   // Block body on purpose: an expression body would return saveWatchList's
   // value, which React would treat as a cleanup function.
@@ -422,33 +339,25 @@ export default function AutopilotProvider({
     saveWatchList(targets, watchListKey);
   }, [targets, watchListKey]);
   useEffect(() => {
-    // Guarded like `persistBudget`, for the same reason. `setDaily` stamps the
-    // date at write time, so a tab that crossed 4am republished yesterday's
-    // entries under today -- and a reload then showed last night's bookings as
-    // this morning's. The rollover effect below is what clears them properly.
-    if (parkDate() !== budgetDateRef.current) return;
+    // `setDaily` stamps the date at write time, so a tab that crossed 4am
+    // republished yesterday's entries under today -- and a reload then showed
+    // last night's bookings as this morning's. The rollover effect below is
+    // what clears them properly.
+    if (parkDate() !== parkDayRef.current) return;
     saveBookingLog(bookingLog);
   }, [bookingLog]);
   useEffect(() => {
     saveSettings(settings);
   }, [settings]);
-  // The allowance lives in settings but is enforced by the ledger, so a change
-  // has to reach it -- otherwise raising the number would show a larger budget
-  // while autopilot kept refusing to act.
-  useEffect(() => {
-    applyBudget();
-  }, [settings.maxActionsPerDay, applyBudget]);
 
   /**
    * Roll this provider onto a new park day without a remount.
    *
    * Everything day-scoped here was read once at mount, and this provider does
    * not remount: a phone tab that backgrounds overnight was still holding
-   * yesterday at 7am. `persistBudget` and the log write above refuse to write
-   * in that state, which stops the staleness being recorded as fact but leaves
-   * the tab acting on it -- the day's spend, its locks and its activity log all
-   * belonged to yesterday, so two instances could each spend a full allowance
-   * and neither would count.
+   * yesterday at 7am. The log write above refuses to write in that state, which
+   * stops the staleness being recorded as fact but leaves the tab acting on it
+   * -- its locks and its activity log both belonged to yesterday.
    *
    * The run is stopped rather than carried across. Yesterday's assumptions do
    * not hold on a new park day, and `enabled` is deliberately not persisted
@@ -459,15 +368,10 @@ export default function AutopilotProvider({
   useEffect(() => {
     const follow = () => {
       const today = parkDate();
-      if (today === budgetDateRef.current) return;
-      budgetDateRef.current = today;
-      const fresh = loadBudget();
-      budgetTodayRef.current = fresh;
-      grantedRef.current = fresh.granted;
-      budgetSkipRef.current = false;
-      ledgerRef.current.startNewDay(fresh.spent);
+      if (today === parkDayRef.current) return;
+      parkDayRef.current = today;
+      ledgerRef.current.startNewDay();
       setBookedCount(ledgerRef.current.bookedCount);
-      setBookingsRemaining(ledgerRef.current.remaining);
       setBookingLog(loadBookingLog());
       setSkipCounts({});
       setLastSkip(undefined);
@@ -490,16 +394,6 @@ export default function AutopilotProvider({
     () => () => void releaseScreenAwake(wakeLockOwner),
     [wakeLockOwner]
   );
-
-  const refillBudget = useCallback(() => {
-    grantedRef.current = Math.min(
-      MAX_ACTIONS_PER_DAY,
-      grantedRef.current + REFILL_ACTIONS
-    );
-    persistBudget(ledgerRef.current.spent);
-    budgetSkipRef.current = false;
-    applyBudget();
-  }, [applyBudget]);
 
   const bumpSkip = useCallback((reason: string, name?: string) => {
     setSkipCounts(prev => ({ ...prev, [reason]: (prev[reason] ?? 0) + 1 }));
@@ -824,11 +718,10 @@ export default function AutopilotProvider({
           }
         }
 
-        // Settling can charge the allowance for a booking whose request never
-        // returned, so the on-screen count has to follow the ledger rather than
-        // only successful actions.
+        // Settling can confirm a booking whose request never returned, so the
+        // on-screen count has to follow the ledger rather than only successful
+        // actions.
         setBookedCount(ledgerRef.current.bookedCount);
-        setBookingsRemaining(ledgerRef.current.remaining);
 
         // Eligibility moves for reasons no clock predicts. A tap-in, an expiry,
         // a reservation cancelled by hand, or one booked in Disney's own app all
@@ -982,28 +875,6 @@ export default function AutopilotProvider({
         const wantsModify = !!(target.autoModify || target.bookThenMove);
         const wantsSwap = !!target.autoSwap;
         if (!wantsBook && !wantsModify && !wantsSwap) continue;
-        if (ledgerRef.current.remaining <= 0) {
-          // Dry run stops here too. It spends nothing, so exempting it looks
-          // free -- but a rehearsal exists to show what the live run would have
-          // done, and a live run with no budget left does nothing. Exempting it
-          // also achieved the opposite of its intent: the three pure guards
-          // check `remaining` themselves, so the rehearsal skipped anyway and
-          // logged `budget-exhausted` once per armed hit per tick, which is the
-          // flood the counter below is written to avoid.
-          //
-          // Counted once per exhaustion rather than once per tick. This break
-          // sits ahead of every other skip the loop can report, so a tally here
-          // would climb 50/min in a burst, pin itself to the top of "Why nothing
-          // was booked", and freeze every diagnostic reason beneath it at its
-          // morning value.
-          if (!budgetSkipRef.current) {
-            budgetSkipRef.current = true;
-            bumpSkip('budget-exhausted', experience.name);
-          }
-          break;
-        }
-        budgetSkipRef.current = false;
-
         // Holding a reservation already makes booking a second one pointless --
         // Disney would reject it -- so the only useful action is re-timing. With
         // nothing held and every slot full, the only way in is to swap.
@@ -1109,8 +980,7 @@ export default function AutopilotProvider({
             !(
               settingsRef.current.requireWholeParty &&
               !wholePartyEligible(guests)
-            ) &&
-            ledgerRef.current.remaining > 0;
+            );
 
           // A fresh booking or a swap can both spend the party's Tier 1 slot on
           // `experience`, since neither is already held; re-timing one already
@@ -1273,12 +1143,10 @@ export default function AutopilotProvider({
           bumpSkip(outcome.reason, experience.name);
         } else logOutcome(experience.name, outcome);
 
-        // After every attempt, not only a successful one: a booking request that
-        // errored has already taken a doubt-hold on the allowance, so a
-        // success-only refresh would show a slot that autopilot will not spend.
-        // Harmless on a skip, where nothing moved and React bails out.
+        // After every attempt, not only a successful one: a booking request
+        // that errored is still held in doubt until plans settle it. Harmless
+        // on a skip, where nothing moved and React bails out.
         setBookedCount(ledgerRef.current.bookedCount);
-        setBookingsRemaining(ledgerRef.current.remaining);
 
         // Both legs take their ledger lock before committing, so a failure
         // leaves it held -- and `repeatMoves` gave it back only on success. One
@@ -1609,8 +1477,6 @@ export default function AutopilotProvider({
         entitlementsRef.current = undefined;
         setBookedCount(0);
         setSessionLog([]);
-        setBookingsRemaining(ledgerRef.current.remaining);
-        budgetSkipRef.current = false;
         setSkipCounts({});
         setLastSkip(undefined);
         clearRefusals();
@@ -1836,18 +1702,6 @@ export default function AutopilotProvider({
         bookingLog,
         sessionLog,
         bookedCount,
-        // From the ledger, not `maxPerSession - bookedCount`: an unsettled
-        // attempt also holds a slot, and recomputing would overstate what is
-        // left.
-        bookingsRemaining,
-        actionBudget,
-        refillBudget,
-        maxActionsPerDay: settings.maxActionsPerDay,
-        setMaxActionsPerDay: actions =>
-          setSettings(prev => ({
-            ...prev,
-            maxActionsPerDay: sanitizeBudget(actions),
-          })),
         requireWholeParty: settings.requireWholeParty,
         setRequireWholeParty: on =>
           setSettings(prev => ({ ...prev, requireWholeParty: on })),

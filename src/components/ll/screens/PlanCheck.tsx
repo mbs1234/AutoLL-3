@@ -1,7 +1,6 @@
 import { use, useEffect, useMemo, useState } from 'react';
 
 import { Guests } from '@/api/ll';
-import { REFILL_ACTIONS } from '@/autopilot/autobook';
 import { PlanCheckLevel, checkPlan } from '@/autopilot/plancheck';
 import Button from '@/components/Button';
 import Screen from '@/components/Screen';
@@ -40,15 +39,8 @@ export default function PlanCheck() {
   const { plans } = use(PlansContext);
   const { goTo } = use(NavContext);
   const { loadData, loaderElem } = useDataLoader();
-  const {
-    targets,
-    bookingsRemaining,
-    requireWholeParty,
-    avoidOverlaps,
-    dryRun,
-    passkeyStatus,
-    refillBudget,
-  } = use(AutopilotContext);
+  const { targets, requireWholeParty, avoidOverlaps, dryRun, passkeyStatus } =
+    use(AutopilotContext);
   // Recomputed only when a fact it reads changes, rather than on every render
   // -- this screen stays mounted while Autopilot polls behind it.
   const items = useMemo(
@@ -59,7 +51,6 @@ export default function PlanCheck() {
         date: bookingDate,
         experiences,
         plans,
-        bookingsRemaining,
         requireWholeParty,
         avoidOverlaps,
         dryRun,
@@ -75,7 +66,6 @@ export default function PlanCheck() {
       bookingDate,
       experiences,
       plans,
-      bookingsRemaining,
       requireWholeParty,
       avoidOverlaps,
       dryRun,
@@ -88,7 +78,6 @@ export default function PlanCheck() {
   function actOn(item: (typeof items)[number]) {
     if (!item.subject) return;
     if (item.subject.kind === 'tipboard') return refreshExperiences();
-    if (item.subject.kind === 'budget') return refillBudget();
     if (item.subject.kind === 'targets') return goTo(<Configure />);
     return goTo(<Configure focus={item.subject} />);
   }
@@ -176,9 +165,7 @@ export default function PlanCheck() {
               <Button type="small" className="mt-2" onClick={() => actOn(item)}>
                 {item.subject.kind === 'tipboard'
                   ? 'Refresh LL list'
-                  : item.subject.kind === 'budget'
-                    ? `Add ${REFILL_ACTIONS} actions for today`
-                    : 'Open Configure'}
+                  : 'Open Configure'}
               </Button>
             )}
           </li>

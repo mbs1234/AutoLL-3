@@ -7,9 +7,6 @@ import { RateLimitExceeded } from '@/ratelimit';
 import {
   AutoBookLedger,
   CONFIRM_ABSENT_POLLS,
-  DEFAULT_ACTIONS_PER_DAY,
-  MAX_ACTIONS_PER_DAY,
-  MIN_ACTIONS_PER_DAY,
   actionWasRejected,
   attemptAutoBook,
   offerIsAcceptable,
@@ -62,23 +59,12 @@ function deps(overrides: Partial<Parameters<typeof attemptAutoBook>[2]> = {}) {
 }
 
 describe('AutoBookLedger', () => {
-  it('starts with the full allowance', () => {
-    expect(new AutoBookLedger().remaining).toBe(DEFAULT_ACTIONS_PER_DAY);
-  });
-
-  it('counts bookings against the allowance', () => {
-    const ledger = new AutoBookLedger(2);
+  it('counts bookings', () => {
+    const ledger = new AutoBookLedger();
     ledger.markBooked();
-    expect(ledger.remaining).toBe(1);
+    expect(ledger.bookedCount).toBe(1);
     ledger.markBooked();
-    expect(ledger.remaining).toBe(0);
-  });
-
-  it('never reports a negative allowance', () => {
-    const ledger = new AutoBookLedger(1);
-    ledger.markBooked();
-    ledger.markBooked();
-    expect(ledger.remaining).toBe(0);
+    expect(ledger.bookedCount).toBe(2);
   });
 
   it('remembers attempts', () => {
@@ -128,33 +114,31 @@ describe('AutoBookLedger doubt-holds', () => {
   /** Plans reporting the reservation, which is what arms a later release. */
   const seeHeld = (ledger: AutoBookLedger) => ledger.resolveBook(BZ, true);
 
-  it('charges the allowance for an attempt that never confirmed', () => {
-    const ledger = new AutoBookLedger(1);
+  it('does not count an attempt that never confirmed as booked', () => {
+    const ledger = new AutoBookLedger();
     ledger.markAttempted(BZ);
-    // The request may have landed. Until plans say otherwise it is treated as
-    // spent, so nothing else can book against the same slot.
-    expect(ledger.remaining).toBe(0);
+    // The request may have landed. Until plans say otherwise the lock stands,
+    // so nothing else attempts the same attraction.
+    expect(ledger.hasAttempted(BZ)).toBe(true);
     expect(ledger.bookedCount).toBe(0);
   });
 
-  it('does not double-charge an attempt that confirmed', () => {
-    const ledger = new AutoBookLedger(2);
+  it('does not double-count an attempt that confirmed', () => {
+    const ledger = new AutoBookLedger();
     ledger.markAttempted(BZ);
     ledger.markBooked(BZ);
-    expect(ledger.remaining).toBe(1);
     expect(ledger.bookedCount).toBe(1);
   });
 
-  it('charges an unconfirmed attempt once plans show it landed', () => {
-    const ledger = new AutoBookLedger(2);
+  it('counts an unconfirmed attempt once plans show it landed', () => {
+    const ledger = new AutoBookLedger();
     ledger.markAttempted(BZ);
     ledger.resolveBook(BZ, true);
     expect(ledger.bookedCount).toBe(1);
-    expect(ledger.remaining).toBe(1);
   });
 
   it('leaves a confirmed booking alone when plans agree', () => {
-    const ledger = new AutoBookLedger(2);
+    const ledger = new AutoBookLedger();
     ledger.markAttempted(BZ);
     ledger.markBooked(BZ);
     ledger.resolveBook(BZ, true);
@@ -221,11 +205,12 @@ describe('AutoBookLedger doubt-holds', () => {
     expect(ledger.hasAttempted(BZ)).toBe(true);
   });
 
-  it('keeps an unconfirmed attempt charged against the allowance', () => {
-    const ledger = new AutoBookLedger(1);
+  it('keeps an unconfirmed attempt locked however long it is absent', () => {
+    const ledger = new AutoBookLedger();
     ledger.markAttempted(BZ);
     seeAbsent(ledger, CONFIRM_ABSENT_POLLS * 10);
-    expect(ledger.remaining).toBe(0);
+    expect(ledger.hasAttempted(BZ)).toBe(true);
+    expect(ledger.bookedCount).toBe(0);
   });
 
   // Disney can omit a just-made booking from a single plans response. Acting
@@ -248,13 +233,13 @@ describe('AutoBookLedger doubt-holds', () => {
     expect(ledger.hasAttempted(BZ)).toBe(true);
   });
 
-  // A rehearsal issues no request, so it must neither hold the allowance nor
+  // A rehearsal issues no request, so it must neither count as a booking nor
   // take part in settling -- otherwise the dry-run entry re-logs every time
   // the lock releases, and the README's "none of it counts" becomes false.
-  it('keeps dry-run marks out of the allowance', () => {
-    const ledger = new AutoBookLedger(1);
+  it('keeps dry-run marks out of the booking count', () => {
+    const ledger = new AutoBookLedger();
     ledger.markAttempted(BZ, 'book', true);
-    expect(ledger.remaining).toBe(1);
+    expect(ledger.bookedCount).toBe(0);
     expect(ledger.hasAttempted(BZ)).toBe(true);
   });
 
@@ -276,13 +261,16 @@ describe('AutoBookLedger doubt-holds', () => {
   });
 
   // Moving and swapping create no doubt-hold of their own, so neither may
-  // settle a booking's.
+  // settle a booking's: the move is counted, and the booking stays in doubt
+  // until plans speak for it.
   it('leaves booking doubt untouched when a move confirms', () => {
-    const ledger = new AutoBookLedger(2);
+    const ledger = new AutoBookLedger();
     ledger.markAttempted(BZ);
     ledger.markAttempted(BZ, 'modify');
     ledger.markBooked();
-    expect(ledger.remaining).toBe(0);
+    expect(ledger.bookedCount).toBe(1);
+    ledger.resolveBook(BZ, true);
+    expect(ledger.bookedCount).toBe(2);
   });
 
   it('clears absence counts on reset', () => {
@@ -331,15 +319,6 @@ describe('shouldAttempt()', () => {
     expect(shouldAttempt(target(), ledger)).toEqual({
       ok: false,
       reason: 'already-attempted',
-    });
-  });
-
-  it('refuses once the session cap is reached', () => {
-    const ledger = new AutoBookLedger(1);
-    ledger.markBooked();
-    expect(shouldAttempt(target(), ledger)).toEqual({
-      ok: false,
-      reason: 'budget-exhausted',
     });
   });
 });
@@ -506,64 +485,6 @@ describe('attemptAutoBook()', () => {
       rejected: false,
     });
   });
-
-  it('stops at the session cap', async () => {
-    const ledger = new AutoBookLedger(1);
-    const d = deps({ ledger });
-    await attemptAutoBook(target(), experience, d);
-    const second = await attemptAutoBook(
-      target({ experienceId: 'other' }),
-      experience,
-      d
-    );
-    expect(second).toEqual({ status: 'skipped', reason: 'budget-exhausted' });
-  });
-});
-
-/**
- * The day's allowance. A session-scoped cap bounded nothing: the ledger lived
- * in a ref, so a plain page reload refilled it.
- */
-describe('AutoBookLedger day budget', () => {
-  it('counts what earlier runs today already spent', () => {
-    const ledger = new AutoBookLedger(10, 4);
-    expect(ledger.spent).toBe(4);
-    expect(ledger.remaining).toBe(6);
-  });
-
-  // The bug this replaces: turning autopilot off and on was the refill, and it
-  // came bundled with a wipe of the drop-detection baseline.
-  it('carries the run forward across a reset rather than refilling', () => {
-    const ledger = new AutoBookLedger(10);
-    ledger.markAttempted(BZ);
-    ledger.markBooked(BZ);
-    expect(ledger.remaining).toBe(9);
-    ledger.reset();
-    expect(ledger.spent).toBe(1);
-    expect(ledger.remaining).toBe(9);
-    // The per-attraction lock is session state and does clear.
-    expect(ledger.hasAttempted(BZ)).toBe(false);
-  });
-
-  it('reports every change in the charge, so the day survives a reload', () => {
-    const spends: number[] = [];
-    const ledger = new AutoBookLedger(10, 0, n => spends.push(n));
-    ledger.markAttempted(BZ);
-    ledger.markBooked(BZ);
-    ledger.reset();
-    expect(spends).toEqual([1, 1, 1]);
-  });
-
-  // Lowering the allowance below what has been spent leaves nothing remaining
-  // rather than going negative or refunding anything.
-  it('changes the ceiling without changing the spend', () => {
-    const ledger = new AutoBookLedger(10, 6);
-    ledger.setBudget(4);
-    expect(ledger.spent).toBe(6);
-    expect(ledger.remaining).toBe(0);
-    ledger.setBudget(12);
-    expect(ledger.remaining).toBe(6);
-  });
 });
 
 describe('AutoBookLedger.releaseAttempt()', () => {
@@ -586,38 +507,36 @@ describe('AutoBookLedger.releaseAttempt()', () => {
     expect(ledger.hasAttempted(BZ, 'book')).toBe(true);
   });
 
-  // An unbudgeted ledger still counts; it just never runs out.
-  it('does not refund the spend', () => {
+  // A released booking keeps whatever it already confirmed. Releasing is about
+  // the lock, not about unwinding a booking that happened.
+  it('keeps the booking count across a release', () => {
     const ledger = new AutoBookLedger();
     ledger.markAttempted(BZ, 'modify');
     ledger.markBooked();
-    const spent = ledger.spent;
     ledger.releaseAttempt(BZ, 'modify');
-    expect(ledger.spent).toBe(spent);
+    expect(ledger.bookedCount).toBe(1);
   });
 
-  // A book attempt also charges the day's allowance, on the chance that a
-  // request whose outcome we never learned did succeed. Releasing is only
-  // ever done for one we did learn about -- Disney refused it, or our own
-  // limiter never sent it -- so the charge has to come back, or a run of lost
-  // races quietly spends a day of Lightning Lanes on bookings that do not
-  // exist.
-  it('gives back the doubt-hold a book attempt charged', () => {
-    const ledger = new AutoBookLedger(10);
+  // Releasing is only ever done for an attempt whose fate we learned -- Disney
+  // refused it, or our own limiter never sent it -- so the doubt goes with the
+  // lock. Left behind, a later plans poll seeing the attraction held would
+  // count a booking this attempt provably never made.
+  it('clears the doubt a book attempt was holding', () => {
+    const ledger = new AutoBookLedger();
     ledger.markAttempted(BZ);
-    expect(ledger.remaining).toBe(9);
     ledger.releaseAttempt(BZ, 'book');
-    expect(ledger.remaining).toBe(10);
     expect(ledger.hasAttempted(BZ)).toBe(false);
+    ledger.resolveBook(BZ, true);
+    expect(ledger.bookedCount).toBe(0);
   });
 
-  // A modify puts a reservation already held through a round trip. It spends
-  // no entitlement and takes no doubt-hold, so there is none to give back.
-  it('leaves the allowance alone for a modify', () => {
-    const ledger = new AutoBookLedger(10);
+  // A modify puts a reservation already held through a round trip. It creates
+  // no entitlement and takes no doubt-hold, so there is none to clear.
+  it('leaves the booking count alone for a modify', () => {
+    const ledger = new AutoBookLedger();
     ledger.markAttempted(BZ, 'modify');
     ledger.releaseAttempt(BZ, 'modify');
-    expect(ledger.remaining).toBe(10);
+    expect(ledger.bookedCount).toBe(0);
   });
 });
 
@@ -661,34 +580,6 @@ describe('actionWasRejected()', () => {
   });
 });
 
-// The two numbers are independent and easy to conflate: the ceiling bounds
-// what someone who has decided otherwise may raise the allowance to, while
-// the default is what everyone gets without asking. Raising one must not
-// drag the other with it.
-describe("the day's allowance", () => {
-  it('defaults to ten', () => {
-    expect(DEFAULT_ACTIONS_PER_DAY).toBe(10);
-  });
-
-  it('lets it be raised to fifty, and no further', () => {
-    expect(MAX_ACTIONS_PER_DAY).toBe(50);
-  });
-
-  it('keeps the default well below the ceiling', () => {
-    expect(DEFAULT_ACTIONS_PER_DAY).toBeLessThan(MAX_ACTIONS_PER_DAY);
-    expect(MIN_ACTIONS_PER_DAY).toBeLessThanOrEqual(DEFAULT_ACTIONS_PER_DAY);
-  });
-
-  // A budget is only a bound if the ledger enforces it.
-  it('refuses to act past the ceiling however it was reached', () => {
-    const ledger = new AutoBookLedger(MAX_ACTIONS_PER_DAY + 20);
-    expect(ledger.remaining).toBeLessThanOrEqual(MAX_ACTIONS_PER_DAY + 20);
-    const capped = new AutoBookLedger(MAX_ACTIONS_PER_DAY);
-    for (let i = 0; i < MAX_ACTIONS_PER_DAY; ++i) capped.markBooked();
-    expect(capped.remaining).toBe(0);
-  });
-});
-
 /**
  * Sharing locks with another instance -- a second tab, or the provider NextLL
  * nests inside the app's own -- and letting a release survive the trip.
@@ -700,14 +591,9 @@ describe("the day's allowance", () => {
  */
 describe('AutoBookLedger shared locks', () => {
   /** A ledger plus the release lists its persister was handed, in order. */
-  function watched(budget = DEFAULT_ACTIONS_PER_DAY) {
+  function watched() {
     const removals: (readonly string[] | undefined)[] = [];
-    const ledger = new AutoBookLedger(
-      budget,
-      0,
-      () => undefined,
-      released => removals.push(released)
-    );
+    const ledger = new AutoBookLedger(released => removals.push(released));
     return { ledger, removals };
   }
 
@@ -955,7 +841,7 @@ describe('attemptAutoBook() party re-check', () => {
       partyIsAcceptable: wholePartyEligible,
     });
     expect(ledger.hasAttempted(BZ)).toBe(false);
-    expect(ledger.remaining).toBe(DEFAULT_ACTIONS_PER_DAY);
+    expect(ledger.bookedCount).toBe(0);
   });
 
   it('commits a partial offer when the setting is off', async () => {
@@ -974,41 +860,43 @@ describe('attemptAutoBook() party re-check', () => {
 });
 
 /**
- * The doubt-hold, and giving it back when there is nothing left to doubt.
+ * The doubt-hold, and clearing it when there is nothing left to doubt.
  *
  * The lock is taken before the request goes out, because a timed-out booking may
- * have succeeded. When the failure proves nothing was booked, keeping the charge
- * spent a tenth of the default allowance on a booking that does not exist.
+ * have succeeded. When the failure proves nothing was booked, the doubt has to
+ * go, or a later plans poll counts a booking this attempt never made.
  */
 describe('AutoBookLedger.resolveRejected()', () => {
-  it('gives back the charge for an attempt that never landed', () => {
-    const ledger = new AutoBookLedger(2);
+  it('settles an attempt that never landed', () => {
+    const ledger = new AutoBookLedger();
     ledger.markAttempted(BZ);
-    expect(ledger.remaining).toBe(1);
     ledger.resolveRejected(BZ);
-    expect(ledger.remaining).toBe(2);
+    // Plans finding the attraction held now says nothing about this attempt:
+    // whatever is there, this request did not put it there.
+    ledger.resolveBook(BZ, true);
+    expect(ledger.bookedCount).toBe(0);
   });
 
   // Autopilot keeps one action per attraction per session; only NextLL retries.
   it('keeps the attempt lock', () => {
-    const ledger = new AutoBookLedger(2);
+    const ledger = new AutoBookLedger();
     ledger.markAttempted(BZ);
     ledger.resolveRejected(BZ);
     expect(ledger.hasAttempted(BZ)).toBe(true);
   });
 
   it('does nothing for an attraction with no hold', () => {
-    const ledger = new AutoBookLedger(2);
+    const ledger = new AutoBookLedger();
     ledger.resolveRejected(BZ);
-    expect(ledger.remaining).toBe(2);
+    expect(ledger.bookedCount).toBe(0);
   });
 
-  // A confirmed booking is a real charge, not a doubt.
-  it('does not refund a booking that confirmed', () => {
-    const ledger = new AutoBookLedger(2);
+  // A confirmed booking is a real booking, not a doubt.
+  it('does not unwind a booking that confirmed', () => {
+    const ledger = new AutoBookLedger();
     ledger.markAttempted(BZ);
     ledger.markBooked(BZ);
     ledger.resolveRejected(BZ);
-    expect(ledger.remaining).toBe(1);
+    expect(ledger.bookedCount).toBe(1);
   });
 });
