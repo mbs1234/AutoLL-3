@@ -406,6 +406,16 @@ _Size:_ small, and it must be log lines rather than behaviour changes.
 
 ## 6. Testing and housekeeping
 
+**A quarantined reservation is only cleared by this build's own plans poll.**
+`clearQuarantinedBefore` runs in the provider's settle step, so a doubt raised
+by a foreground search is lifted by whichever engine next reads plans for that
+day -- which is the right evidence, but it means a quarantine outlives a session
+where nothing is polling. It is day-scoped, so it clears at the 4am rollover at
+the latest, and `Plan Check` has no view of it. A line on Activity saying a
+reservation is in doubt, and why nothing is acting on it, would close the last
+silent state here. _Size:_ small. _Where:_ `src/autopilot/lease.ts`,
+`src/components/ll/screens/Activity.tsx`.
+
 **Exclusion has no fallback where the browser has no Web Locks.**
 `src/autopilot/lease.ts` serialises acquisition through `navigator.locks` and
 reports through `available()` whether it could. Where it cannot -- an old

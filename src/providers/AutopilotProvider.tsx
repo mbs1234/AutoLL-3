@@ -27,6 +27,7 @@ import {
   MAX_HELD_MP,
   SwapOutcome,
   attemptAutoSwap,
+  chooseSwapVictim,
   heldMPToday,
   shouldSwap,
 } from '@/autopilot/autoswap';
@@ -38,8 +39,9 @@ import {
 } from '@/autopilot/learned';
 import {
   acquire as acquireLease,
+  clearQuarantinedBefore,
   leaseKey,
-  releaseAll as releaseAllLeases,
+  quarantine,
   release as releaseLease,
 } from '@/autopilot/lease';
 import {
@@ -87,6 +89,7 @@ import {
   COMMIT_TTL_MS,
   activeCommits,
   clearCommit,
+  commitDate,
   loadBookingLog,
   loadCommits,
   loadLocks,
@@ -306,6 +309,8 @@ export default function AutopilotProvider({
   const lockOwnerRef = useRef(
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   );
+  /** Distinguishes one attempt from the next within this instance. */
+  const operationSeq = useRef(0);
   const ledgerRef = useRef(
     new AutoBookLedger(
       // Shares this instance's action locks with any other tab or nested
@@ -411,10 +416,6 @@ export default function AutopilotProvider({
       const today = parkDate();
       if (today === parkDayRef.current) return;
       parkDayRef.current = today;
-      // Yesterday's leases belong to yesterday's reservations. They would
-      // expire on their own, but a park day turning is better evidence than a
-      // timer and costs nothing to act on.
-      void releaseAllLeases(lockOwnerRef.current);
       ledgerRef.current.startNewDay();
       setBookedCount(ledgerRef.current.bookedCount);
       setBookingLog(loadBookingLog());
@@ -436,14 +437,13 @@ export default function AutopilotProvider({
   // outliving the screen that requested it would keep the phone awake with
   // nothing running.
   useEffect(
-    () => () => {
-      void releaseScreenAwake(wakeLockOwner);
-      // An unmounting provider is not coming back to release anything. Its
-      // leases would expire, but holding a reservation for two minutes after
-      // the engine is gone is two minutes another instance is refused for no
-      // reason.
-      void releaseAllLeases(lockOwnerRef.current);
-    },
+    // Deliberately *not* releasing this instance's leases in bulk. An unmount
+    // can land while a request is still in the air -- NextLL's provider goes
+    // when its tab does -- and a bulk release would then hand the reservation
+    // to another engine while Disney is still acting on the first request. Each
+    // attempt gives its own lease back in its own `finally`, and anything that
+    // outlives that is covered by expiry, which is slower but safe.
+    () => () => void releaseScreenAwake(wakeLockOwner),
     [wakeLockOwner]
   );
 
@@ -680,8 +680,13 @@ export default function AutopilotProvider({
       // render behind, so it cannot distinguish "never booked" from "booked
       // moments ago" -- and settling booking doubt needs exactly that.
       let freshPlans: Booking[] | undefined;
+      // When the read *started*. Doubt raised after this moment is not settled
+      // by what it returns, so the quarantine below is cleared against it
+      // rather than against the time the answer arrived.
+      let plansPolledAt = 0;
       if (tickCountRef.current++ % PLANS_EVERY_N_TICKS === 0) {
         try {
+          plansPolledAt = Date.now();
           freshPlans = await pollPlans();
         } catch (error) {
           // Supplementary. A plans failure must not stall availability polling
@@ -730,8 +735,13 @@ export default function AutopilotProvider({
         // Anything already in plans is skipped, since a parsed plan carries an
         // end time and gives the narrower, more accurate span; these carry only
         // a start, so they get the wider open-ended one.
-        if (forToday) {
-          const unseen = activeCommits()
+        {
+          // Scoped to the date this check is about, not to today. A commit now
+          // records the park day its reservation is for, and gating this on
+          // `forToday` meant a future date -- the one case where plans lag most,
+          // because the poller runs at its slow rate -- got no cross-instance
+          // cover at all.
+          const unseen = activeCommits(Date.now(), date)
             .filter(
               c =>
                 c.facilityId !== release?.facilityId &&
@@ -757,6 +767,12 @@ export default function AutopilotProvider({
       // Only plans fetched during this tick count as evidence.
       if (freshPlans) {
         const settled = freshPlans;
+        // Doubt raised before this read started is now settled, whatever it
+        // shows: the engine reconciles what it holds from this same read, so a
+        // reservation left in an unknown state is either back in plans or gone
+        // from them. A doubt raised *while* this read was in flight is not
+        // settled by it and stays quarantined for the next one.
+        clearQuarantinedBefore(plansPolledAt);
         for (const id of ledgerRef.current.attemptedBookIds) {
           const stillHeld = !!findExistingLL(settled, id, date);
           // The shared commit record exists only to cover the window between
@@ -781,15 +797,19 @@ export default function AutopilotProvider({
         // a parsed plan has an end time and gives the narrower span; and the
         // record outliving the window between committing and plans catching
         // up, after which a reservation nobody can see is not one to protect.
-        if (forToday) {
+        {
           const now = Date.now();
           for (const commit of loadCommits()) {
+            // Only the date this tick actually read plans for can witness a
+            // commit. Another date's record is left alone rather than expired
+            // on evidence that says nothing about it.
+            if (commitDate(commit) !== date) continue;
             const inPlans = settled.some(
               plan => plan.facilityId === commit.facilityId
             );
             const expired =
               commit.at === undefined || now - commit.at >= COMMIT_TTL_MS;
-            if (inPlans || expired) clearCommit(commit.facilityId);
+            if (inPlans || expired) clearCommit(commit.facilityId, date);
           }
         }
 
@@ -1010,6 +1030,13 @@ export default function AutopilotProvider({
         let eligibilityFailed = false;
         // Declared out here so `finally` can close exactly what was opened.
         const acting: string[] = [];
+        // Set where the attempt returns, because `finally` cannot see whether
+        // `outcome` was ever assigned -- an eligibility throw leaves it unset,
+        // and that path issued no booking request to be in doubt about.
+        let unknownOutcome = false;
+        // Declared out here for the same reason as `acting`: the finally has to
+        // release under the very owner that acquired.
+        const operationOwner = `${lockOwnerRef.current}#${++operationSeq.current}`;
         try {
           const guests = await guestsFor(experience.id, date);
           // A success clears this call's run. `observeAction` does the clearing,
@@ -1141,17 +1168,29 @@ export default function AutopilotProvider({
           // deliberately so: an attempt is seconds, the lease expires by itself,
           // and the cost of being wrong the other way is two engines changing
           // one reservation.
-          const reservations =
+          // The victim is chosen here rather than left to the helper, so a
+          // swap leases the one reservation it would actually give up. Leasing
+          // every held pass was three problems at once: not atomic as a group,
+          // so two instances could each take a subset and both abort; needlessly
+          // broad, so a foreground search on any held pass blocked every swap;
+          // and pointless, since `chooseSwapVictim` is pure and picks the same
+          // victim from the same inputs a moment later inside the helper.
+          const victim =
             kind === 'swap'
-              ? allHeldToday.map(held => held.facilityId)
-              : existing
-                ? [existing.facilityId]
-                : [];
+              ? chooseSwapVictim(allHeldToday, experience)
+              : undefined;
+          const reservation =
+            kind === 'swap' ? victim?.facilityId : existing?.facilityId;
+          // `operationOwner` above is one per *operation*, not per provider.
+          // The poller's deadline abandons a tick without cancelling it, so an
+          // overtime tick and its successor both run -- and with a
+          // provider-wide owner the lease is re-entrant between them, so both
+          // could hold it and the abandoned one's `finally` would withdraw the
+          // live one's.
           let leased = true;
-          for (const facilityId of reservations) {
-            const key = leaseKey(facilityId, date);
-
-            if (await acquireLease(key, lockOwnerRef.current)) {
+          if (reservation) {
+            const key = leaseKey(reservation, date);
+            if (await acquireLease(key, operationOwner)) {
               acting.push(key);
             } else {
               leased = false;
@@ -1225,6 +1264,9 @@ export default function AutopilotProvider({
                 stillWantsAction(experience.id, 'book', offerTime),
             });
           }
+          // A failure the helper caught and could not prove harmless: the
+          // request may have applied. `rejected` is the proof that it did not.
+          unknownOutcome = outcome.status === 'failed' && !outcome.rejected;
         } catch (error) {
           // Only guestsFor can throw out here; the attempt helpers handle their
           // own failures. Its status is worth carrying: eligibility is the first
@@ -1240,14 +1282,16 @@ export default function AutopilotProvider({
             httpStatus,
           };
         } finally {
-          // Given back on every path out, including an unknown outcome. The
-          // lease says "somebody is changing this right now", and once the
-          // request has returned -- however it returned -- nobody is. Doubt
-          // about what landed is the ledger's job, and it keeps its own lock
-          // for exactly that. A lease retained for doubt is what locked a ride
-          // until the 4am rollover.
+          // The lease is given back on every path out -- it says "somebody is
+          // changing this right now", and once the request has returned nobody
+          // is. But an outcome nobody learned is not a return: the reservation
+          // is quarantined instead, because a lease expires and "until plans
+          // say what happened" is not a duration.
           await Promise.all(
-            acting.map(key => releaseLease(key, lockOwnerRef.current))
+            acting.map(async key => {
+              if (unknownOutcome) quarantine(key);
+              await releaseLease(key, operationOwner);
+            })
           );
         }
 
@@ -1348,14 +1392,16 @@ export default function AutopilotProvider({
           // or the provider NextLL nests inside this one could pass its own
           // overlap check against a snapshot taken before this booking existed,
           // and commit a return time that clashes with it.
-          if (forToday) {
-            saveCommit({
-              facilityId: experience.id,
-              time: String(
-                outcome.status === 'booked' ? outcome.returnTime : outcome.to
-              ),
-            });
-          }
+          saveCommit({
+            facilityId: experience.id,
+            time: String(
+              outcome.status === 'booked' ? outcome.returnTime : outcome.to
+            ),
+            // The date the reservation is for. Published for every date, not
+            // only today: a second instance working the same future date needs
+            // this exactly as much.
+            date,
+          });
           // Any change shifts eligibility across every experience at once via
           // party, tier and overlap limits, so the whole cache is invalid.
           cacheRef.current.clear();

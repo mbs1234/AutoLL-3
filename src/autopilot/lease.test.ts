@@ -5,10 +5,11 @@ import {
   LEASE_TTL_MS,
   acquire,
   available,
+  clearQuarantinedBefore,
   holder,
   leaseKey,
+  quarantine,
   release,
-  releaseAll,
 } from './lease';
 
 const A = 'instance-a';
@@ -106,23 +107,54 @@ describe('the operation lease', () => {
     expect(await acquire(tomorrow, B)).toBe(true);
   });
 
-  it('releases everything one instance holds', async () => {
-    const other = leaseKey('80010129', '2021-10-01');
-    await acquire(KEY, A);
-    await acquire(other, A);
-    await acquire(leaseKey('80010190', '2021-10-01'), B);
-    await releaseAll(A);
-    expect(holder(KEY)).toBeUndefined();
-    expect(holder(other)).toBeUndefined();
-    expect(holder(leaseKey('80010190', '2021-10-01'))).toBe(B);
-  });
-
   it('discards a malformed store rather than trusting it', async () => {
     kvdb.set(LEASE_KEY, 'nonsense');
     expect(holder(KEY)).toBeUndefined();
     kvdb.set(LEASE_KEY, { [KEY]: { owner: 7 } });
     expect(holder(KEY)).toBeUndefined();
     expect(await acquire(KEY, A)).toBe(true);
+  });
+
+  /*
+   * Doubt, which a lease cannot express. A lease expires; "until plans say what
+   * happened" is not a duration. Releasing on a status-0 and trusting the
+   * ledger's attempt lock was the mistake: that lock is keyed by action and
+   * attraction, a foreground search does not consult it, and a swap for a
+   * different incoming attraction can target the very reservation in doubt.
+   */
+  describe('quarantine', () => {
+    it('refuses everyone, including the instance that raised it', async () => {
+      await acquire(KEY, A);
+      quarantine(KEY, 1000);
+      await release(KEY, A);
+      expect(await acquire(KEY, A)).toBe(false);
+      expect(await acquire(KEY, B)).toBe(false);
+    });
+
+    it('does not expire the way a lease does', async () => {
+      quarantine(KEY, 1000);
+      expect(await acquire(KEY, A, 1000 + LEASE_TTL_MS * 10)).toBe(false);
+    });
+
+    // The evidence is a plans read that started after the doubt was raised.
+    it('clears on evidence gathered after it was raised', async () => {
+      quarantine(KEY, 1000);
+      clearQuarantinedBefore(2000);
+      expect(await acquire(KEY, A)).toBe(true);
+    });
+
+    // A read already in flight when the doubt was raised cannot settle it.
+    it('survives evidence that predates it', async () => {
+      quarantine(KEY, 2000);
+      clearQuarantinedBefore(1000);
+      expect(await acquire(KEY, A)).toBe(false);
+    });
+
+    it('leaves other reservations alone', async () => {
+      const other = leaseKey('80010129', '2021-10-01');
+      quarantine(KEY, 1000);
+      expect(await acquire(other, A)).toBe(true);
+    });
   });
 
   describe('exclusivity', () => {

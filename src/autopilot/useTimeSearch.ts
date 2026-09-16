@@ -110,6 +110,16 @@ export interface TimeSearchDeps {
   /** Give the lease back when nothing is outstanding. */
   releaseCommit?: () => void | Promise<void>;
   /**
+   * Mark the reservation as being in an unknown state.
+   *
+   * For the one outcome a lease cannot express. A lease expires, and a move
+   * whose result nobody learned has to be protected until fresh plans say what
+   * happened -- which is not a duration. Without this the search's lease simply
+   * ran out while its own guard still forbade another move, and another engine
+   * could take a reservation the guard was still protecting.
+   */
+  quarantineCommit?: () => void;
+  /**
    * Publish a committed return time for other instances to see.
    *
    * The engine does this for every action it takes, so another instance's
@@ -362,6 +372,11 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
 
       // Settle a committed move before deciding anything else.
       if (guard.phase === 'awaiting') {
+        // Renewed while settling. Ten cycles of waiting plus ten plans requests
+        // can outlast the lease, and letting it lapse here would hand the
+        // reservation to another engine while this guard still forbids a second
+        // move -- the guard and the lease disagreeing about the same fact.
+        void claimLock();
         const now = await readHeld();
         if (stopped()) return;
         if (now && guard.requested && +now.start.time === +guard.requested) {
@@ -472,9 +487,19 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
               // the settlement, and it can arrive after the person has pressed
               // Stop or left the screen. Without this the lease stood until it
               // expired, on a reservation provably untouched.
-              if (!runningRef.current) dropLock();
+              // `cancelled` as well as `runningRef`: an unmount leaves the ref
+              // set, so a rejection arriving after the screen closed would
+              // otherwise hold the lease until it expired, on a reservation
+              // provably untouched.
+              if (!runningRef.current || cancelled) dropLock();
             } else {
               guard.markUnknown();
+              // The search stops here and never renews again, so the lease is
+              // the wrong instrument: quarantine the reservation instead, which
+              // outlives this screen and is cleared by evidence rather than by
+              // a clock.
+              depsRef.current.quarantineCommit?.();
+              dropLock();
               setState(s => ({
                 ...s,
                 unresolved: guard.requested,
