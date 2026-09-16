@@ -14,6 +14,7 @@ import DropIcon from '@/icons/DropIcon';
 import LightningIcon from '@/icons/LightningIcon';
 import kvdb from '@/kvdb';
 import onVisible from '@/onVisible';
+import { HOME_TAB_KEY } from '@/storageNamespace';
 
 import MultiPassList from './Home/MultiPassList';
 import NextLLTab from './Home/NextLL';
@@ -23,7 +24,6 @@ import Plans from './Plans';
 import Today from './Today';
 
 const AUTO_REFRESH_MIN_MS = 60_000;
-export const HOME_TAB_KEY = 'autoll3.tab';
 
 export interface HomeTabProps {
   ref: React.RefObject<HTMLDivElement | null>;

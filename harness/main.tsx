@@ -1,8 +1,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { HOME_TAB_KEY } from '@/components/ll/screens/Home';
 import kvdb from '@/kvdb';
+import { HOME_TAB_KEY } from '@/storageNamespace';
 
 import HarnessApp from './HarnessApp';
 import HarnessMenu from './HarnessMenu';

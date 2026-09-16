@@ -1,10 +1,11 @@
 import { DateTime, ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
+import { storageKey } from '@/storageNamespace';
 
 import { Resort } from './resort';
 
-export const AUTH_KEY = 'autoll3.auth';
-export const AUTH_PERSISTENCE_KEY = 'autoll3.auth.persistence';
+export const AUTH_KEY = storageKey('auth');
+export const AUTH_PERSISTENCE_KEY = storageKey('auth.persistence');
 const AUTH_VERSION = 1;
 
 export type AuthPersistence = 'persistent' | 'session';

@@ -1,5 +1,7 @@
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { RequestNotSent } from '@/api/client';
+import type { RequestControl } from '@/api/client';
 import { Booking } from '@/api/itinerary';
 import { Guests } from '@/api/ll';
 import {
@@ -41,9 +43,14 @@ import {
   acquire as acquireLease,
   keepAlive as keepLeaseAlive,
   leaseKey,
+  mutationId,
   quarantine,
   release as releaseLease,
+  resolveDoubt,
+  startWhileHeld,
 } from '@/autopilot/lease';
+import { MAX_MUTATION_MS, MutationOperation } from '@/autopilot/mutation';
+import type { MutationEvidence } from '@/autopilot/mutation';
 import {
   Coverage,
   DropSummary,
@@ -309,8 +316,6 @@ export default function AutopilotProvider({
   const lockOwnerRef = useRef(
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   );
-  /** Distinguishes one attempt from the next within this instance. */
-  const operationSeq = useRef(0);
   const ledgerRef = useRef(
     new AutoBookLedger(
       // Shares this instance's action locks with any other tab or nested
@@ -553,6 +558,10 @@ export default function AutopilotProvider({
 
   const onTick = useCallback(
     async (cancelled: () => boolean) => {
+      // Every mutation in this tick shares the poller's absolute horizon. A
+      // late action therefore gets less time, not a fresh window that can run
+      // beyond the tick which authorised it.
+      const tickStartedAt = Date.now();
       // Pick up locks any other tab or nested provider has taken since this
       // instance last looked, so the two do not act on the same attraction in
       // the same drop. Bounded by the poll interval rather than instantaneous,
@@ -1021,66 +1030,14 @@ export default function AutopilotProvider({
         // thing a stop button cannot do.
         if (stale()) break;
 
-        let outcome: AutoBookOutcome | ModifyOutcome | SwapOutcome;
+        let outcome: AutoBookOutcome | ModifyOutcome | SwapOutcome | undefined;
         // Which call the failure below came from, so a refused eligibility
         // fetch is not also reported against a `book` that never went out.
         let eligibilityFailed = false;
-        // Declared out here so `finally` can close exactly what was opened:
-        // the lease, and the timer renewing it.
-        const acting: { key: string; stopRenewal: () => void }[] = [];
-        // Set where the attempt returns, because `finally` cannot see whether
-        // `outcome` was ever assigned -- an eligibility throw leaves it unset,
-        // and that path issued no booking request to be in doubt about.
-        let unknownOutcome = false;
-        // What the commit request was about to do, at the instant it went out,
-        // reported by whichever helper got that far. Declared out here so the
-        // finally can see them.
-        //
-        // `wasAt` stays unset unless the *offer* named the reservation: the
-        // snapshot this tick started from can be one move stale, and a doubt
-        // settled against a stale baseline clears itself on its own staleness.
-        // `toAt` is what makes that survivable -- seeing the reservation at the
-        // time the request asked for is proof whether or not we knew where it
-        // started.
-        let wasAt: string | undefined;
-        let toAt: string | undefined;
-        /**
-         * Whether the lease this attempt took is still ours.
-         *
-         * A refused renewal means somebody quarantined the reservation, or took
-         * the lease over after it lapsed, while this attempt was still putting
-         * its offer together. Renewing quietly through that had the attempt
-         * commit believing it held cover it had lost -- so it joins the last
-         * gate before the request leaves the device.
-         */
-        let leaseLost = false;
-        /**
-         * Whether abandonment already closed this attempt's lease and doubt.
-         *
-         * An operation outstanding past `MAX_RENEWAL_MS` is one nothing is
-         * coming back to settle, so the renewal timer settles it there instead
-         * of holding the reservation for the rest of the day. If the request
-         * then does return, the `finally` must not redo that under a clock two
-         * minutes later.
-         */
-        let settledEarly = false;
-        // Declared out here for the same reason as `acting`: the finally has to
-        // release under the very owner that acquired.
-        const operationOwner = `${lockOwnerRef.current}#${++operationSeq.current}`;
-        /**
-         * What a later plans read needs to know to settle this.
-         *
-         * A swap's proof is the incoming attraction turning up, not the victim
-         * disappearing: one plans response can omit a reservation that is still
-         * there. A modify's is the reservation sitting at `to`, or having moved
-         * off a `from` the offer itself vouched for.
-         */
-        const doubtRaised = () => ({
-          kind: kind === 'swap' ? ('swap' as const) : ('modify' as const),
-          ...(wasAt ? { from: wasAt } : {}),
-          ...(toAt ? { to: toAt } : {}),
-          ...(kind === 'swap' ? { gaining: experience.id } : {}),
-        });
+        let operation: MutationOperation | undefined;
+        let acting:
+          | { key: string; owner: string; stopRenewal: () => void }
+          | undefined;
         try {
           const guests = await guestsFor(experience.id, date);
           // A success clears this call's run. `observeAction` does the clearing,
@@ -1193,80 +1150,124 @@ export default function AutopilotProvider({
             !settingsRef.current.requireWholeParty ||
             wholePartyEligible(offerGuests);
 
-          // From here until the helper returns, this instance has a request out
-          // for this attraction -- the offer round trip and, if it gets that
-          // far, the commit. `claimAction` refuses a foreground search only
-          // inside this window, which is the only moment where two requests
-          // would genuinely overlap. The ledger cannot answer this on its own:
-          // its lock is taken before the request and, for a modify, never given
-          // back, so it says what happened at some point today rather than what
-          // is happening now.
-          // The operation lease on every reservation this attempt could
-          // change, taken before the first request goes out and given back in
-          // the `finally` below whatever happens. It is what a foreground
-          // search contends with; the ledger's attempt locks answer a different
-          // question and are left out of it.
-          //
-          // A swap's victim is chosen inside the helper, so every held pass is
-          // leased for the length of the attempt. Broader than necessary and
-          // deliberately so: an attempt is seconds, the lease expires by itself,
-          // and the cost of being wrong the other way is two engines changing
-          // one reservation.
-          // The victim is chosen here rather than left to the helper, so a
-          // swap leases the one reservation it would actually give up. Leasing
-          // every held pass was three problems at once: not atomic as a group,
-          // so two instances could each take a subset and both abort; needlessly
-          // broad, so a foreground search on any held pass blocked every swap;
-          // and pointless, since `chooseSwapVictim` is pure and picks the same
-          // victim from the same inputs a moment later inside the helper.
+          // Choose a swap victim before leasing. `chooseSwapVictim` is pure and
+          // the helper receives the same held array in this turn, so both
+          // decisions are identical; leasing every held pass made unrelated
+          // searches contend and still did not make the group acquisition
+          // atomic.
           const victim =
             kind === 'swap'
               ? chooseSwapVictim(allHeldToday, experience)
               : undefined;
           const changing = kind === 'swap' ? victim : existing;
           const reservation = changing?.facilityId;
-          // `operationOwner` above is one per *operation*, not per provider.
-          // The poller's deadline abandons a tick without cancelling it, so an
-          // overtime tick and its successor both run -- and with a
-          // provider-wide owner the lease is re-entrant between them, so both
-          // could hold it and the abandoned one's `finally` would withdraw the
-          // live one's.
-          let leased = true;
+          const owner = mutationId(`${kind}-${experience.id}`);
+          operation = new MutationOperation({
+            id: owner,
+            kind,
+            // Absolute from the beginning of the tick. Starting an action late
+            // cannot grant it a fresh window beyond the poller that authorised
+            // it.
+            abandonAt: tickStartedAt + MAX_MUTATION_MS,
+            onAbandon: async abandoned => {
+              const lease = acting;
+              if (lease && abandoned.dispatched) {
+                try {
+                  await quarantine(
+                    lease.key,
+                    {
+                      id: abandoned.id,
+                      ...(abandoned.evidence ?? {}),
+                    },
+                    abandoned.dispatchedAt
+                  );
+                } catch (error) {
+                  // Keep renewing the lease as the only protection still
+                  // available. Merely declining to release was not enough:
+                  // the last renewal still expired after LEASE_TTL_MS, turning
+                  // a durable-storage failure into an unguarded duplicate
+                  // mutation two minutes later.
+                  console.error(error);
+                  return;
+                }
+              }
+              if (lease) {
+                lease.stopRenewal();
+                try {
+                  await releaseLease(lease.key, lease.owner);
+                } catch (error) {
+                  // A quarantine, when one was needed, is already durable.
+                  // Otherwise the lease remaining until expiry is conservative.
+                  console.error(error);
+                }
+              }
+            },
+          });
+
           if (reservation) {
             const key = leaseKey(reservation, date);
-            if (await acquireLease(key, operationOwner)) {
-              // Renewed for as long as the request is actually outstanding.
-              // The deadline above abandons a tick without cancelling it, and
-              // nothing bounds a response body that never finishes arriving --
-              // so acquiring once and trusting the TTL let a lease expire at
-              // 120 seconds under a request still in the air, and the next
-              // actor took a reservation Disney was about to change.
-              acting.push({
-                key,
-                stopRenewal: keepLeaseAlive(key, operationOwner, reason => {
-                  leaseLost = true;
-                  if (reason !== 'abandoned') return;
-                  // Nothing is coming back to settle this one. Decide it here
-                  // rather than leaving the reservation held until the 4am
-                  // rollover over a request that wedged: past the commit
-                  // boundary the outcome is unknowable and the reservation is
-                  // in doubt; short of it nothing was ever sent.
-                  settledEarly = true;
-                  const committed = ledgerRef.current.hasAttempted(
-                    experience.id,
-                    kind
-                  );
-                  void (async () => {
-                    if (committed) await quarantine(key, doubtRaised());
-                    await releaseLease(key, operationOwner);
-                  })();
-                }),
-              });
-            } else {
-              leased = false;
+            const got = await acquireLease(key, owner);
+            if (!got || operation.abandoned) {
+              operation.settle();
+              if (got) await releaseLease(key, owner);
+              await operation.waitForAbandonment();
+              bumpSkip('already-attempted', experience.name);
+              continue;
             }
+            acting = { key, owner, stopRenewal: () => undefined };
+            acting.stopRenewal = keepLeaseAlive(key, owner, () =>
+              operation?.abandon('lease-refused')
+            );
           }
-          if (!leased) {
+
+          const stillAuthorized = (action: ActionKind, offerTime: ParkTime) =>
+            !operation!.abandoned &&
+            !stale() &&
+            stillPermitted() &&
+            stillWantsAction(experience.id, action, offerTime);
+
+          const requestControl = (
+            offerTime: ParkTime,
+            evidence?: MutationEvidence
+          ): RequestControl => {
+            const current = operation!;
+            return {
+              signal: current.signal,
+              start: async send => {
+                const authorize = () =>
+                  stillAuthorized(kind, offerTime) && !current.signal.aborted;
+                if (!acting) {
+                  if (!authorize()) {
+                    throw new RequestNotSent(
+                      'Action no longer authorised before send'
+                    );
+                  }
+                  return send();
+                }
+                const begun = await startWhileHeld(
+                  acting.key,
+                  acting.owner,
+                  authorize,
+                  send
+                );
+                if (!begun.started) {
+                  throw new RequestNotSent(
+                    'Reservation lease was lost before send'
+                  );
+                }
+                return begun.value;
+              },
+              onDispatch: () => {
+                if (!current.markDispatched(evidence)) {
+                  throw new RequestNotSent(
+                    'Action was abandoned before the request could be sent'
+                  );
+                }
+              },
+            };
+          };
+
+          if (reservation && !acting) {
             // Somebody else is changing one of these right now -- a foreground
             // search, or another tab. Skipping costs one tick; acting would
             // cost an entitlement.
@@ -1280,23 +1281,22 @@ export default function AutopilotProvider({
             outcome = await attemptAutoSwap(target, experience, allHeldToday, {
               createSwapOffer: (exp, g, victim) =>
                 ll.offer(exp, g, { booking: victim }),
-              book: offer => ll.book(offer),
+              book: (offer, control) => ll.book(offer, undefined, control),
               guests,
               ledger: ledgerRef.current,
               clashes,
               partyIsAcceptable,
-              onCommitting: ({ from, to }) => {
-                wasAt = from === undefined ? undefined : String(from);
-                toAt = String(to);
-              },
+              requestControl: ({ from, to }) =>
+                requestControl(to, {
+                  kind: 'swap',
+                  ...(from ? { from: String(from) } : {}),
+                  to: String(to),
+                  gaining: experience.id,
+                }),
               // Last gate before the entitlement is spent: generating the
               // offer is another round trip, and every guard above it ran
               // before that.
-              stillWanted: offerTime =>
-                !leaseLost &&
-                !stale() &&
-                stillPermitted() &&
-                stillWantsAction(experience.id, 'swap', offerTime),
+              stillWanted: offerTime => stillAuthorized('swap', offerTime),
             });
           } else if (existing) {
             outcome = await attemptAutoModify(
@@ -1307,62 +1307,50 @@ export default function AutopilotProvider({
               {
                 createModifyOffer: (exp, g, booking) =>
                   ll.offer(exp, g, { booking }),
-                book: offer => ll.book(offer),
+                book: (offer, control) => ll.book(offer, undefined, control),
                 guests,
                 ledger: ledgerRef.current,
                 clashes,
                 partyIsAcceptable,
-                onCommitting: ({ from, to }) => {
-                  wasAt = from === undefined ? undefined : String(from);
-                  toAt = String(to);
-                },
+                requestControl: ({ from, to }) =>
+                  requestControl(to, {
+                    kind: 'modify',
+                    ...(from ? { from: String(from) } : {}),
+                    to: String(to),
+                  }),
                 // Last gate before the entitlement is spent: generating the
                 // offer is another round trip, and every guard above it ran
                 // before that.
-                stillWanted: offerTime =>
-                  !leaseLost &&
-                  !stale() &&
-                  stillPermitted() &&
-                  stillWantsAction(experience.id, 'modify', offerTime),
+                stillWanted: offerTime => stillAuthorized('modify', offerTime),
               }
             );
           } else {
             // The effective target: window stripped under book-then-move.
             outcome = await attemptAutoBook(hit.target, experience, {
               createOffer: (exp, g) => ll.offer(exp, g, { date }),
-              book: offer => ll.book(offer),
+              book: (offer, control) => ll.book(offer, undefined, control),
               guests,
               ledger: ledgerRef.current,
               clashes,
               partyIsAcceptable,
+              requestControl: offerTime => requestControl(offerTime),
               // Last gate before the entitlement is spent: generating the
               // offer is another round trip, and every guard above it ran
               // before that.
-              stillWanted: offerTime =>
-                !leaseLost &&
-                !stale() &&
-                stillPermitted() &&
-                stillWantsAction(experience.id, 'book', offerTime),
+              stillWanted: offerTime => stillAuthorized('book', offerTime),
             });
           }
-          // A failure the helper caught and could not prove harmless -- but
-          // only once the commit request actually went out. All three helpers
-          // take their ledger lock immediately before `book()`, so the lock is
-          // the record of having reached that point: a status-0 on the *offer*
-          // call happens before it and cannot have changed the reservation, and
-          // quarantining on that blocked a pass nothing had touched.
-          unknownOutcome =
-            outcome.status === 'failed' &&
-            !outcome.rejected &&
-            ledgerRef.current.hasAttempted(experience.id, kind);
         } catch (error) {
-          // Only guestsFor can throw out here; the attempt helpers handle their
-          // own failures. Its status is worth carrying: eligibility is the first
-          // call the booking path makes, so it is where a refusal lands first.
+          // The helpers classify their own offer/commit failures. Before an
+          // operation exists this can only be eligibility; after that it is a
+          // local lifecycle/storage failure and must not be reported as a
+          // Disney eligibility refusal.
           const httpStatus = (error as { response?: { status?: number } })
             ?.response?.status;
-          eligibilityFailed = true;
-          recordRefusal('eligibility', httpStatus, nowTime);
+          eligibilityFailed = !operation;
+          if (eligibilityFailed) {
+            recordRefusal('eligibility', httpStatus, nowTime);
+          }
           console.error(error);
           outcome = {
             status: 'failed',
@@ -1370,26 +1358,65 @@ export default function AutopilotProvider({
             httpStatus,
           };
         } finally {
-          // The lease is given back on every path out -- it says "somebody is
-          // changing this right now", and once the request has returned nobody
-          // is. But an outcome nobody learned is not a return: the reservation
-          // is quarantined instead, because a lease expires and "until plans
-          // say what happened" is not a duration.
-          await Promise.all(
-            acting.map(async ({ key, stopRenewal }) => {
-              // Before anything else: a renewal firing after the release below
-              // would take back the lease this is giving up.
-              stopRenewal();
-              // Abandonment already decided this one, and decided it at the
-              // moment the information ran out rather than whenever the request
-              // finally gave up. Redoing it here would only restart the clock
-              // on a doubt that has been settling for two minutes.
-              if (settledEarly) return;
-              if (unknownOutcome) await quarantine(key, doubtRaised());
-              await releaseLease(key, operationOwner);
-            })
-          );
+          const current = operation;
+          const lease = acting;
+          if (current) {
+            current.settle();
+            // If a deadline or refused renewal already began the quarantine,
+            // let that atomic write finish before a definitive late result
+            // removes this operation's exact id.
+            try {
+              await current.waitForAbandonment();
+            } catch (error) {
+              // The abandonment callback is defensive today; keep this guard
+              // so a future callback cannot skip classification and release.
+              console.error(error);
+            }
+            if (lease) {
+              const unknown =
+                current.dispatched &&
+                outcome?.status === 'failed' &&
+                !outcome.rejected;
+              let mayRelease = true;
+              try {
+                if (unknown) {
+                  await quarantine(
+                    lease.key,
+                    { id: current.id, ...(current.evidence ?? {}) },
+                    current.dispatchedAt
+                  );
+                } else if (current.dispatched) {
+                  // Success and a definite rejection both answer this exact
+                  // request, including when they arrive after abandonment.
+                  await resolveDoubt(lease.key, current.id);
+                }
+              } catch (error) {
+                console.error(error);
+                // For an unknown outcome the live lease is the last remaining
+                // cover. Keep it until expiry if persistence could not replace
+                // it with quarantine. A known response is already classified;
+                // any old quarantine remains fail-closed on its own.
+                mayRelease = !unknown;
+                if (outcome?.status === 'failed') {
+                  outcome = {
+                    ...outcome,
+                    error: `${outcome.error}; AutoLL-3 could not save unresolved-change protection`,
+                  };
+                }
+              }
+              if (mayRelease) {
+                lease.stopRenewal();
+                try {
+                  await releaseLease(lease.key, lease.owner);
+                } catch (error) {
+                  console.error(error);
+                }
+              }
+            }
+          }
         }
+
+        if (!outcome) continue;
 
         // Anything the helpers returned settles their own call. A success clears
         // that call's run; only an unbroken run of refusals reads as "this is not

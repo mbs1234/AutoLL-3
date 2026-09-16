@@ -103,8 +103,14 @@ describe('PlansProvider reconciles unresolved reservations', () => {
       facilityId,
       name: 'Ride',
       start: new DateTime(DATE, ParkTime.from(time)),
+      cancellable: true,
+      guests: [{ id: 'g1', name: 'Guest' }],
     }) as unknown as Booking;
-  const modifyDoubt = { kind: 'modify' as const, from: '19:00:00' };
+  const modifyDoubt = {
+    kind: 'modify' as const,
+    from: '19:00:00',
+    to: '11:00:00',
+  };
 
   let now = 0;
 
@@ -161,7 +167,12 @@ describe('PlansProvider reconciles unresolved reservations', () => {
   it('settles a swap when the incoming attraction appears', async () => {
     await quarantine(
       key,
-      { kind: 'swap', from: '19:00:00', gaining: INCOMING },
+      {
+        kind: 'swap',
+        from: '19:00:00',
+        to: '13:00:00',
+        gaining: INCOMING,
+      },
       1000
     );
     const plans = jest.fn(async () => [held(INCOMING, '13:00:00')]);
@@ -181,6 +192,27 @@ describe('PlansProvider reconciles unresolved reservations', () => {
     await quarantine(key, modifyDoubt, 1000);
     const notAnLL = { ...held(BZ, '11:00:00'), subtype: 'SP' } as Booking;
     const plans = jest.fn(async () => [notAnLL]);
+    mount(plans);
+    await waitFor(() => expect(plans).toHaveBeenCalled());
+    expect(quarantinedAt(key)).toBe(1000);
+  });
+
+  it('does not let a redeemed Multi Pass answer as a live reservation', async () => {
+    await quarantine(key, modifyDoubt, 1000);
+    const redeemed = { ...held(BZ, '11:00:00'), guests: [] } as Booking;
+    const plans = jest.fn(async () => [redeemed]);
+    mount(plans);
+    await waitFor(() => expect(plans).toHaveBeenCalled());
+    expect(quarantinedAt(key)).toBe(1000);
+  });
+
+  it('does not let a Multiple Experiences Pass answer for the requested ride', async () => {
+    await quarantine(key, modifyDoubt, 1000);
+    const replacement = {
+      ...held(BZ, '11:00:00'),
+      choices: [{ id: BZ, name: 'Ride', park: {} }],
+    } as Booking;
+    const plans = jest.fn(async () => [replacement]);
     mount(plans);
     await waitFor(() => expect(plans).toHaveBeenCalled());
     expect(quarantinedAt(key)).toBe(1000);

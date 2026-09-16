@@ -1,12 +1,13 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { RequestError } from '@/api/client';
+import type { RequestControl } from '@/api/client';
 import { Booking } from '@/api/itinerary';
 import { LLMP, Offer, OfferError } from '@/api/ll';
 import { DateTime, ParkTime } from '@/datetime';
 import { TODAY } from '@/testing';
 
-import { MAX_RENEWAL_MS, RENEW_INTERVAL_MS } from './lease';
+import { MAX_MUTATION_MS } from './mutation';
 import { SearchGoal } from './timesearch';
 import useTimeSearch, {
   CYCLE_MS,
@@ -45,9 +46,9 @@ function booking(time: ParkTime, rest: Partial<LLMP> = {}): LLMP {
 }
 
 /**
- * `heldAt` is Disney's own view of the reservation as of the offer, which is
- * the only baseline a doubt may be settled against. Omitted means the offer did
- * not name it, which is a real case and leaves the doubt without that test.
+ * `heldAt` is Disney's own view of the reservation as of the offer. It is kept
+ * for an accurate unresolved-change explanation; the exact requested time is
+ * the automatic Plans evidence. Omitted means the offer did not name it.
  */
 function offerAt(time: ParkTime, heldAt?: ParkTime): Offer<LLMP> {
   return {
@@ -76,6 +77,10 @@ function setup({
   claimCommit,
   releaseCommit,
   quarantineCommit,
+  resolveCommit,
+  retainCommit,
+  keepCommitAlive,
+  startCommit,
   getTimes,
 }: {
   goal?: SearchGoal;
@@ -90,9 +95,30 @@ function setup({
   claimCommit?: jest.Mock;
   releaseCommit?: jest.Mock;
   quarantineCommit?: jest.Mock;
+  resolveCommit?: jest.Mock;
+  retainCommit?: jest.Mock;
+  keepCommitAlive?: TimeSearchDeps['keepCommitAlive'];
+  startCommit?: TimeSearchDeps['startCommit'];
   getTimes?: TimeSearchDeps['getTimes'];
 } = {}) {
   let current = held;
+  const rawCommit =
+    commit ??
+    jest.fn(async (o: Offer<LLMP>) => {
+      current = o.start.time;
+      return booking(current);
+    });
+  const controlledCommit = jest.fn(
+    async (o: Offer<LLMP>, control?: RequestControl) => {
+      const send = async () => {
+        control?.onDispatch?.();
+        const moved = await rawCommit(o);
+        current = moved.start.time;
+        return moved;
+      };
+      return control?.start ? control.start(send) : send();
+    }
+  );
   const deps: TimeSearchDeps = {
     booking: booking(held),
     goal,
@@ -100,12 +126,7 @@ function setup({
     createOffer: jest.fn(async (b: LLMP) => offerAt(current, b.start.time)),
     getTimes: getTimes ?? jest.fn(async () => times),
     changeTime: quoted ?? jest.fn(async (_o, t: ParkTime) => offerAt(t)),
-    commit:
-      commit ??
-      jest.fn(async (o: Offer<LLMP>) => {
-        current = o.start.time;
-        return booking(current);
-      }),
+    commit: controlledCommit,
     pollPlans:
       plans ??
       (jest.fn(async () => [booking(current)]) as () => Promise<Booking[]>),
@@ -115,6 +136,10 @@ function setup({
     claimCommit,
     releaseCommit,
     quarantineCommit,
+    resolveCommit,
+    retainCommit,
+    keepCommitAlive,
+    startCommit,
   };
   const view = renderHook(() => useTimeSearch(deps));
   return { ...view, deps };
@@ -268,8 +293,8 @@ describe('useTimeSearch', () => {
       committed.reject(new RequestError({ ok: false, status: 410, data: {} }))
     );
 
+    await waitFor(() => expect(result.current.phase).toBe('idle'));
     expect(result.current.guard.phase).toBe('idle');
-    expect(result.current.phase).toBe('idle');
     expect(result.current.running).toBe(false);
   });
 
@@ -342,6 +367,47 @@ describe('useTimeSearch', () => {
       expect(claimCommit.mock.invocationCallOrder[0]).toBeLessThan(
         commit.mock.invocationCallOrder[0]!
       );
+    });
+
+    it('stops cleanly when taking the lock fails', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const claimCommit = jest.fn(async () => {
+        throw new Error('storage unavailable');
+      });
+      const commit = jest.fn(async () => booking(at(11)));
+      const { result } = setup({ claimCommit, commit });
+
+      act(() => result.current.start());
+
+      await waitFor(() => expect(result.current.stop).toBe('failed'));
+      expect(commit).not.toHaveBeenCalled();
+      expect(result.current.guard.phase).toBe('idle');
+      expect(result.current.running).toBe(false);
+      expect(result.current.lastError).toMatch(/could not coordinate/i);
+    });
+
+    it('releases a claimed lock when keepalive setup fails', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const releaseCommit = jest.fn(async () => undefined);
+      const keepCommitAlive = jest.fn(() => {
+        throw new Error('web locks unavailable');
+      });
+      const commit = jest.fn(async () => booking(at(11)));
+      const { result } = setup({
+        claimCommit: jest.fn(async () => true),
+        releaseCommit,
+        keepCommitAlive,
+        commit,
+      });
+
+      act(() => result.current.start());
+
+      await waitFor(() => expect(result.current.stop).toBe('failed'));
+      expect(commit).not.toHaveBeenCalled();
+      expect(releaseCommit).toHaveBeenCalledTimes(1);
+      expect(result.current.guard.phase).toBe('idle');
+      expect(result.current.running).toBe(false);
+      expect(result.current.lastError).toMatch(/could not keep.*lock alive/i);
     });
 
     // Refused means the engine is already acting on this reservation. A
@@ -428,6 +494,30 @@ describe('useTimeSearch', () => {
       expect(releaseCommit).not.toHaveBeenCalled();
     });
 
+    it('stops visibly when renewing a settling lock fails', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const claimCommit = jest
+        .fn<Promise<boolean>, []>()
+        .mockResolvedValueOnce(true)
+        .mockRejectedValueOnce(new Error('storage unavailable'));
+      const commit = jest.fn(async () => booking(at(11)));
+      const { result } = setup({
+        claimCommit,
+        commit,
+        plans: jest.fn(async () => [booking(at(15))]) as never,
+      });
+
+      act(() => result.current.start());
+      await waitFor(() => expect(result.current.guard.phase).toBe('awaiting'));
+      await runCycles(1);
+
+      await waitFor(() => expect(result.current.stop).toBe('failed'));
+      expect(commit).toHaveBeenCalledTimes(1);
+      expect(result.current.guard.phase).toBe('awaiting');
+      expect(result.current.running).toBe(false);
+      expect(result.current.lastError).toMatch(/could not renew/i);
+    });
+
     /*
      * The one outcome a lease cannot express. A move nobody learned the result
      * of must be protected until fresh plans say what happened, and that is not
@@ -452,15 +542,34 @@ describe('useTimeSearch', () => {
       expect(releaseCommit).toHaveBeenCalled();
     });
 
+    it('keeps the live lease when unresolved protection cannot be persisted', async () => {
+      const releaseCommit = jest.fn();
+      const stopRenewal = jest.fn();
+      const commit = jest.fn().mockRejectedValue(new Error('no response'));
+      const { result } = setup({
+        claimCommit: jest.fn(async () => true),
+        releaseCommit,
+        keepCommitAlive: () => stopRenewal,
+        commit,
+      });
+
+      act(() => result.current.start());
+
+      await waitFor(() => expect(result.current.stop).toBe('failed'));
+      expect(result.current.guard.phase).toBe('unknown');
+      expect(result.current.lastError).toMatch(/could not be saved/i);
+      expect(releaseCommit).not.toHaveBeenCalled();
+      expect(stopRenewal).not.toHaveBeenCalled();
+    });
+
     /*
      * And it records the reservation as it is at the moment of committing.
      *
      * An offered move waits on a person, and a person is slow. The engine
      * underneath, a second tab, or the Disney app itself can move the
-     * reservation in that gap -- and the baseline was left at whatever the last
-     * idle cycle had read. The doubt then asked "has it moved from 3pm?" about
-     * a reservation that had been at 1pm since before the request went out, so
-     * the very next plans read answered yes and cleared it.
+     * reservation in that gap -- and the warning used to keep whatever the last
+     * idle cycle had read. That made it describe a move from 3pm when the
+     * reservation had already been at 1pm before the request went out.
      */
     it('records the reservation as it is when the move is accepted', async () => {
       const quarantineCommit = jest.fn();
@@ -481,16 +590,21 @@ describe('useTimeSearch', () => {
       // The commit happens on the next cycle, through the same guard.
       await runCycles(1);
       await waitFor(() => expect(quarantineCommit).toHaveBeenCalled());
-      expect(quarantineCommit).toHaveBeenCalledWith({
-        from: String(at(13)),
-        to: String(at(11)),
-      });
+      expect(quarantineCommit).toHaveBeenCalledWith(
+        expect.any(String),
+        {
+          kind: 'modify',
+          from: String(at(13)),
+          to: String(at(11)),
+        },
+        expect.any(Number)
+      );
     });
 
     /*
      * Renewal cannot go on forever either. Renewing a wedged commit
      * indefinitely held the reservation for the rest of the day behind a screen
-     * still saying "Searching...". Past `MAX_RENEWAL_MS` nothing is coming back
+     * still saying "Searching...". Past `MAX_MUTATION_MS` nothing is coming back
      * to settle it -- and since this only ever wraps the commit itself, the
      * request has already left the device, so the reservation is in doubt.
      */
@@ -508,7 +622,7 @@ describe('useTimeSearch', () => {
         expect(result.current.guard.phase).toBe('committing')
       );
       await act(async () => {
-        await jest.advanceTimersByTimeAsync(MAX_RENEWAL_MS + 1);
+        await jest.advanceTimersByTimeAsync(MAX_MUTATION_MS + 1);
       });
       expect(quarantineCommit).toHaveBeenCalled();
       expect(result.current.guard.phase).toBe('unknown');
@@ -516,30 +630,145 @@ describe('useTimeSearch', () => {
       expect(result.current.stop).toBe('failed');
     });
 
-    /*
-     * A commit is the one call here with no bound on how long it can take --
-     * the request timeout does not cover reading the response body. The lease
-     * expires at a fixed TTL, so without renewing it could lapse under a
-     * request still in the air and another engine take the reservation Disney
-     * was about to change. Asking again *is* renewing: acquisition is
-     * re-entrant for the holder.
-     */
-    it('renews the claim while a commit is in the air', async () => {
-      const claimCommit = jest.fn(async () => true);
+    it('uses a definitive late success to leave unknown safely', async () => {
       const inFlight = deferred<LLMP>();
-      const commit = jest.fn(() => inFlight.promise);
-      const { result } = setup({ claimCommit, commit });
-      act(() => result.current.start());
-      await waitFor(() => expect(commit).toHaveBeenCalled());
-      const asked = claimCommit.mock.calls.length;
-      await act(async () => {
-        await jest.advanceTimersByTimeAsync(RENEW_INTERVAL_MS * 2);
+      const quarantineCommit = jest.fn<
+        Promise<void>,
+        [string, unknown, number]
+      >(async () => undefined);
+      const retainCommit = jest.fn(async () => true);
+      const { result } = setup({
+        claimCommit: jest.fn(async () => true),
+        quarantineCommit,
+        retainCommit,
+        commit: jest.fn(() => inFlight.promise),
       });
-      expect(claimCommit.mock.calls.length).toBeGreaterThan(asked);
+      act(() => result.current.start());
+      await waitFor(() =>
+        expect(result.current.guard.phase).toBe('committing')
+      );
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(MAX_MUTATION_MS + 1);
+      });
+      expect(result.current.guard.phase).toBe('unknown');
       await act(async () => {
         inFlight.resolve(booking(at(11)));
         await inFlight.promise;
       });
+      await waitFor(() => expect(result.current.moves).toBe(1));
+      expect(result.current.guard.phase).toBe('awaiting');
+      expect(result.current.unresolved).toBeUndefined();
+      expect(retainCommit).toHaveBeenCalledWith(
+        quarantineCommit.mock.calls[0]![0]
+      );
+    });
+
+    it('stops safely when a known success cannot retain its protection', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const commit = jest.fn(async () => booking(at(11)));
+      const retainCommit = jest.fn(async () => {
+        throw new Error('storage unavailable');
+      });
+      const { result } = setup({
+        claimCommit: jest.fn(async () => true),
+        commit,
+        retainCommit,
+      });
+
+      act(() => result.current.start());
+
+      await waitFor(() => expect(result.current.moves).toBe(1));
+      expect(result.current.running).toBe(false);
+      expect(result.current.stop).toBe('unconfirmed');
+      expect(result.current.guard.phase).toBe('awaiting');
+      expect(result.current.lastError).toMatch(/could not retain/i);
+      await runCycles(2);
+      expect(commit).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses a definitive late rejection to clear only that doubt', async () => {
+      const inFlight = deferred<LLMP>();
+      const quarantineCommit = jest.fn<
+        Promise<void>,
+        [string, unknown, number]
+      >(async () => undefined);
+      const resolveCommit = jest.fn<Promise<void>, [string]>(
+        async () => undefined
+      );
+      const { result } = setup({
+        claimCommit: jest.fn(async () => true),
+        quarantineCommit,
+        resolveCommit,
+        commit: jest.fn(() => inFlight.promise),
+      });
+      act(() => result.current.start());
+      await waitFor(() =>
+        expect(result.current.guard.phase).toBe('committing')
+      );
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(MAX_MUTATION_MS + 1);
+      });
+      expect(result.current.guard.phase).toBe('unknown');
+      await act(async () => {
+        inFlight.reject(new RequestError({ ok: false, status: 410, data: {} }));
+        await inFlight.promise.catch(() => undefined);
+      });
+      await waitFor(() => expect(result.current.phase).toBe('idle'));
+      expect(result.current.guard.phase).toBe('idle');
+      expect(result.current.unresolved).toBeUndefined();
+      expect(resolveCommit).toHaveBeenCalledWith(
+        quarantineCommit.mock.calls[0]![0]
+      );
+    });
+
+    it('quarantines its own operation when renewal is refused after dispatch', async () => {
+      const inFlight = deferred<LLMP>();
+      const quarantineCommit = jest.fn<
+        Promise<void>,
+        [string, unknown, number]
+      >(async () => undefined);
+      let lose: () => void = () => undefined;
+      const { result } = setup({
+        claimCommit: jest.fn(async () => true),
+        quarantineCommit,
+        keepCommitAlive: onLost => {
+          lose = onLost;
+          return () => undefined;
+        },
+        commit: jest.fn(() => inFlight.promise),
+      });
+      act(() => result.current.start());
+      await waitFor(() =>
+        expect(result.current.guard.phase).toBe('committing')
+      );
+      await act(async () => lose());
+      await waitFor(() => expect(quarantineCommit).toHaveBeenCalled());
+      expect(result.current.guard.phase).toBe('unknown');
+      expect(quarantineCommit.mock.calls[0]![0]).toEqual(expect.any(String));
+    });
+
+    /*
+     * A commit can outlive one lease TTL: first-use sensor loading happens
+     * before the HTTP timeout begins, and the mutation lifecycle deliberately
+     * has its own longer absolute horizon. Without renewal, another engine
+     * could take the reservation while the original operation is still live.
+     * Asking again *is* renewing: acquisition is re-entrant for the holder.
+     */
+    it('keeps the claim alive while a commit is in the air', async () => {
+      const claimCommit = jest.fn(async () => true);
+      const stopRenewal = jest.fn();
+      const keepCommitAlive = jest.fn(() => stopRenewal);
+      const inFlight = deferred<LLMP>();
+      const commit = jest.fn(() => inFlight.promise);
+      const { result } = setup({ claimCommit, commit, keepCommitAlive });
+      act(() => result.current.start());
+      await waitFor(() => expect(commit).toHaveBeenCalled());
+      expect(keepCommitAlive).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        inFlight.resolve(booking(at(11)));
+        await inFlight.promise;
+      });
+      expect(stopRenewal).toHaveBeenCalled();
     });
   });
 

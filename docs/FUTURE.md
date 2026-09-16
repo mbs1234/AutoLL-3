@@ -400,13 +400,12 @@ it cannot be used at all.
 4. **Do the December overlay IDs still resolve?** See §3.3 — a data check, once
    the overlays are running.
 5. **How long does Disney's itinerary take to show a change that has landed?**
-   `DOUBT_SETTLE_MS` is 120 seconds, and the only honest thing to say about that
-   figure is that it was reasoned rather than measured: it is the lease TTL,
-   reused on the argument that a request which has not surfaced within two
-   minutes is not going to. Everything above it is now evidence-driven — a doubt
-   clears on seeing the change, and absence only counts after the window and
-   across separately spaced reads — so the number decides how long an *untouched*
-   reservation stays held, not whether a changed one is caught.
+   This no longer controls safety. An unresolved mutation does not clear on a
+   timer or on repeated contrary reads; it clears only when Plans shows the
+   exact requested result, a definitive late response arrives, or the user
+   confirms what happened. The measurement is still useful for tuning the
+   visible settling wait and the lease timings, but it must never become an
+   automatic fail-open rule again.
 
    **Measure from the request leaving, not from a response arriving.** The
    obvious instrumentation — the gap between `book()` returning and the
@@ -424,60 +423,21 @@ _Size:_ small, and it must be log lines rather than behaviour changes.
 
 ## 6. Testing and housekeeping
 
-**A quarantined reservation is invisible.** When a change's outcome is unknown,
-the reservation is held until plans settle it -- and nothing on screen says so.
-Autopilot reports `already-attempted`, which is true but not the reason, and Plan
-Check has no view of it at all. It is the last silent state left in this
-subsystem, and the one the rest of this file keeps calling the worst shape a
-failure can take: you believe it is working. A line on Activity naming the
-reservation and why nothing is acting on it would close it. _Size:_ small.
-_Where:_ `src/autopilot/lease.ts`, `src/components/ll/screens/Activity.tsx`.
+**The mutation-lifecycle gaps were closed on 2026-09-16.** Quarantined
+reservations are visible in Activity and Plan Check, carry operation-specific
+details, and have a two-step manual resolution after the user checks Disney's
+Plans. Plan Check also warns when the browser lacks Web Locks rather than
+silently degrading cross-tab exclusion.
 
-This got more urgent on 2026-09-15, not less. The evidence rule tightened --
-absence is no longer proof, a swap waits for the attraction it was for to
-appear, and the reads that settle a doubt must be genuinely separate -- so a
-doubt correctly lives longer than it used to. The protection is better and the
-silence is therefore more expensive. A doubt now carries its `kind`, the time it
-was moving `to`, the baseline it was moving `from` where the offer vouched for
-one, and for a swap the facility it was gaining -- and a reservation can carry
-several at once, each waiting on its own evidence. So the message has a great
-deal to say beyond "something is unresolved", down to naming which request is
-still unaccounted for. _Updated 2026-09-16._
-
-**Exclusion has no fallback where the browser has no Web Locks.**
-`src/autopilot/lease.ts` serialises acquisition through `navigator.locks` and
-reports through `available()` whether it could. Where it cannot -- an old
-browser, or a context where the API is withheld -- the read-modify-write is
-unsynchronised again and two instances can both believe they acquired. Nothing
-currently surfaces that: `available()` is exported and unused. The options are
-to say so on screen, or to fail closed and decline to act at all, and the second
-is worse than the exposure on a park day. _Size:_ small for the warning.
-_Where:_ `src/autopilot/lease.ts`.
-
-
-**Two of four named test deliverables are still missing**, down from four on
-2026-09-14: `PlanCheck.test.tsx` now covers the tipboard item's button, its
-in-flight state and its failure, and `DayTimeline.test.tsx` now asserts the
-protected band is drawn non-interactive. Still outstanding: `daytimeline.test.ts`
-never asserts `protectedFrom`/`protectedTo` on the pure lane data, and
-`TimeSearch.test.tsx` does not exist — the hook underneath it is well covered
-(`useTimeSearch.test.ts`, including the shared action lock), but the screen is
-not. The deploy gates on the full suite, so an untested screen is an ungated
-screen. Write them alongside the fixes that land in those files, not as a
-separate pass, or they will be written to match whatever the code happens to do.
+The named regression gaps are closed as well: `TimeSearch.tsx` has component
+coverage, `daytimeline.test.ts` asserts the pure protected span, and every
+durable/session storage key is built through `storageNamespace.ts` with a
+source-scanning test that catches single-, double-, and backtick literals.
 
 **One thing that pass established, worth keeping:** jsdom does no hit-testing,
 so a test that "clicks through" an overlay passes with the overlay bug present.
 Where the fix is a CSS property, assert the property; a behavioural test there
 is a test that cannot fail.
-
-**Nothing pins the storage namespace.** Every key is a literal spread across
-some twenty files and every notification tag is a template — all correctly
-`autoll3.*` today, with nothing enforcing it. AutoLL v1.0 has a source-scanning
-test for exactly this, because more than one of these builds can sit on one
-phone and they all run on the same Disney origin. _Size:_ small. Keep it to a
-bare-prefix match after any quote character, which is the shape v1.0 settled on
-after two misses.
 
 **Nine Dependabot pull requests are open and none should be merged in a
 hurry.** `.github/dependabot.yml` sweeps npm and GitHub Actions weekly, and all

@@ -7,8 +7,7 @@ import PlansContext from '@/contexts/PlansContext';
 import ResortContext from '@/contexts/ResortContext';
 import useUpdateParkFromPlans from '@/hooks/useUpdateParkFromPlans';
 import kvdb from '@/kvdb';
-
-export const PARK_KEY = 'autoll3.park';
+import { PARK_KEY } from '@/storageNamespace';
 
 export default function ParkProvider({
   children,

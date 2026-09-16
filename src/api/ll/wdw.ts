@@ -1,5 +1,6 @@
 import { DateTime, ParkTime, parkDate } from '@/datetime';
 
+import { RequestControl } from '../client';
 import {
   ApiGuest,
   Experience,
@@ -448,10 +449,11 @@ export class LLClientWDW extends LLClient {
 
   async book<B extends Offer['booking']>(
     offer: Offer<B>,
-    guestsToModify?: Pick<Guest, 'id'>[]
+    guestsToModify?: Pick<Guest, 'id'>[],
+    control?: RequestControl
   ): Promise<LLMP> {
     if (offer.booking) {
-      return this.modify(offer as Offer<LLMP>, guestsToModify);
+      return this.modify(offer as Offer<LLMP>, guestsToModify, control);
     }
     const { data } = await this.request<NewBookingResponse>({
       path: '/ea-vas/planning/api/v1/experiences/entitlements/book',
@@ -467,13 +469,15 @@ export class LLClientWDW extends LLClient {
           })),
       },
       sensorData: true,
+      control,
     });
     return this.createLLFromResponse(offer.experience, data);
   }
 
   protected async modify(
     offer: Offer<LLMP>,
-    guestsToModify?: Pick<Guest, 'id'>[]
+    guestsToModify?: Pick<Guest, 'id'>[],
+    control?: RequestControl
   ): Promise<LLMP> {
     const {
       offerSetId,
@@ -498,6 +502,7 @@ export class LLClientWDW extends LLClient {
           })),
       },
       sensorData: true,
+      control,
     });
     return this.createLLFromResponse(offer.experience, {
       entitlementExperiences: [data.booking],

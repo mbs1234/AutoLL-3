@@ -42,6 +42,12 @@ describe('dayTimeline()', () => {
     expect(result.lanes[1]?.endAssumed).toBe(false);
   });
 
+  it('carries the exact protected span used by booking checks', () => {
+    const result = dayTimeline([lane(hm, time(12), time(13))], [], TODAY);
+    expect(result.lanes[0]?.protectedFrom).toEqual(time(11, 20));
+    expect(result.lanes[0]?.protectedTo).toEqual(time(12, 40));
+  });
+
   it('marks a bounded target window that crosses a held reservation buffer', () => {
     const result = dayTimeline(
       [lane(hm, time(12), time(13))],

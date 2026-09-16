@@ -22,6 +22,7 @@ import { IconProps } from '@/icons/Icon';
 import LightningIcon from '@/icons/LightningIcon';
 import StarIcon from '@/icons/StarIcon';
 import kvdb from '@/kvdb';
+import { STARRED_KEY } from '@/storageNamespace';
 
 import RebookingHeader from '../../RebookingHeader';
 import { HomeTabProps } from '../Home';
@@ -39,7 +40,6 @@ import useSort, { Sorter } from './useSort';
 
 const LP_MIN_STANDBY = 30;
 const LP_MAX_LL_WAIT = 60;
-export const STARRED_KEY = 'autoll3.genie.tipBoard.starred';
 const LIGHTNING_PICK = 'Lightning Pick';
 const BOOKED = 'Booked';
 

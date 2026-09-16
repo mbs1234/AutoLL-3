@@ -3,22 +3,25 @@ import { use, useState } from 'react';
 
 import { mk, wdw } from '@/__fixtures__/resort';
 import { RequestError } from '@/api/client';
+import type { RequestControl } from '@/api/client';
 import { Booking } from '@/api/itinerary';
 import { Experience, FlexExperience } from '@/api/ll';
 import { fireAlert, primeAudio } from '@/autopilot/alert';
 import { CONFIRM_ABSENT_POLLS } from '@/autopilot/autobook';
 import {
   LEASE_TTL_MS,
-  MAX_RENEWAL_MS,
+  QUARANTINE_KEY,
   RENEW_INTERVAL_MS,
   acquire as acquireLease,
   holder as leaseHolder,
   leaseKey,
   quarantine,
   quarantinedAt,
+  quarantinedMutations,
   reconcile,
   release as releaseLease,
 } from '@/autopilot/lease';
+import { MAX_MUTATION_MS } from '@/autopilot/mutation';
 import {
   appendDropEvents,
   coverageBucket,
@@ -354,15 +357,23 @@ function setupBooking({
     }
   );
   let bookCalls = 0;
-  const book = jest.fn(async () => {
-    if (bookDelay) await bookDelay;
-    const failure = bookErrors[bookCalls++];
-    if (failure === 'no-response') throw new Error('Network request failed');
-    if (failure !== undefined) {
-      throw new RequestError({ ok: false, status: failure, data: {} });
+  const book = jest.fn(
+    async (_offer: unknown, _guests: unknown, control?: RequestControl) => {
+      const send = async () => {
+        control?.onDispatch?.();
+        if (bookDelay) await bookDelay;
+        const failure = bookErrors[bookCalls++];
+        if (failure === 'no-response') {
+          throw new Error('Network request failed');
+        }
+        if (failure !== undefined) {
+          throw new RequestError({ ok: false, status: failure, data: {} });
+        }
+        return { id: 'ent-1' };
+      };
+      return control?.start ? control.start(send) : send();
     }
-    return { id: 'ent-1' };
-  });
+  );
   // Mutable so a test can make a booking appear in the itinerary and later
   // vanish, which is what a real booking followed by a manual cancellation
   // looks like from here. Defaults to the same list the context renders.
@@ -2525,9 +2536,9 @@ describe('AutopilotProvider operation lease', () => {
     await act(async () => releaseOffer());
   });
 
-  // And the engine gives it back once the request has returned, however it
-  // returned. Doubt about what landed is the ledger's job; a lease retained for
-  // doubt is what used to lock a ride until the 4am rollover.
+  // And the engine gives it back once a definite result has returned. An
+  // unknown result is transferred to quarantine; retaining the live-work lease
+  // for historical doubt is what used to lock a ride until the 4am rollover.
   it('is free again once the engine has finished', async () => {
     saveWatchList([{ experienceId: BZ, autoModify: true }]);
     const { book } = setupBooking({
@@ -2623,6 +2634,39 @@ describe('AutopilotProvider unresolved reservations', () => {
     expect(await claim()).toBe('false');
   });
 
+  it('keeps renewing the lease when unresolved protection cannot be saved', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const realSet = kvdb.set.bind(kvdb);
+    const set = jest.spyOn(kvdb, 'set').mockImplementation((key, value) => {
+      if (key === QUARANTINE_KEY) throw new Error('storage unavailable');
+      realSet(key, value);
+    });
+    try {
+      saveWatchList([{ experienceId: BZ, autoModify: true }]);
+      const { book } = setupBooking({
+        plans: [heldBZAt(19)],
+        experiences: [available(BZ, new ParkTime(11))],
+        bookErrors: ['no-response'],
+      });
+      await enable();
+      await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+      const owner = leaseHolder(leaseKey(BZ, TODAY));
+      expect(owner).toBeDefined();
+
+      // More than one complete TTL later, the fallback is still live. Before
+      // this guard the code merely skipped release, so the record expired and
+      // another engine could act on the unresolved reservation.
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(LEASE_TTL_MS + RENEW_INTERVAL_MS);
+      });
+      expect(leaseHolder(leaseKey(BZ, TODAY))).toBe(owner);
+      expect(await claim()).toBe('false');
+    } finally {
+      set.mockRestore();
+      jest.clearAllTimers();
+    }
+  });
+
   // A rejection is proof nothing happened, so there is no doubt to record.
   it('does not quarantine a move Disney refused outright', async () => {
     saveWatchList([{ experienceId: BZ, autoModify: true }]);
@@ -2670,13 +2714,10 @@ describe('AutopilotProvider unresolved reservations', () => {
   });
 
   /*
-   * The doubt is recorded against the reservation as the *offer* found it.
-   *
-   * Plans are polled every tenth tick and this engine is what moves the
-   * reservation in between, so the snapshot a tick starts from can be one move
-   * stale. The quarantine's question is "has it moved since?", so a stale
-   * baseline makes an untouched reservation answer yes -- the protection then
-   * clears itself on its own staleness, on the very next plans read.
+   * The warning records what the offer itself said, not a stale Plans snapshot.
+   * Exact destination evidence now controls automatic clearing, but showing a
+   * person "from 7pm" when Disney's offer said 1pm would still make the manual
+   * resolution screen describe the wrong operation.
    */
   it('records the reservation as the offer found it, not as plans did', async () => {
     saveWatchList([{ experienceId: BZ, autoModify: true }]);
@@ -2693,9 +2734,17 @@ describe('AutopilotProvider unresolved reservations', () => {
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
     const raised = quarantinedAt(leaseKey(BZ, TODAY));
     expect(raised).toBeDefined();
-    // A plans read finding it where it truly was all along is no evidence at
-    // all. Against the stale snapshot it read as proof the move had landed.
-    await reconcile(() => '13:00:00', raised! + 1);
+    expect(quarantinedMutations()).toEqual([
+      expect.objectContaining({
+        key: leaseKey(BZ, TODAY),
+        kind: 'modify',
+        from: '13:00:00',
+        to: '11:00:00',
+      }),
+    ]);
+    // A plans read finding it where it truly was all along is not the exact
+    // destination the request asked for, so it cannot settle the operation.
+    await reconcile(() => ({ time: '13:00:00', id: 'held-bz' }), raised! + 1);
     expect(await claim()).toBe('false');
   });
 
@@ -2748,7 +2797,10 @@ describe('AutopilotProvider unresolved reservations', () => {
     it('settles once the attraction it was for appears', async () => {
       const raised = await unknownSwap();
       await reconcile(
-        key => (key === leaseKey(BZ, TODAY) ? '11:00:00' : undefined),
+        key =>
+          key === leaseKey(BZ, TODAY)
+            ? { time: '11:00:00', id: 'incoming-bz' }
+            : undefined,
         raised + 1
       );
       expect(quarantinedAt(victim)).toBeUndefined();
@@ -2804,7 +2856,7 @@ describe('AutopilotProvider overlapping ticks', () => {
  * wedged request held a reservation until the 4am rollover, with nothing on any
  * screen saying why nothing was acting on it.
  *
- * `MAX_RENEWAL_MS` is where the engine stops believing in it. What it does then
+ * `MAX_MUTATION_MS` is where the engine stops believing in it. What it does then
  * depends on which side of the commit boundary the request was on, because that
  * is the difference between a reservation nothing has touched and one whose
  * state nobody will ever learn.
@@ -2824,7 +2876,7 @@ describe('AutopilotProvider abandoned operations', () => {
     const wedged = leaseHolder(leaseKey(BZ, TODAY));
     expect(wedged).toBeDefined();
     await act(async () => {
-      await jest.advanceTimersByTimeAsync(MAX_RENEWAL_MS + 1);
+      await jest.advanceTimersByTimeAsync(MAX_MUTATION_MS + 1);
     });
     // Not this operation's any more. A later tick may well have taken it, which
     // is the point: the reservation is workable again.
@@ -2844,7 +2896,7 @@ describe('AutopilotProvider abandoned operations', () => {
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
     expect(quarantinedAt(leaseKey(BZ, TODAY))).toBeUndefined();
     await act(async () => {
-      await jest.advanceTimersByTimeAsync(MAX_RENEWAL_MS + 1);
+      await jest.advanceTimersByTimeAsync(MAX_MUTATION_MS + 1);
     });
     // The request left the device and its outcome is now unknowable, so the
     // reservation is protected rather than quietly handed to the next tick.

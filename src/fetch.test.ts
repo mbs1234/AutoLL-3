@@ -67,6 +67,18 @@ describe('fetchJson()', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it('does not share a controlled mutation response between abort signals', async () => {
+    jest.mocked(fetch).mockClear();
+    mockFetch({ ok: true }, { 'content-type': 'application/json' });
+    const first = new AbortController();
+    const second = new AbortController();
+    await Promise.all([
+      fetchJson(url, { data: { name: 'Mickey' }, signal: first.signal }),
+      fetchJson(url, { data: { name: 'Mickey' }, signal: second.signal }),
+    ]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('adds params to URL', async () => {
     await fetchJson(url, { params: { start: 5, end: 15 } });
     expect(fetch).toHaveBeenLastCalledWith(url + '?start=5&end=15', {
@@ -94,6 +106,20 @@ describe('fetchJson()', () => {
     }) as typeof fetch);
     const promise = fetchJson(url, { timeout });
     jest.advanceTimersByTime(timeout);
+    expect(await promise).toEqual({ ok: false, status: 0, data: null });
+  });
+
+  it('returns status=0 when its caller aborts after dispatch', async () => {
+    jest.spyOn(console, 'error').mockImplementationOnce(() => null);
+    jest.mocked(fetch).mockImplementationOnce(
+      ((_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject('aborted'));
+        })) as typeof fetch
+    );
+    const controller = new AbortController();
+    const promise = fetchJson(url, { signal: controller.signal });
+    controller.abort('stopped');
     expect(await promise).toEqual({ ok: false, status: 0, data: null });
   });
 

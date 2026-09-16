@@ -1,4 +1,4 @@
-import { RequestError } from '@/api/client';
+import { RequestError, RequestNotSent } from '@/api/client';
 import { LLMP } from '@/api/itinerary';
 import { Guest, Guests, Offer, OfferError } from '@/api/ll';
 import { DateTime, ParkTime } from '@/datetime';
@@ -436,6 +436,55 @@ describe('attemptAutoBook()', () => {
     expect(d.ledger.bookedCount).toBe(0);
   });
 
+  it('takes no attempt lock when transport refuses before dispatch', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const ledger = new AutoBookLedger();
+    const d = deps({
+      ledger,
+      requestControl: () => ({
+        signal: new AbortController().signal,
+        start: async () => {
+          throw new RequestNotSent('lease refused before send');
+        },
+      }),
+      book: jest.fn(async (_offer, control) =>
+        control!.start!(() => Promise.resolve(booking))
+      ),
+    });
+
+    const result = await attemptAutoBook(target(), experience, d);
+
+    expect(result).toMatchObject({ status: 'failed', rejected: true });
+    expect(ledger.hasAttempted(BZ, 'book')).toBe(false);
+    expect(ledger.bookedCount).toBe(0);
+  });
+
+  it('takes no attempt lock when the lifecycle refuses the dispatch instruction', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const ledger = new AutoBookLedger();
+    const d = deps({
+      ledger,
+      requestControl: () => ({
+        signal: new AbortController().signal,
+        start: send => send(),
+        onDispatch: () => {
+          throw new RequestNotSent('operation already abandoned');
+        },
+      }),
+      book: jest.fn(async (_offer, control) =>
+        control!.start!(async () => {
+          control!.onDispatch?.();
+          return booking;
+        })
+      ),
+    });
+
+    const result = await attemptAutoBook(target(), experience, d);
+
+    expect(result).toMatchObject({ status: 'failed', rejected: true });
+    expect(ledger.hasAttempted(BZ, 'book')).toBe(false);
+  });
+
   // The other half: Disney answered, and the answer was no. Nothing was
   // booked, so the caller is free to try again later.
   it('reports a rejection as one, so it can be tried again', async () => {
@@ -552,9 +601,9 @@ describe('actionWasRejected()', () => {
     expect(actionWasRejected(withStatus(status))).toBe(true);
   });
 
-  // Thrown as the first statement of ApiClient.request, before anything is
-  // sent -- so this is the most certain "nothing happened" of the lot, and it
-  // is the one that used to read as unknown, because it carries no response.
+  // Thrown at ApiClient's actual send boundary before anything is sent -- so
+  // this is the most certain "nothing happened" of the lot, and it is the one
+  // that used to read as unknown because it carries no response.
   it('is true when our own limiter refused to send it', () => {
     expect(actionWasRejected(new RateLimitExceeded())).toBe(true);
   });

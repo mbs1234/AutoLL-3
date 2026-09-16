@@ -1,13 +1,11 @@
 import { DEFAULT_SETTINGS, saveSettings } from '@/autopilot/storage';
 import { PollerStatus } from '@/autopilot/usePoller';
 import { WatchTarget, saveWatchList } from '@/autopilot/watchlist';
-import { HOME_TAB_KEY } from '@/components/ll/screens/Home';
 import { AutopilotState, BookingLogEntry } from '@/contexts/AutopilotContext';
 import { modifyDate, parkDate } from '@/datetime';
 import { PARTY_IDS_KEY } from '@/hooks/useSavedParty';
 import kvdb from '@/kvdb';
-import { BOOKING_DATE_KEY } from '@/providers/BookingDateProvider';
-import { PARK_KEY } from '@/providers/ParkProvider';
+import { BOOKING_DATE_KEY, HOME_TAB_KEY, PARK_KEY } from '@/storageNamespace';
 
 import {
   DEFAULT_SCRIPT,

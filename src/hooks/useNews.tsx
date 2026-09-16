@@ -3,8 +3,9 @@ import { useState } from 'react';
 import FloatingButton from '@/components/FloatingButton';
 import News from '@/components/screens/News';
 import kvdb from '@/kvdb';
+import { storageKey } from '@/storageNamespace';
 
-export const NEWS_VERSION_KEY = 'autoll3.news.version';
+export const NEWS_VERSION_KEY = storageKey('news.version');
 
 export default function useNews(version: number) {
   const [lastSeenVersion, setLastSeenVersion] = useState(() => {

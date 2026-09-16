@@ -1,3 +1,4 @@
+import { RequestNotSent } from '@/api/client';
 import { Booking, LLMP } from '@/api/itinerary';
 import { Guest, Guests, Offer, OfferError } from '@/api/ll';
 import { DateTime, ParkTime } from '@/datetime';
@@ -683,12 +684,73 @@ describe('attemptAutoModify() against the offer itinerary', () => {
  * that knows it.
  *
  * The caller's plans snapshot can be one move stale -- these helpers are what
- * move the reservation between the every-tenth-tick plans reads. A doubt
- * recorded against that snapshot asks "has it moved?" about a time nobody held,
- * so an untouched reservation answers yes and the quarantine clears itself on
- * its own staleness.
+ * move the reservation between the every-tenth-tick plans reads. The warning
+ * therefore reports a `from` only when the offer itself named one; the exact
+ * requested `to` is what Plans may use as automatic evidence.
  */
 describe('attemptAutoModify() commit boundary', () => {
+  it('publishes neither a lock nor evidence when transport refuses before dispatch', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const ledger = new AutoBookLedger();
+    const onCommitting = jest.fn();
+    const outcome = await attemptAutoModify(
+      target(),
+      experience,
+      existingLL(at(19)),
+      at(11),
+      deps({
+        ledger,
+        onCommitting,
+        requestControl: () => ({
+          signal: new AbortController().signal,
+          start: async () => {
+            throw new RequestNotSent('lease refused before send');
+          },
+        }),
+        book: jest.fn(async (_offer, control) =>
+          control!.start!(() => Promise.resolve(existingLL(at(11))))
+        ),
+      })
+    );
+
+    expect(outcome).toMatchObject({ status: 'failed', rejected: true });
+    expect(ledger.hasAttempted(BZ, 'modify')).toBe(false);
+    expect(onCommitting).not.toHaveBeenCalled();
+  });
+
+  it('publishes neither a lock nor evidence when the lifecycle refuses dispatch', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const ledger = new AutoBookLedger();
+    const onCommitting = jest.fn();
+    const outcome = await attemptAutoModify(
+      target(),
+      experience,
+      existingLL(at(19)),
+      at(11),
+      deps({
+        ledger,
+        onCommitting,
+        requestControl: () => ({
+          signal: new AbortController().signal,
+          start: send => send(),
+          onDispatch: () => {
+            throw new RequestNotSent('operation already abandoned');
+          },
+        }),
+        book: jest.fn(async (_offer, control) =>
+          control!.start!(async () => {
+            control!.onDispatch?.();
+            return existingLL(at(11));
+          })
+        ),
+      })
+    );
+
+    expect(outcome).toMatchObject({ status: 'failed', rejected: true });
+    expect(ledger.hasAttempted(BZ, 'modify')).toBe(false);
+    expect(onCommitting).not.toHaveBeenCalled();
+  });
+
   it('reports the offer itinerary time, not the caller snapshot', async () => {
     const onCommitting = jest.fn();
     await attemptAutoModify(
@@ -709,13 +771,14 @@ describe('attemptAutoModify() commit boundary', () => {
   });
 
   /*
-   * The decision falls back to the caller's snapshot; the evidence does not.
+   * The decision falls back to the caller's snapshot; the mutation record does
+   * not present that fallback as Disney's own observation.
    *
    * Falling back is right for "never trade down" -- refusing to move because
    * Disney omitted an itinerary line would stop every move working. It is
-   * exactly wrong as a baseline for a doubt, because the doubt asks "has it
-   * moved from here?", and a snapshot a move behind has an untouched
-   * reservation answer yes. `to` is what carries the evidence instead.
+   * exactly wrong as the displayed `from`, because a snapshot a move behind
+   * would make the unresolved-change warning describe the wrong operation.
+   * `to` is the exact automatic evidence either way.
    */
   it('reports no baseline when the offer did not name the reservation', async () => {
     const onCommitting = jest.fn();

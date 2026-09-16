@@ -2,12 +2,8 @@ import { modifyDate, parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
 
 import {
-  DOUBT_CONTRARY_READS,
-  DOUBT_READ_SPACING_MS,
-  DOUBT_SETTLE_MS,
   LEASE_KEY,
   LEASE_TTL_MS,
-  MAX_RENEWAL_MS,
   QUARANTINE_KEY,
   RENEW_INTERVAL_MS,
   acquire,
@@ -17,8 +13,12 @@ import {
   leaseKey,
   quarantine,
   quarantinedAt,
+  quarantinedMutations,
   reconcile,
   release,
+  resolveDoubt,
+  resolveDoubtAndAcquire,
+  startWhileHeld,
 } from './lease';
 
 const A = 'instance-a';
@@ -137,19 +137,30 @@ describe('the operation lease', () => {
    */
   describe('quarantine', () => {
     const RAISED = 1000;
-    const SETTLED = RAISED + DOUBT_SETTLE_MS;
-    const modifyDoubt = { kind: 'modify' as const, from: '19:00:00' };
+    const modifyDoubt = {
+      id: 'modify-1',
+      kind: 'modify' as const,
+      from: '19:00:00',
+      to: '11:00:00',
+    };
     const swapDoubt = {
+      id: 'swap-1',
       kind: 'swap' as const,
       from: '19:00:00',
+      to: '13:00:00',
       gaining: '80010129',
     };
     /** What a plans read reporting nothing at all looks like. */
     const nothing = () => undefined;
     /** A read that started after the doubt was raised, as every real one does. */
     const read =
-      (seen: (key: string) => string | undefined, at: number) => () =>
+      (
+        seen: (key: string) => { time: string; id: string } | undefined,
+        at: number
+      ) =>
+      () =>
         reconcile(seen, at);
+    const seenAt = (time: string, id = 'booking-1') => ({ time, id });
 
     it('refuses everyone, including the instance that raised it', async () => {
       await acquire(KEY, A);
@@ -159,50 +170,53 @@ describe('the operation lease', () => {
       expect(await acquire(KEY, B)).toBe(false);
     });
 
+    it('evicts a pre-existing lease so clearing doubt cannot revive it', async () => {
+      await acquire(KEY, A);
+      await quarantine(KEY, modifyDoubt, RAISED);
+      await resolveDoubt(KEY, modifyDoubt.id);
+      expect(holder(KEY)).toBeUndefined();
+      expect(await acquire(KEY, B)).toBe(true);
+    });
+
     it('does not expire the way a lease does', async () => {
       await quarantine(KEY, modifyDoubt, RAISED);
       expect(await acquire(KEY, A, RAISED + LEASE_TTL_MS * 10)).toBe(false);
     });
 
-    /*
-     * Positive evidence settles it at once: the reservation is no longer where
-     * it was, so the change landed. The *before* is what is recorded, not the
-     * intended after -- Disney can answer a move with a different time than the
-     * one asked for, so "it is where we wanted" is not a test that can be
-     * relied on, while "it has moved" is.
-     */
-    it('clears as soon as a modified reservation has moved', async () => {
+    it('clears a modify only at the exact time sent to Disney', async () => {
       await quarantine(KEY, modifyDoubt, RAISED);
-      await read(() => '11:00:00', 2000)();
+      await read(() => seenAt('11:00:00'), 2000)();
       expect(await acquire(KEY, A, 2000)).toBe(true);
     });
 
-    /*
-     * The reservation being missing is not the same evidence, and treating it
-     * as though it were is how the protection cleared itself. A modify leaves
-     * the reservation in place at a new time; a disappearance says the read is
-     * incomplete -- and this codebase already knows a single plans response can
-     * omit a reservation that is still there, which is why `CONFIRM_ABSENT_POLLS`
-     * exists at all.
-     */
-    it('does not take a missing reservation as proof a move landed', async () => {
+    it('does not clear a modify merely because it moved elsewhere', async () => {
       await quarantine(KEY, modifyDoubt, RAISED);
-      await read(nothing, 2000)();
+      await read(() => seenAt('12:00:00'), 2000)();
       expect(await acquire(KEY, A, 2000)).toBe(false);
     });
 
-    /*
-     * A swap does make the reservation disappear, so absence is consistent with
-     * it -- and equally consistent with the swap never having happened. The
-     * proof is the attraction it was for turning up in the slot instead.
-     */
-    it('clears a swap when the incoming attraction appears', async () => {
+    it('clears a swap when the incoming attraction appears at the sent time', async () => {
       await quarantine(KEY, swapDoubt, RAISED);
       await read(
-        key => (key === leaseKey('80010129', DATE) ? '13:00:00' : undefined),
+        key =>
+          key === leaseKey('80010129', DATE)
+            ? seenAt('13:00:00', 'incoming-booking')
+            : undefined,
         2000
       )();
       expect(await acquire(KEY, A, 2000)).toBe(true);
+    });
+
+    it('does not clear a swap when the incoming attraction has another time', async () => {
+      await quarantine(KEY, swapDoubt, RAISED);
+      await read(
+        key =>
+          key === leaseKey('80010129', DATE)
+            ? seenAt('13:05:00', 'incoming-booking')
+            : undefined,
+        2000
+      )();
+      expect(await acquire(KEY, A, 2000)).toBe(false);
     });
 
     it('does not clear a swap on the victim being gone alone', async () => {
@@ -211,50 +225,12 @@ describe('the operation lease', () => {
       expect(await acquire(KEY, A, 2000)).toBe(false);
     });
 
-    /*
-     * One read is not enough to say it did *not* happen. This codebase already
-     * demands two agreeing reads for the same question -- Disney's itinerary
-     * lags, and a request that timed out on the client can still land after the
-     * next read has started.
-     */
-    it('does not clear on a single read still showing the old time', async () => {
+    it('never clears from elapsed time or contrary reads alone', async () => {
       await quarantine(KEY, modifyDoubt, RAISED);
-      await read(() => '19:00:00', SETTLED)();
-      expect(await acquire(KEY, A, SETTLED)).toBe(false);
-    });
-
-    it('clears after enough separate reads keep saying nothing happened', async () => {
-      await quarantine(KEY, modifyDoubt, RAISED);
-      for (let i = 0; i < DOUBT_CONTRARY_READS; ++i) {
-        await read(() => '19:00:00', SETTLED + i * DOUBT_READ_SPACING_MS)();
+      for (let i = 0; i < 20; ++i) {
+        await read(() => seenAt('19:00:00'), RAISED + i * LEASE_TTL_MS)();
       }
-      const last = SETTLED + (DOUBT_CONTRARY_READS - 1) * DOUBT_READ_SPACING_MS;
-      expect(await acquire(KEY, A, last)).toBe(true);
-    });
-
-    /*
-     * Two reads have to be two *observations*. `fetchJson` hands concurrent
-     * identical requests the same promise, so two `pollPlans()` calls in one
-     * tick are one HTTP response -- and counting it twice let a single
-     * observation satisfy a rule written to need two.
-     */
-    it('does not count two reads close enough together to be one response', async () => {
-      await quarantine(KEY, modifyDoubt, RAISED);
-      await read(() => '19:00:00', SETTLED)();
-      await read(() => '19:00:00', SETTLED + DOUBT_READ_SPACING_MS - 1)();
-      expect(await acquire(KEY, A, SETTLED + DOUBT_READ_SPACING_MS - 1)).toBe(
-        false
-      );
-    });
-
-    // And absence of change is not evidence at all until the change has had
-    // time to show up.
-    it('ignores contrary reads taken before it could have appeared', async () => {
-      await quarantine(KEY, modifyDoubt, RAISED);
-      for (let i = 0; i < DOUBT_CONTRARY_READS * 3; ++i) {
-        await read(() => '19:00:00', 1500 + i)();
-      }
-      expect(await acquire(KEY, A, 1500)).toBe(false);
+      expect(await acquire(KEY, A, RAISED + 30 * LEASE_TTL_MS)).toBe(false);
     });
 
     /*
@@ -266,46 +242,8 @@ describe('the operation lease', () => {
     it('ignores a read that started before the doubt was raised', async () => {
       await quarantine(KEY, modifyDoubt, RAISED);
       // Data that would settle it outright, from a read that began earlier.
-      await reconcile(() => '11:00:00', RAISED - 1);
-      expect(await acquire(KEY, A, SETTLED)).toBe(false);
-    });
-
-    /*
-     * The window is measured from when a read *started*, because that is all a
-     * read can ever speak about. Gating it on the completion time collapsed the
-     * whole rule: a response that took four minutes to arrive satisfied a
-     * two-minute window while only ever having seen the world as it was when it
-     * left. A slow read is not an old read.
-     */
-    it('measures the window from when a read started, not when it landed', async () => {
-      await quarantine(KEY, modifyDoubt, RAISED);
-      // Two reads that began moments after the doubt, whenever they arrived.
-      await read(() => '19:00:00', RAISED + 10_000)();
-      await read(() => '19:00:00', RAISED + 10_000 + DOUBT_READ_SPACING_MS)();
-      expect(await acquire(KEY, A, RAISED + DOUBT_SETTLE_MS * 3)).toBe(false);
-    });
-
-    /*
-     * The other half of the pair, and the half that still works when the offer
-     * did not say where the reservation started. Seeing it at exactly the time
-     * the request asked for is about as direct as evidence gets.
-     */
-    it('clears a modify sitting at the time the request asked for', async () => {
-      await quarantine(KEY, { kind: 'modify', to: '11:00:00' }, RAISED);
-      await read(() => '11:00:00', 2000)();
-      expect(await acquire(KEY, A, 2000)).toBe(true);
-    });
-
-    /*
-     * And without a baseline the offer vouched for, "somewhere else" is not
-     * evidence of anything. It was the caller's snapshot that used to fill that
-     * gap, and a snapshot one move behind had an untouched reservation read as
-     * proof the change had landed.
-     */
-    it('does not clear a modify with no baseline that is merely elsewhere', async () => {
-      await quarantine(KEY, { kind: 'modify', to: '11:00:00' }, RAISED);
-      await read(() => '17:00:00', 2000)();
-      expect(await acquire(KEY, A, 2000)).toBe(false);
+      await reconcile(() => seenAt('11:00:00'), RAISED);
+      expect(await acquire(KEY, A, RAISED + LEASE_TTL_MS)).toBe(false);
     });
 
     /*
@@ -320,14 +258,55 @@ describe('the operation lease', () => {
       await quarantine(KEY, swapDoubt, RAISED);
       await quarantine(
         KEY,
-        { kind: 'modify', from: '19:00:00', to: '17:00:00' },
+        {
+          id: 'modify-2',
+          kind: 'modify',
+          from: '19:00:00',
+          to: '17:00:00',
+        },
         RAISED + 1
       );
       // Answers the modify outright, and says nothing at all about the swap:
       // the attraction that one was for is nowhere in plans.
-      await read(key => (key === KEY ? '17:00:00' : undefined), 2000)();
+      await read(key => (key === KEY ? seenAt('17:00:00') : undefined), 2000)();
       expect(quarantinedAt(KEY)).toBe(RAISED);
       expect(await acquire(KEY, A, 2000)).toBe(false);
+    });
+
+    it('keeps identical evidence from different mutation ids independent', async () => {
+      await quarantine(KEY, { ...modifyDoubt, id: 'generation-a' }, RAISED);
+      await quarantine(KEY, { ...modifyDoubt, id: 'generation-b' }, RAISED + 1);
+      expect(quarantinedMutations().map(doubt => doubt.id)).toEqual([
+        'generation-a',
+        'generation-b',
+      ]);
+      await resolveDoubt(KEY, 'generation-a');
+      expect(await acquire(KEY, A)).toBe(false);
+      await resolveDoubt(KEY, 'generation-b');
+      expect(await acquire(KEY, A)).toBe(true);
+    });
+
+    it('can resolve a late success and retain the lease without a gap', async () => {
+      await quarantine(KEY, modifyDoubt, RAISED);
+      expect(await resolveDoubtAndAcquire(KEY, modifyDoubt.id, A, 2000)).toBe(
+        true
+      );
+      expect(holder(KEY, 2000)).toBe(A);
+      expect(await acquire(KEY, B, 2000)).toBe(false);
+    });
+
+    it('keeps the doubt when late-success reacquisition is refused', async () => {
+      await quarantine(KEY, modifyDoubt, RAISED);
+      // Represents a competing context in a browser without Web Locks, or a
+      // person who manually cleared protection and let new work begin before
+      // the original response arrived.
+      kvdb.set(LEASE_KEY, { [KEY]: { owner: B, at: 2000 } });
+
+      expect(await resolveDoubtAndAcquire(KEY, modifyDoubt.id, A, 2000)).toBe(
+        false
+      );
+      expect(quarantinedAt(KEY)).toBe(RAISED);
+      expect(holder(KEY, 2000)).toBe(B);
     });
 
     it('leaves other reservations alone', async () => {
@@ -339,9 +318,9 @@ describe('the operation lease', () => {
     /*
      * Scoped to the reservation's own park day, not to the day it was raised.
      * Stored through `getDaily` it was scoped to *today*, so every doubt
-     * vanished at the 4am rollover -- including one raised minutes before it,
-     * whose settle window had not run, and every doubt about a future-dated
-     * reservation, which is most of what this app books.
+     * vanished at the 4am rollover -- including one raised minutes before it
+     * could be inspected, and every doubt about a future-dated reservation,
+     * which is most of what this app books.
      */
     it('keeps a doubt about a reservation on a later day', async () => {
       const later = leaseKey('80010114', modifyDate(DATE, 1));
@@ -359,7 +338,7 @@ describe('the operation lease', () => {
     it('still honours a doubt written in the old day-scoped shape', async () => {
       kvdb.set(QUARANTINE_KEY, {
         date: parkDate(),
-        value: { [KEY]: { at: RAISED, from: '19:00:00', contrary: 0 } },
+        value: { [KEY]: { at: RAISED, from: '19:00:00' } },
       });
       expect(quarantinedAt(KEY)).toBe(RAISED);
       expect(await acquire(KEY, A)).toBe(false);
@@ -375,7 +354,7 @@ describe('the operation lease', () => {
       const later = leaseKey('80010114', modifyDate(parkDate(), 40));
       kvdb.set(QUARANTINE_KEY, {
         date: modifyDate(parkDate(), -1),
-        value: { [later]: { at: RAISED, from: '19:00:00', contrary: 0 } },
+        value: { [later]: { at: RAISED, from: '19:00:00' } },
       });
       expect(quarantinedAt(later)).toBe(RAISED);
     });
@@ -385,7 +364,7 @@ describe('the operation lease', () => {
       const past = leaseKey('80010114', modifyDate(parkDate(), -3));
       kvdb.set(QUARANTINE_KEY, {
         date: modifyDate(parkDate(), -1),
-        value: { [past]: { at: RAISED, from: '19:00:00', contrary: 0 } },
+        value: { [past]: { at: RAISED, from: '19:00:00' } },
       });
       expect(quarantinedAt(past)).toBeUndefined();
     });
@@ -396,16 +375,24 @@ describe('the operation lease', () => {
       expect(quarantinedAt(past)).toBeUndefined();
       expect(await acquire(past, A)).toBe(true);
     });
+
+    it('ignores malformed reservation keys from storage', () => {
+      kvdb.set(QUARANTINE_KEY, {
+        'not-a-reservation': { ...modifyDoubt, at: RAISED },
+        '2026-99-99:bad-date': { ...modifyDoubt, at: RAISED },
+      });
+      expect(quarantinedMutations()).toEqual([]);
+    });
   });
 
   /*
    * The lease has to outlast the request, not the tick that started it.
    *
    * `TICK_DEADLINE_MS` abandons an overrunning tick without cancelling it, and
-   * a response body that stops arriving has no bound of its own -- so a lease
-   * acquired once and left to its TTL expired at 120 seconds under a request
-   * still in the air, and the next actor took the reservation Disney was about
-   * to change.
+   * first-use sensor loading happens before the HTTP timeout begins. A lease
+   * acquired once and left to its TTL can therefore expire under an operation
+   * still in the air, letting the next actor take the reservation Disney is
+   * about to change.
    */
   describe('renewal', () => {
     afterEach(() => jest.useRealTimers());
@@ -422,32 +409,13 @@ describe('the operation lease', () => {
       await acquire(KEY, A);
       const stop = keepAlive(KEY, A);
       // Well past the TTL: without renewal the lease is long gone by here.
-      jest.advanceTimersByTime(LEASE_TTL_MS + RENEW_INTERVAL_MS);
+      for (let elapsed = 0; elapsed < LEASE_TTL_MS * 3; ) {
+        await act(RENEW_INTERVAL_MS);
+        elapsed += RENEW_INTERVAL_MS;
+      }
       expect(holder(KEY)).toBe(A);
       expect(await acquire(KEY, B)).toBe(false);
       stop();
-    });
-
-    /*
-     * Renewal cannot go on forever, and the bound is not a detail. The poller
-     * abandons a tick without cancelling it, sensor generation is awaited
-     * outside any request timeout, and a promise that never settles never
-     * reaches the cleanup that stops the timer -- so renewing unconditionally
-     * turned one wedged request into a reservation held for the rest of the
-     * day, with nothing on any screen saying why.
-     */
-    it('reports abandonment once an operation has run too long', async () => {
-      jest.useFakeTimers({ now: 0, advanceTimers: false });
-      const lost = jest.fn();
-      await acquire(KEY, A);
-      keepAlive(KEY, A, lost);
-      jest.advanceTimersByTime(MAX_RENEWAL_MS - 1);
-      expect(lost).not.toHaveBeenCalled();
-      jest.advanceTimersByTime(1);
-      expect(lost).toHaveBeenCalledWith('abandoned');
-      // And stops renewing, so the lease lapses the way it did before renewal.
-      jest.advanceTimersByTime(LEASE_TTL_MS);
-      expect(holder(KEY)).toBeUndefined();
     });
 
     /*
@@ -465,13 +433,32 @@ describe('the operation lease', () => {
       expect(lost).toHaveBeenCalledWith('refused');
     });
 
+    it('reports a renewal whose coordination request rejects', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      jest.useFakeTimers({ now: 0, advanceTimers: false });
+      const lost = jest.fn();
+      const request = jest
+        .fn()
+        .mockImplementationOnce((_name: string, body: () => unknown) =>
+          Promise.resolve(body())
+        )
+        .mockRejectedValueOnce(new Error('lock manager unavailable'));
+      (navigator as unknown as { locks: unknown }).locks = { request };
+      await acquire(KEY, A);
+      keepAlive(KEY, A, lost);
+
+      await jest.advanceTimersByTimeAsync(RENEW_INTERVAL_MS);
+
+      expect(lost).toHaveBeenCalledWith('refused');
+    });
+
     // The canceller is the caller saying it is done, which is not a loss.
     it('says nothing when the caller stops it', async () => {
       jest.useFakeTimers({ now: 0, advanceTimers: false });
       const lost = jest.fn();
       await acquire(KEY, A);
       keepAlive(KEY, A, lost)();
-      jest.advanceTimersByTime(MAX_RENEWAL_MS * 2);
+      jest.advanceTimersByTime(LEASE_TTL_MS * 4);
       expect(lost).not.toHaveBeenCalled();
     });
 
@@ -486,6 +473,65 @@ describe('the operation lease', () => {
       jest.advanceTimersByTime(LEASE_TTL_MS);
       expect(holder(KEY)).toBeUndefined();
       expect(await acquire(KEY, B)).toBe(true);
+    });
+  });
+
+  describe('dispatch revalidation', () => {
+    afterEach(() => jest.useRealTimers());
+
+    it('starts the request while the browser mutex still covers the check', async () => {
+      const calls: string[] = [];
+      (navigator as unknown as { locks: unknown }).locks = {
+        request: async (_name: string, body: () => unknown) => {
+          calls.push('lock');
+          const value = await body();
+          calls.push('unlock');
+          return value;
+        },
+      };
+      await acquire(KEY, A);
+      const result = await startWhileHeld(
+        KEY,
+        A,
+        () => true,
+        async () => {
+          calls.push('send');
+          return 'ok';
+        }
+      );
+      expect(result).toEqual({ started: true, value: 'ok' });
+      expect(calls.indexOf('send')).toBeLessThan(calls.lastIndexOf('unlock'));
+    });
+
+    it('refuses to resurrect a lease that expired before dispatch', async () => {
+      await acquire(KEY, A, 1000);
+      const send = jest.fn(async () => 'sent');
+      expect(
+        await startWhileHeld(KEY, A, () => true, send, 1000 + LEASE_TTL_MS)
+      ).toEqual({ started: false });
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('checks expiry when the browser mutex is entered, not when queued', async () => {
+      jest.useFakeTimers({ now: 1100, advanceTimers: false });
+      await acquire(KEY, A, 1000);
+      let enter = () => undefined;
+      (navigator as unknown as { locks: unknown }).locks = {
+        request: (_name: string, body: () => unknown) =>
+          new Promise((resolve, reject) => {
+            enter = () => {
+              Promise.resolve().then(body).then(resolve, reject);
+            };
+          }),
+      };
+      const send = jest.fn(async () => 'sent');
+      const pending = startWhileHeld(KEY, A, () => true, send);
+
+      jest.setSystemTime(1000 + LEASE_TTL_MS);
+      enter();
+
+      await expect(pending).resolves.toEqual({ started: false });
+      expect(send).not.toHaveBeenCalled();
     });
   });
 

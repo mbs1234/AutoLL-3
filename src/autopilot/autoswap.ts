@@ -1,3 +1,4 @@
+import type { RequestControl } from '@/api/client';
 import { Booking, LLMP, isLLMP, isMultipleExperiences } from '@/api/itinerary';
 import { Guest, Guests, Offer, OfferError, OfferExperience } from '@/api/ll';
 import { ParkTime, parkDate } from '@/datetime';
@@ -67,13 +68,17 @@ export type SwapOutcome =
  *   real reservation to a needless swap.
  */
 export function heldMPToday(plans: Booking[], date: string): LLMP[] {
-  return plans.filter(
-    (booking): booking is LLMP =>
-      isLLMP(booking) &&
-      parkDate(booking.start) === date &&
-      !!booking.cancellable &&
-      booking.guests.length > 0 &&
-      !isMultipleExperiences(booking)
+  return plans.filter(booking => isHeldMP(booking, date));
+}
+
+/** The shared definition of a live Multi Pass reservation. */
+export function isHeldMP(booking: Booking, date: string): booking is LLMP {
+  return (
+    isLLMP(booking) &&
+    parkDate(booking.start) === date &&
+    !!booking.cancellable &&
+    booking.guests.length > 0 &&
+    !isMultipleExperiences(booking)
   );
 }
 
@@ -170,7 +175,12 @@ export interface AutoSwapDeps {
    * Optional: callers that have nothing to re-check may omit it.
    */
   stillWanted?: (returnTime: ParkTime) => boolean;
-  book: (offer: Offer<LLMP>) => Promise<LLMP>;
+  book: (offer: Offer<LLMP>, control?: RequestControl) => Promise<LLMP>;
+  /** Build transport control after every offer guard has passed. */
+  requestControl?: (change: {
+    from?: ParkTime;
+    to: ParkTime;
+  }) => RequestControl;
   guests: Guests;
   ledger: AutoBookLedger;
   /** Optional; when it reports a clash, the swap is abandoned. */
@@ -193,13 +203,11 @@ export interface AutoSwapDeps {
    *
    * The same boundary `attemptAutoModify` reports, with the same rule about
    * `from`: only ever the offer's own view of the victim, never the caller's
-   * snapshot, because a doubt settled against a stale baseline clears itself on
-   * its own staleness.
-   *
-   * For a swap these are both *contrary* tests -- the victim still sitting at
-   * `from` is what says nothing happened. What says something did is the
-   * incoming attraction appearing, which the caller already knows and records
-   * alongside this.
+   * snapshot. It is diagnostic context; the only automatic proof of a swap is
+   * the incoming attraction appearing at `to`, which the caller records
+   * alongside this. With a controlled request the callback runs at the API
+   * client's post-sensor dispatch boundary, not when the helper first enters
+   * `book()`.
    */
   onCommitting?: (change: { from?: ParkTime; to: ParkTime }) => void;
 }
@@ -226,6 +234,7 @@ export async function attemptAutoSwap(
     stillWanted,
     partyIsAcceptable,
     onCommitting,
+    requestControl,
   }: AutoSwapDeps
 ): Promise<SwapOutcome> {
   const allowed = shouldSwap(target, incoming, held, ledger);
@@ -257,12 +266,26 @@ export async function attemptAutoSwap(
     if (stillWanted && !stillWanted(offer.start.time)) {
       return { status: 'skipped', reason: 'no-longer-wanted' };
     }
-    ledger.markAttempted(target.experienceId, 'swap');
-    onCommitting?.({
+    const change = {
       from: offerBaseline(offer, victim),
       to: offer.start.time,
-    });
-    const booking = await book(offer);
+    };
+    const onDispatch = () => {
+      ledger.markAttempted(target.experienceId, 'swap');
+      onCommitting?.(change);
+    };
+    const built = requestControl?.(change);
+    const control = built
+      ? {
+          ...built,
+          onDispatch: () => {
+            built.onDispatch?.();
+            onDispatch();
+          },
+        }
+      : undefined;
+    if (!built) onDispatch();
+    const booking = await book(offer, control);
     ledger.markBooked();
     return {
       status: 'swapped',

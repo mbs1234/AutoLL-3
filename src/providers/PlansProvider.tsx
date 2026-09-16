@@ -1,7 +1,7 @@
 import { use, useCallback, useEffect, useRef, useState } from 'react';
 
 import { Booking } from '@/api/itinerary';
-import { findExistingLL } from '@/autopilot/automodify';
+import { isHeldMP } from '@/autopilot/autoswap';
 import { leaseParts, reconcile } from '@/autopilot/lease';
 import ClientsContext from '@/contexts/ClientsContext';
 import PlansContext from '@/contexts/PlansContext';
@@ -65,13 +65,17 @@ export default function PlansProvider({
       reconciledSequence.current = request;
       void reconcile(key => {
         const { date, facilityId } = leaseParts(key);
-        // Through `findExistingLL` rather than a facility match, because a
-        // doubt is about a Multi Pass and the itinerary holds more than those.
-        // A dining reservation or a DAS return for the same attraction on the
-        // same day would otherwise answer a question it knows nothing about.
-        const booking = findExistingLL(fetched, facilityId, date);
-        return booking ? String(booking.start.time) : undefined;
-      }, polledAt);
+        // The same definition of "held" as the swap engine: an active,
+        // cancellable Multi Pass with guests remaining. A redeemed pass, a
+        // Multiple Experiences Pass, dining or DAS cannot answer a mutation's
+        // question merely because it shares a facility id.
+        const booking = fetched.find(
+          plan => isHeldMP(plan, date) && plan.facilityId === facilityId
+        );
+        return booking
+          ? { time: String(booking.start.time), id: booking.id }
+          : undefined;
+      }, polledAt).catch(error => console.error(error));
     }
     // Returned as well as stored: `plans` will not reflect this until the next
     // render, so a background caller acting within the same tick needs the

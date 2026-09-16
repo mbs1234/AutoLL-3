@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { RequestError } from '@/api/client';
+import { RequestError, RequestNotSent } from '@/api/client';
+import type { RequestControl } from '@/api/client';
 import { Booking } from '@/api/itinerary';
 import { LLMP, Offer, OfferError } from '@/api/ll';
 import { ParkTime, parkDate } from '@/datetime';
@@ -8,7 +9,9 @@ import { sleep } from '@/sleep';
 
 import { actionWasRejected } from './autobook';
 import { findExistingLL, offerBaseline } from './automodify';
-import { MAX_RENEWAL_MS, RENEW_INTERVAL_MS } from './lease';
+import { mutationId } from './lease';
+import { MAX_MUTATION_MS, MutationOperation } from './mutation';
+import type { MutationEvidence } from './mutation';
 import {
   CommitGuard,
   CommitPhase,
@@ -83,7 +86,7 @@ export interface TimeSearchDeps {
   createOffer: (booking: LLMP) => Promise<Offer<LLMP>>;
   getTimes: (offer: Offer<LLMP>) => Promise<ParkTime[][]>;
   changeTime: (offer: Offer<LLMP>, time: ParkTime) => Promise<Offer<LLMP>>;
-  commit: (offer: Offer<LLMP>) => Promise<LLMP>;
+  commit: (offer: Offer<LLMP>, control?: RequestControl) => Promise<LLMP>;
   /** Silent plans refresh, for settling a move that was accepted. */
   pollPlans: () => Promise<Booking[]>;
   /**
@@ -108,6 +111,13 @@ export interface TimeSearchDeps {
    * Optional: the tests that drive this hook directly do not need a ledger.
    */
   claimCommit?: () => Promise<boolean>;
+  /** Renew the claimed lease while the mutation request is outstanding. */
+  keepCommitAlive?: (onLost: () => void) => () => void;
+  /** Atomically revalidate the lease and start the HTTP request. */
+  startCommit?: <T>(
+    authorize: () => boolean,
+    send: () => Promise<T>
+  ) => Promise<T>;
   /** Give the lease back when nothing is outstanding. */
   releaseCommit?: () => void | Promise<void>;
   /**
@@ -119,7 +129,19 @@ export interface TimeSearchDeps {
    * ran out while its own guard still forbade another move, and another engine
    * could take a reservation the guard was still protecting.
    */
-  quarantineCommit?: (change: { from?: string; to?: string }) => void;
+  quarantineCommit?: (
+    id: string,
+    change: MutationEvidence,
+    dispatchedAt: number
+  ) => void | Promise<void>;
+  /** Remove this operation's doubt after a definitive rejection. */
+  resolveCommit?: (id: string) => void | Promise<void>;
+  /** Resolve a definitive success and retain the lease without a gap. */
+  retainCommit?: (id: string) => boolean | Promise<boolean>;
+  /** Swap searches use different positive evidence from same-ride moves. */
+  mutationKind?: 'modify' | 'swap';
+  /** Facility gained by a swap, captured at the commit boundary. */
+  gainingFacility?: () => string | undefined;
   /**
    * Publish a committed return time for other instances to see.
    *
@@ -142,9 +164,9 @@ export interface TimeSearchDeps {
  *
  * Two rules shape everything here:
  *
- * 1. The guard is taken *before* the request goes out and released only on
- *    proof that nothing happened, because a move whose outcome is unknown
- *    cannot be settled later and must not be retried.
+ * 1. A live-work lease is taken before the request, while the mutation object
+ *    records the exact post-sensor dispatch boundary. An unanswered request
+ *    becomes visible, durable quarantine before the lease is released.
  * 2. A move to a *later* time is never committed on its own. Giving up an
  *    earlier reservation is the one direction that cannot be undone if the
  *    search was wrong about what the party wanted, so it is offered and the
@@ -165,6 +187,13 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
   const guardRef = useRef(new CommitGuard());
   const depsRef = useRef(deps);
   depsRef.current = deps;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const runningRef = useRef(false);
   /** Set when the user has approved the later move the guard is holding. */
   const acceptedRef = useRef(false);
@@ -175,6 +204,8 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
    * those locks, but it must preserve one whose request has left the device.
    */
   const commitInFlightRef = useRef(false);
+  /** The one commit whose sensor/fetch path can still be cancelled or settled. */
+  const activeOperationRef = useRef<MutationOperation | undefined>(undefined);
   /**
    * Whether this search currently holds the engine's per-attraction lock.
    *
@@ -193,12 +224,10 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
    * have moved since if the search has already committed once.
    *
    * Deliberately not `state.held`, which is what the screen shows and comes
-   * from Plans. This is the baseline a doubt is settled against, and only
-   * Disney's own view at the offer is admissible as that: the quarantine asks
-   * "has it moved from here?", so a baseline a move behind has an untouched
-   * reservation answer yes. Undefined when the offer did not name it, which
-   * costs a slower settle and never a wrong one -- `guard.requested` carries
-   * the other half of the test.
+   * from Plans. Only Disney's own view at the offer is admissible in the
+   * mutation record; a stale snapshot would make the warning itself lie about
+   * what was being changed. Undefined when the offer did not name it. The exact
+   * requested destination in `guard.requested` is the automatic evidence.
    */
   const baselineRef = useRef<ParkTime | undefined>(undefined);
   const wakeOwner = useRef({}).current;
@@ -219,16 +248,19 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     return got;
   }, []);
 
-  const dropLock = useCallback(() => {
+  const dropLock = useCallback(async () => {
     if (!holdsLockRef.current) return;
+    await depsRef.current.releaseCommit?.();
+    // Keep ownership true when release itself fails so a later cleanup can
+    // retry instead of silently forgetting a lease that may still be live.
     holdsLockRef.current = false;
-    void depsRef.current.releaseCommit?.();
   }, []);
 
   const stop = useCallback(
     (reason: SearchStop) => {
       runningRef.current = false;
       acceptedRef.current = false;
+      activeOperationRef.current?.abandon('stopped');
       const guard = guardRef.current;
       if (guard.phase === 'committing' && !commitInFlightRef.current) {
         guard.release();
@@ -246,7 +278,9 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       // not agreed yet, which is precisely when the engine acting on stale
       // plans would be worst. Only an idle guard with no request outstanding
       // is proof there is nothing left to protect.
-      if (guard.phase === 'idle' && !commitInFlightRef.current) dropLock();
+      if (guard.phase === 'idle' && !commitInFlightRef.current) {
+        void dropLock().catch(error => console.error(error));
+      }
       const stoppedReason =
         reason === 'stopped' && guard.phase === 'awaiting'
           ? 'unconfirmed'
@@ -314,62 +348,344 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     const guardForCleanup = guardRef.current;
     const stopped = () => cancelled || !runningRef.current;
 
-    /**
-     * Keep the claim alive while a request is genuinely in the air.
-     *
-     * The lease expires at a fixed TTL, and a commit is the one call here with
-     * no bound on how long it can take -- the request timeout does not cover
-     * generating sensor data, and a promise that never settles never reaches
-     * the cleanup below. Without renewal a slow commit outlived its own lease
-     * and another engine could take the reservation mid-flight.
-     *
-     * Bounded for the mirror-image reason. Renewing forever turned one wedged
-     * request into a reservation held for the rest of the day with nothing on
-     * screen saying why. Past `MAX_RENEWAL_MS` nothing is coming back to settle
-     * this, so it is settled here -- and since this only ever wraps the commit
-     * itself, "here" is always past the boundary: the outcome is unknowable and
-     * the reservation is in doubt.
-     */
-    function renewing<T>(body: Promise<T>): Promise<T> {
-      const renewal = setInterval(() => {
-        void claimLock().then(got => {
-          if (got) return;
-          // Somebody quarantined this reservation, or took the lease over,
-          // while the request was in the air. Nothing can be unsent, but the
-          // screen should stop claiming this search holds anything.
-          stop();
-          setState(s => (s.contended ? s : { ...s, contended: true }));
-        });
-      }, RENEW_INTERVAL_MS);
-      const deadline = setTimeout(() => {
-        stop();
-        abandonCommit();
-      }, MAX_RENEWAL_MS);
-      function stop() {
-        clearInterval(renewal);
-        clearTimeout(deadline);
-      }
-      return body.finally(stop);
-    }
-
-    /** Give up on a commit that is never going to return. */
-    function abandonCommit() {
+    /** Commit one quoted offer through the shared mutation lifecycle. */
+    async function commitQuoted(quoted: Offer<LLMP>): Promise<void> {
       const guard = guardRef.current;
-      if (guard.phase !== 'committing') return;
-      guard.markUnknown();
-      depsRef.current.quarantineCommit?.({
-        ...(baselineRef.current
-          ? { from: String(baselineRef.current) }
-          : undefined),
-        ...(guard.requested ? { to: String(guard.requested) } : undefined),
+      let claimed = false;
+      try {
+        claimed = await claimLock();
+      } catch (error) {
+        console.error(error);
+        guard.release();
+        if (mountedRef.current) {
+          setState(s => ({
+            ...s,
+            lastError:
+              'AutoLL-3 could not coordinate this reservation. Reload before trying again.',
+            phase: guard.phase,
+          }));
+          stop('failed');
+        }
+        return;
+      }
+      if (!claimed) {
+        guard.release();
+        setState(s => ({ ...s, contended: true, phase: guard.phase }));
+        return;
+      }
+      setState(s => (s.contended ? { ...s, contended: false } : s));
+
+      const kind = depsRef.current.mutationKind ?? 'modify';
+      const gaining = depsRef.current.gainingFacility?.();
+      const evidence: MutationEvidence = {
+        kind,
+        ...(baselineRef.current ? { from: String(baselineRef.current) } : {}),
+        to: String(quoted.start.time),
+        ...(kind === 'swap' && gaining ? { gaining } : {}),
+      };
+      let stopRenewal: () => void = () => undefined;
+      const operation = new MutationOperation({
+        id: mutationId(`search-${kind}`),
+        kind,
+        abandonAt: Date.now() + MAX_MUTATION_MS,
+        onAbandon: async abandoned => {
+          if (abandoned.dispatched && abandoned.evidence) {
+            guard.markUnknown();
+            commitInFlightRef.current = false;
+            let protectedUnknown = false;
+            let protectionError: unknown;
+            const saveQuarantine = depsRef.current.quarantineCommit;
+            if (saveQuarantine) {
+              try {
+                await saveQuarantine(
+                  abandoned.id,
+                  abandoned.evidence,
+                  abandoned.dispatchedAt!
+                );
+                protectedUnknown = true;
+              } catch (error) {
+                protectionError = error;
+                console.error(error);
+              }
+            } else {
+              protectionError = new Error(
+                'No unresolved-change store is configured'
+              );
+            }
+            // A persisted quarantine replaces the live lease. If persistence
+            // failed, keep renewing the lease as the only protection still
+            // available. Simply leaving its current record in place was not
+            // sufficient: it expired after LEASE_TTL_MS and silently reopened
+            // the reservation while the screen still said unresolved.
+            if (protectedUnknown) {
+              stopRenewal();
+              try {
+                await dropLock();
+              } catch (error) {
+                protectionError ??= error;
+                console.error(error);
+              }
+            }
+            if (mountedRef.current) {
+              setState(s => ({
+                ...s,
+                unresolved: guard.requested,
+                phase: guard.phase,
+                ...(protectionError
+                  ? {
+                      lastError:
+                        'The change is unresolved and its protection could not be saved. Do not make another change until you check Disney Plans.',
+                    }
+                  : {}),
+              }));
+              stop('failed');
+            }
+            return;
+          }
+
+          // Nothing left the device. Release promptly; a stopped or unmounted
+          // screen needs no further state update, while a refused renewal is a
+          // visible contention rather than a mysterious failure.
+          stopRenewal();
+          guard.release();
+          commitInFlightRef.current = false;
+          try {
+            await dropLock();
+          } catch (error) {
+            console.error(error);
+            if (mountedRef.current) {
+              setState(s => ({
+                ...s,
+                lastError:
+                  'AutoLL-3 could not release the reservation lock. Reload before trying again.',
+              }));
+            }
+          }
+          if (
+            mountedRef.current &&
+            abandoned.abandonReason === 'lease-refused'
+          ) {
+            setState(s => ({
+              ...s,
+              contended: true,
+              phase: guard.phase,
+            }));
+          }
+        },
       });
-      dropLock();
+      activeOperationRef.current = operation;
+      try {
+        stopRenewal =
+          depsRef.current.keepCommitAlive?.(() =>
+            operation.abandon('lease-refused')
+          ) ?? stopRenewal;
+      } catch (error) {
+        console.error(error);
+        operation.abandon('stopped');
+        try {
+          await operation.waitForAbandonment();
+        } catch (abandonmentError) {
+          console.error(abandonmentError);
+        }
+        if (activeOperationRef.current === operation) {
+          activeOperationRef.current = undefined;
+        }
+        if (mountedRef.current) {
+          setState(s => ({
+            ...s,
+            lastError:
+              'AutoLL-3 could not keep the reservation lock alive. Reload before trying again.',
+            phase: guard.phase,
+          }));
+          stop('failed');
+        }
+        return;
+      }
+
+      const control: RequestControl = {
+        signal: operation.signal,
+        start: async send => {
+          const authorize = () =>
+            !operation.abandoned && !stopped() && runningRef.current;
+          if (depsRef.current.startCommit) {
+            return depsRef.current.startCommit(authorize, send);
+          }
+          if (!authorize()) {
+            throw new RequestNotSent('Search stopped before send');
+          }
+          return send();
+        },
+        onDispatch: () => {
+          if (!operation.markDispatched(evidence)) {
+            throw new RequestNotSent('Search stopped before send');
+          }
+          commitInFlightRef.current = true;
+        },
+      };
+
+      let moved: LLMP;
+      try {
+        moved = await depsRef.current.commit(quoted, control);
+      } catch (error) {
+        operation.settle();
+        await operation.waitForAbandonment();
+        const rejected = !operation.dispatched || actionWasRejected(error);
+        if (rejected) {
+          let resolutionError: unknown;
+          try {
+            await depsRef.current.resolveCommit?.(operation.id);
+          } catch (caught) {
+            resolutionError = caught;
+            console.error(caught);
+          }
+          if (!guard.resolveUnknownRejection()) guard.release();
+          commitInFlightRef.current = false;
+          if (activeOperationRef.current === operation) {
+            activeOperationRef.current = undefined;
+          }
+          stopRenewal();
+          try {
+            await dropLock();
+          } catch (caught) {
+            resolutionError ??= caught;
+            console.error(caught);
+          }
+          if (mountedRef.current) {
+            setState(s => ({
+              ...s,
+              unresolved: undefined,
+              phase: guard.phase,
+              ...(resolutionError
+                ? {
+                    lastError:
+                      'The request was rejected, but AutoLL-3 could not clear its saved protection. Resolve it from Activity after checking Plans.',
+                  }
+                : {}),
+            }));
+          }
+          // A local cancellation or contention is an ordinary skipped commit,
+          // not one of the repeated Disney failures that stops the search.
+          if (error instanceof RequestNotSent) {
+            if (operation.abandonReason === 'deadline' && mountedRef.current) {
+              setState(s => ({
+                ...s,
+                lastError: 'The change could not be sent before its deadline.',
+              }));
+              stop('failed');
+            } else if (!stopped() && mountedRef.current) {
+              setState(s => ({ ...s, contended: true }));
+            }
+            return;
+          }
+          throw error;
+        }
+
+        if (!operation.abandoned) {
+          guard.markUnknown();
+          let protectedUnknown = false;
+          const saveQuarantine = depsRef.current.quarantineCommit;
+          if (saveQuarantine) {
+            try {
+              await saveQuarantine(
+                operation.id,
+                evidence,
+                operation.dispatchedAt!
+              );
+              protectedUnknown = true;
+            } catch (caught) {
+              console.error(caught);
+            }
+          }
+          if (!protectedUnknown && mountedRef.current) {
+            setState(s => ({
+              ...s,
+              lastError:
+                'The change is unresolved and its protection could not be saved. Do not make another change until you check Disney Plans.',
+            }));
+          }
+          if (protectedUnknown) {
+            stopRenewal();
+            try {
+              await dropLock();
+            } catch (caught) {
+              console.error(caught);
+            }
+          }
+        }
+        commitInFlightRef.current = false;
+        if (activeOperationRef.current === operation) {
+          activeOperationRef.current = undefined;
+        }
+        if (mountedRef.current) {
+          setState(s => ({
+            ...s,
+            unresolved: guard.requested,
+            phase: guard.phase,
+          }));
+          stop('failed');
+        }
+        return;
+      }
+
+      operation.settle();
+      try {
+        await operation.waitForAbandonment();
+      } catch (error) {
+        // `onAbandon` handles and reports its own persistence failures. Keep
+        // this guard here so a future callback cannot strand a known success
+        // in `committing` merely by rejecting.
+        console.error(error);
+      }
+      let retained = true;
+      let retainError: unknown;
+      try {
+        retained = (await depsRef.current.retainCommit?.(operation.id)) ?? true;
+      } catch (error) {
+        retained = false;
+        retainError = error;
+        console.error(error);
+      }
+      holdsLockRef.current = retained;
+      if (!guard.resolveUnknownSuccess()) guard.markCommitted();
+      commitInFlightRef.current = false;
+      if (activeOperationRef.current === operation) {
+        activeOperationRef.current = undefined;
+      }
+      try {
+        depsRef.current.onCommitted?.(moved);
+      } catch (error) {
+        retainError ??= error;
+        console.error(error);
+      }
+      const canContinue = retained && !retainError;
+      // A healthy success has atomically retained/renewed the run's lease, so
+      // the settling loop can take over renewal. If local persistence failed,
+      // leave this operation's renewal alive as the only remaining protection;
+      // the stopped screen tells the user to refresh Plans before acting.
+      if (!retainError) stopRenewal();
       setState(s => ({
         ...s,
-        unresolved: guard.requested,
+        moves: s.moves + 1,
+        held: moved.start.time,
+        unresolved: undefined,
         phase: guard.phase,
+        ...(retainError
+          ? {
+              lastError:
+                'The move succeeded, but AutoLL-3 could not retain all local protection. Refresh Plans before making another change.',
+            }
+          : {}),
+        ...(!runningRef.current || !canContinue
+          ? { stop: 'unconfirmed' as const }
+          : {}),
+        ...(!canContinue
+          ? { running: false, ...(!retained ? { contended: true } : {}) }
+          : {}),
       }));
-      stop('failed');
+      if (!canContinue) {
+        runningRef.current = false;
+        void releaseScreenAwake(wakeOwner);
+      }
     }
 
     /**
@@ -423,33 +739,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
           guard.decline(want);
           return;
         }
-        // Last gate before the move leaves the device: the engine's lock for
-        // this attraction. Refused means Autopilot (or a second tab, or the
-        // provider NextLL nests) is already acting on this reservation, and
-        // committing on top of that is the collision the shared ledger exists
-        // to prevent. The search keeps looking and says so rather than dying.
-        if (!(await claimLock())) {
-          guard.release();
-          setState(s => ({ ...s, contended: true, phase: guard.phase }));
-          return;
-        }
-        setState(s => (s.contended ? { ...s, contended: false } : s));
-        commitInFlightRef.current = true;
-        const moved = await renewing(depsRef.current.commit(quoted));
-        guard.markCommitted();
-        commitInFlightRef.current = false;
-        depsRef.current.onCommitted?.(moved);
-        setState(s => ({
-          ...s,
-          moves: s.moves + 1,
-          held: moved.start.time,
-          phase: guard.phase,
-          // Stop cannot recall a request already sent. If it landed while the
-          // search was stopping, hand the screen to the existing Plans
-          // confirmation recovery instead of leaving an awaiting guard with
-          // no visible way to resume it.
-          ...(!runningRef.current ? { stop: 'unconfirmed' as const } : {}),
-        }));
+        await commitQuoted(quoted);
         return;
       }
 
@@ -464,7 +754,20 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         // `holdsLockRef` true after somebody else had taken the lease, so this
         // search believed it held something it did not and said nothing: a
         // phone backgrounded past the TTL is exactly how that happens.
-        if (!(await claimLock())) {
+        let renewed = false;
+        try {
+          renewed = await claimLock();
+        } catch (error) {
+          console.error(error);
+          setState(s => ({
+            ...s,
+            lastError:
+              'AutoLL-3 could not renew the reservation lock. Refresh Plans before making another change.',
+          }));
+          stop('failed');
+          return;
+        }
+        if (!renewed) {
           holdsLockRef.current = false;
           setState(s => ({ ...s, contended: true }));
           return;
@@ -533,29 +836,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         guard.decline(want);
         return;
       }
-      // Last gate before the move leaves the device: the engine's lock for
-      // this attraction. Refused means Autopilot (or a second tab, or the
-      // provider NextLL nests) is already acting on this reservation, and
-      // committing on top of that is the collision the shared ledger exists
-      // to prevent. The search keeps looking and says so rather than dying.
-      if (!(await claimLock())) {
-        guard.release();
-        setState(s => ({ ...s, contended: true, phase: guard.phase }));
-        return;
-      }
-      setState(s => (s.contended ? { ...s, contended: false } : s));
-      commitInFlightRef.current = true;
-      const moved = await renewing(depsRef.current.commit(quoted));
-      guard.markCommitted();
-      commitInFlightRef.current = false;
-      depsRef.current.onCommitted?.(moved);
-      setState(s => ({
-        ...s,
-        moves: s.moves + 1,
-        held: moved.start.time,
-        phase: guard.phase,
-        ...(!runningRef.current ? { stop: 'unconfirmed' as const } : {}),
-      }));
+      await commitQuoted(quoted);
     }
 
     async function run() {
@@ -564,52 +845,6 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
           await cycle();
           failures = 0;
         } catch (error) {
-          const guard = guardRef.current;
-          // The whole safety question, in one branch. A rejection is proof
-          // that nothing happened, so the lock comes back. Anything else --
-          // a timeout, a 5xx, a dropped connection -- leaves a move that may
-          // or may not have applied, and nothing that arrives later can
-          // settle it.
-          if (guard.phase === 'committing') {
-            if (!commitInFlightRef.current || actionWasRejected(error)) {
-              guard.release();
-              setState(s => ({ ...s, phase: guard.phase }));
-              // And the lease, if this run has already been stopped. `stop`
-              // refuses to release anything that is not settled, which is right
-              // while a request is in the air -- but a definite rejection *is*
-              // the settlement, and it can arrive after the person has pressed
-              // Stop or left the screen. Without this the lease stood until it
-              // expired, on a reservation provably untouched.
-              // `cancelled` as well as `runningRef`: an unmount leaves the ref
-              // set, so a rejection arriving after the screen closed would
-              // otherwise hold the lease until it expired, on a reservation
-              // provably untouched.
-              if (!runningRef.current || cancelled) dropLock();
-            } else {
-              guard.markUnknown();
-              // The search stops here and never renews again, so the lease is
-              // the wrong instrument: quarantine the reservation instead, which
-              // outlives this screen and is cleared by evidence rather than by
-              // a clock.
-              depsRef.current.quarantineCommit?.({
-                ...(baselineRef.current
-                  ? { from: String(baselineRef.current) }
-                  : undefined),
-                ...(guard.requested
-                  ? { to: String(guard.requested) }
-                  : undefined),
-              });
-              dropLock();
-              setState(s => ({
-                ...s,
-                unresolved: guard.requested,
-                phase: guard.phase,
-              }));
-              stop('failed');
-              return;
-            }
-          }
-          commitInFlightRef.current = false;
           // No offer available right now is an ordinary outcome mid-day, not
           // a fault: it must not burn the failure budget.
           const fatal =
@@ -633,6 +868,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     void run();
     return () => {
       cancelled = true;
+      activeOperationRef.current?.abandon('unmounted');
       // Back is the ordinary way to leave this screen, and `NavProvider`
       // unmounts a popped screen -- so without this a claimed lock stayed
       // published and the engine underneath silently stopped acting on that
@@ -645,7 +881,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       // the request landed. That lock is then the engine's own to settle
       // through the ledger, which is where an unsettled action belongs.
       if (guardForCleanup.phase === 'idle' && !commitInFlightRef.current) {
-        dropLock();
+        void dropLock().catch(error => console.error(error));
       }
       void releaseScreenAwake(wakeOwner);
     };

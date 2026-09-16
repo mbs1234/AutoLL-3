@@ -1,3 +1,4 @@
+import type { RequestControl } from '@/api/client';
 import { Booking, LLMP, isLLMP } from '@/api/itinerary';
 import { Guest, Guests, Offer, OfferError, OfferExperience } from '@/api/ll';
 import { ParkTime, parkDate } from '@/datetime';
@@ -153,8 +154,9 @@ export function shouldModify(
  * id. The clash check relies on this itinerary containing the reservation being
  * changed -- that is what it excludes by `release` -- so it is normally present.
  *
- * Undefined when it is not, and that distinction is the whole reason this is
- * separate from `commitBaseline`. See there.
+ * Undefined when it is not. The decision may fall back to the caller's
+ * snapshot, but the user-facing mutation record must not present a stale
+ * snapshot as something the offer itself established.
  */
 export function offerBaseline(
   offer: Pick<Offer<LLMP>, 'itinerary'>,
@@ -181,12 +183,10 @@ export function offerBaseline(
  * modification instead, refusing would stop every move working, and that is the
  * more expensive way to be wrong.
  *
- * It is exactly wrong as **evidence**, which is why `onCommitting` reports
- * `offerBaseline` and not this. A doubt asks "has it moved from here?", so a
- * baseline that was already a move behind has an untouched reservation answer
- * yes -- and the protection then clears itself on its own staleness, which is
- * the failure it exists to prevent. A missing baseline costs a slower settle; a
- * wrong one costs the reservation.
+ * It is not reported as the offer's own baseline, which is why
+ * `onCommitting` uses `offerBaseline` instead. Quarantine now clears only on
+ * the exact requested destination, but its explanation should still distinguish
+ * what Disney vouched for from what came from an older Plans snapshot.
  */
 export function commitBaseline(
   offer: Pick<Offer<LLMP>, 'itinerary'>,
@@ -220,7 +220,12 @@ export interface AutoModifyDeps {
    * Optional: callers that have nothing to re-check may omit it.
    */
   stillWanted?: (returnTime: ParkTime) => boolean;
-  book: (offer: Offer<LLMP>) => Promise<LLMP>;
+  book: (offer: Offer<LLMP>, control?: RequestControl) => Promise<LLMP>;
+  /** Build transport control after every offer guard has passed. */
+  requestControl?: (change: {
+    from?: ParkTime;
+    to: ParkTime;
+  }) => RequestControl;
   guests: Guests;
   ledger: AutoBookLedger;
   minImprovementMinutes?: number;
@@ -244,12 +249,12 @@ export interface AutoModifyDeps {
    *
    * `from` is the reservation's return time as the *offer* reported it, and is
    * absent when the offer did not name it -- deliberately, because the caller's
-   * snapshot is not evidence and passing it here is what let a doubt clear on
-   * its own staleness. `to` is the time being committed to, which is the test
-   * that still works when `from` is missing.
+   * snapshot is not something the offer vouched for. `to` is the exact time
+   * being committed to and the only automatic Plans evidence for a modify.
    *
-   * Called immediately before `book()`, on the same line as the attempt lock,
-   * so it marks precisely the boundary past which the outcome is in doubt.
+   * With a controlled request this is called by `ApiClient` after sensor
+   * generation, on the last instruction before the fetch starts. Without one
+   * it falls back to immediately before `book()` for legacy callers.
    */
   onCommitting?: (change: { from?: ParkTime; to: ParkTime }) => void;
 }
@@ -285,6 +290,7 @@ export async function attemptAutoModify(
     clashes,
     partyIsAcceptable,
     onCommitting,
+    requestControl,
   }: AutoModifyDeps
 ): Promise<ModifyOutcome> {
   const allowed = shouldModify(
@@ -307,8 +313,8 @@ export async function attemptAutoModify(
     );
     const to = offer.start.time;
 
-    // The baseline both the improvement check and any later doubt are measured
-    // against. See `commitBaseline` for why it is not the caller's snapshot.
+    // The decision baseline. The mutation record below separately reports only
+    // the offer's own view, so its explanation never invents a `from` value.
     const from = commitBaseline(offer, allowed.existing);
 
     if (offer.guests.eligible.length === 0) {
@@ -335,9 +341,23 @@ export async function attemptAutoModify(
     if (stillWanted && !stillWanted(to)) {
       return { status: 'skipped', reason: 'no-longer-wanted' };
     }
-    ledger.markAttempted(target.experienceId, 'modify');
-    onCommitting?.({ from: offerBaseline(offer, allowed.existing), to });
-    const booking = await book(offer);
+    const change = { from: offerBaseline(offer, allowed.existing), to };
+    const onDispatch = () => {
+      ledger.markAttempted(target.experienceId, 'modify');
+      onCommitting?.(change);
+    };
+    const built = requestControl?.(change);
+    const control = built
+      ? {
+          ...built,
+          onDispatch: () => {
+            built.onDispatch?.();
+            onDispatch();
+          },
+        }
+      : undefined;
+    if (!built) onDispatch();
+    const booking = await book(offer, control);
     ledger.markBooked();
     return { status: 'modified', booking, from, to };
   } catch (error) {

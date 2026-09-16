@@ -1,11 +1,12 @@
 import { BookingLogEntry } from '@/contexts/AutopilotContext';
 import { ParkTime, parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
+import { storageKey } from '@/storageNamespace';
 
-export const LOG_KEY = 'autoll3.autopilot.log';
-export const SETTINGS_KEY = 'autoll3.autopilot.settings';
-export const LOCKS_KEY = 'autoll3.autopilot.locks';
-export const COMMITS_KEY = 'autoll3.autopilot.commits';
+export const LOG_KEY = storageKey('autopilot.log');
+export const SETTINGS_KEY = storageKey('autopilot.settings');
+export const LOCKS_KEY = storageKey('autopilot.locks');
+export const COMMITS_KEY = storageKey('autopilot.commits');
 /** Newest first, capped: the log is a glance at recent activity, not history. */
 export const LOG_LIMIT = 20;
 
@@ -298,38 +299,6 @@ export function loadLocks(): string[] {
 /** Whether `owner` is the instance recorded as holding `key`. */
 export function holdsLock(key: string, owner: string): boolean {
   return loadLockRecord()[key] === owner;
-}
-
-export const LOCK_OWNER_KEY = 'autoll3.autopilot.lockOwner';
-
-/**
- * This browser tab's id in the shared lock record.
- *
- * Per *tab*, not per mount, and that distinction is the point. A reload
- * replaces the provider but not the tab, and the locks the previous instance
- * published are then nobody's live work -- so the reloaded tab has to be able
- * to recognise them as its own and take them back. With a fresh id each mount
- * they would read as another instance's and a foreground search would be
- * refused on a lock held by a provider that no longer exists.
- *
- * `sessionStorage` is exactly tab-scoped and dies with the tab, which is the
- * lifetime wanted. Prefixed like everything else: this runs on Disney's origin
- * alongside the other builds. Falls back to a per-mount id where sessionStorage
- * is unavailable -- a private window, or storage blocked -- which is no worse
- * than having no owners at all.
- */
-export function lockOwnerId(): string {
-  const fresh = () =>
-    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  try {
-    const stored = sessionStorage.getItem(LOCK_OWNER_KEY);
-    if (stored) return stored;
-    const id = fresh();
-    sessionStorage.setItem(LOCK_OWNER_KEY, id);
-    return id;
-  } catch {
-    return fresh();
-  }
 }
 
 export function saveLocks(

@@ -4,12 +4,10 @@ import { use } from 'react';
 import BookingDateContext from '@/contexts/BookingDateContext';
 import ClientsContext, { Clients } from '@/contexts/ClientsContext';
 import kvdb from '@/kvdb';
+import { BOOKING_DATE_KEY } from '@/storageNamespace';
 import { TODAY, TOMORROW, setTime } from '@/testing';
 
-import BookingDateProvider, {
-  BOOKING_DATE_KEY,
-  ROLLOVER_CHECK_MS,
-} from './BookingDateProvider';
+import BookingDateProvider, { ROLLOVER_CHECK_MS } from './BookingDateProvider';
 
 function Probe() {
   const { bookingDate, setBookingDate } = use(BookingDateContext);
