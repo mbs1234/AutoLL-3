@@ -1,6 +1,7 @@
 import { use, useState } from 'react';
 
 import { LLMP } from '@/api/itinerary';
+import { CHANGE } from '@/autopilot/autobook';
 import { SearchGoal, SearchStop } from '@/autopilot/timesearch';
 import useTimeSearch from '@/autopilot/useTimeSearch';
 import { parseBound } from '@/autopilot/watchlist';
@@ -62,10 +63,15 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
     changeTime: (offer, time) => ll.changeOfferTime(offer, time),
     commit: offer => ll.book(offer),
     pollPlans,
+    // The reservation-scoped lock, not `modify`: what this search must not
+    // collide with is anything changing *this booking*, and an autoswap giving
+    // it away keys its own lock on the attraction coming in instead.
     claimCommit: () =>
-      topAutopilot?.claimAction?.(booking.facilityId, 'modify') ?? true,
+      topAutopilot?.claimAction?.(booking.facilityId, CHANGE) ?? true,
     releaseCommit: () =>
-      topAutopilot?.releaseAction?.(booking.facilityId, 'modify'),
+      topAutopilot?.releaseAction?.(booking.facilityId, CHANGE),
+    onCommitted: moved =>
+      topAutopilot?.publishCommit?.(moved.facilityId, moved.start.time),
   });
 
   function begin(kind: SearchGoal['kind']) {

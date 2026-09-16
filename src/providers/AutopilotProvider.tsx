@@ -13,7 +13,9 @@ import {
   ActionKind,
   AutoBookLedger,
   AutoBookOutcome,
+  CHANGE,
   ClashCheck,
+  LockKind,
   attemptAutoBook,
   shouldAttempt,
 } from '@/autopilot/autobook';
@@ -81,10 +83,12 @@ import {
   COMMIT_TTL_MS,
   activeCommits,
   clearCommit,
+  holdsLock,
   loadBookingLog,
   loadCommits,
   loadLocks,
   loadSettings,
+  lockOwnerId,
   saveBookingLog,
   saveCommit,
   saveLocks,
@@ -305,6 +309,16 @@ export default function AutopilotProvider({
   // What the party held as of the last plans poll. Undefined until the first
   // poll of a run establishes the baseline rather than firing on it.
   const entitlementsRef = useRef<ReadonlySet<string> | undefined>(undefined);
+  /**
+   * This instance's id in the day's shared lock record.
+   *
+   * Every lock is stored against its holder so that a release only takes
+   * effect for the holder: without it, an instance that had adopted a lock and
+   * later gave it back was withdrawing somebody else's protection. Tab-scoped
+   * rather than per mount, so a reload can still recognise and reclaim what the
+   * previous instance in this tab left behind -- see `lockOwnerId`.
+   */
+  const lockOwnerRef = useRef(lockOwnerId());
   const ledgerRef = useRef(
     new AutoBookLedger(
       // Shares this instance's action locks with any other tab or nested
@@ -316,7 +330,14 @@ export default function AutopilotProvider({
       // bucket.
       released => {
         if (parkDate() === parkDayRef.current) {
-          saveLocks(ledgerRef.current.attemptedKeys(), released);
+          // `publishableKeys`, not `attemptedKeys`: the latter includes locks
+          // adopted from other instances, and re-publishing those under this
+          // instance's id would transfer ownership of them.
+          saveLocks(
+            lockOwnerRef.current,
+            ledgerRef.current.publishableKeys(),
+            released
+          );
         }
       }
     )
@@ -442,12 +463,27 @@ export default function AutopilotProvider({
    * Returns false when the lock is already held. The caller decides what to do
    * about it; this only reports.
    */
-  const claimAction = useCallback((experienceId: string, kind: ActionKind) => {
+  const claimAction = useCallback((experienceId: string, kind: LockKind) => {
     const key = `${kind}:${experienceId}`;
     // The only refusal. A request is out for this attraction right now, and a
     // second one on the same entitlement is the collision worth preventing.
     // The caller retries next cycle, which outlasts any single request.
     if (actingRef.current.has(key)) return false;
+    // And the other refusal: a lock this instance did not take itself. It was
+    // adopted from the day's shared record, so another tab or the provider
+    // NextLL nests is holding it, and this instance cannot tell whether that
+    // action is finished. Taking it over would also make the eventual release
+    // withdraw somebody else's protection rather than our own.
+    if (
+      ledgerRef.current.hasAttempted(experienceId, kind) &&
+      !ledgerRef.current.owns(experienceId, kind) &&
+      // ...unless the day's record says this tab published it, which a reload
+      // makes routine: the ledger adopted it rather than taking it, but the
+      // instance that took it is gone.
+      !holdsLock(`${kind}:${experienceId}`, lockOwnerRef.current)
+    ) {
+      return false;
+    }
     // Otherwise the foreground wins, even against a lock this engine holds.
     // That lock means "Autopilot moved this at some point since you switched it
     // on" -- possibly at 9am when it is now 4pm -- and blocking a deliberate
@@ -470,13 +506,24 @@ export default function AutopilotProvider({
    * would lock the attraction against its own next cycle, which for something
    * whose entire promise is "keep trying" is the feature failing silently.
    */
-  const releaseAction = useCallback(
-    (experienceId: string, kind: ActionKind) => {
-      foregroundRef.current.delete(`${kind}:${experienceId}`);
-      ledgerRef.current.releaseAttempt(experienceId, kind);
-    },
-    []
-  );
+  /**
+   * Publish a return time a foreground search just committed.
+   *
+   * Autopilot publishes every commit so another instance's overlap check does
+   * not pass against a snapshot taken before it existed. A Time Search commits
+   * straight through `ll.book(offer)` and published nothing, so for the minutes
+   * until Plans refreshed, a second tab could book a return time that lands on
+   * top of the move the person was watching happen.
+   */
+  const publishCommit = useCallback((facilityId: string, time: ParkTime) => {
+    if (parkDate() !== parkDayRef.current) return;
+    saveCommit({ facilityId, time: String(time) });
+  }, []);
+
+  const releaseAction = useCallback((experienceId: string, kind: LockKind) => {
+    foregroundRef.current.delete(`${kind}:${experienceId}`);
+    ledgerRef.current.releaseAttempt(experienceId, kind);
+  }, []);
 
   const bumpSkip = useCallback((reason: string, name?: string) => {
     setSkipCounts(prev => ({ ...prev, [reason]: (prev[reason] ?? 0) + 1 }));
@@ -577,6 +624,16 @@ export default function AutopilotProvider({
       // which is the same latency every other cross-instance signal in this
       // provider (plans, budget) already accepts.
       ledgerRef.current.adoptAttempted(loadLocks());
+      // Re-publish what this instance owns, every poll. The shared record is a
+      // read-modify-write on localStorage and cannot be made atomic there, so
+      // two instances can interleave and lose one update. Writing our own keys
+      // back each tick makes that self-healing -- a lost lock is restored
+      // within a tick rather than gone for the day, which is the difference
+      // between a moment's exposure and an afternoon of two engines acting on
+      // the same reservation.
+      if (parkDate() === parkDayRef.current) {
+        saveLocks(lockOwnerRef.current, ledgerRef.current.publishableKeys());
+      }
 
       // One date for the whole tick, read once. The ref is assigned during
       // render and this function awaits repeatedly, so re-reading it lets a date
@@ -1025,6 +1082,8 @@ export default function AutopilotProvider({
         // Which call the failure below came from, so a refused eligibility
         // fetch is not also reported against a `book` that never went out.
         let eligibilityFailed = false;
+        // Declared out here so `finally` can close exactly what was opened.
+        const acting: string[] = [];
         try {
           const guests = await guestsFor(experience.id, date);
           // A success clears this call's run. `observeAction` does the clearing,
@@ -1145,7 +1204,27 @@ export default function AutopilotProvider({
           // its lock is taken before the request and, for a modify, never given
           // back, so it says what happened at some point today rather than what
           // is happening now.
-          actingRef.current.add(`${kind}:${experience.id}`);
+          // Two keys, because two questions are being asked. The per-action
+          // one is what this loop's own guards read. The reservation-scoped one
+          // is what a foreground search asks about, and it has to be marked
+          // here or the search's claim would never see a live request: it
+          // claims `change:<reservation>` while this loop acts on
+          // `<kind>:<attraction>`, and for a swap those are different rides
+          // entirely.
+          //
+          // A swap's victim is chosen inside the helper, so every held pass is
+          // marked for the length of the attempt. Broader than necessary and
+          // deliberately so: a swap attempt is seconds, and the cost of being
+          // wrong the other way is two engines changing one reservation.
+          acting.push(`${kind}:${experience.id}`);
+          if (kind === 'swap') {
+            for (const held of allHeldToday) {
+              acting.push(`${CHANGE}:${held.facilityId}`);
+            }
+          } else if (existing) {
+            acting.push(`${CHANGE}:${existing.facilityId}`);
+          }
+          for (const key of acting) actingRef.current.add(key);
           if (kind === 'swap') {
             // Atomic on Disney's side: the mod endpoint takes both the new
             // experience and the one being given up, so the old reservation is
@@ -1224,7 +1303,7 @@ export default function AutopilotProvider({
         } finally {
           // Closes the window opened above, on every path out. Deleting a key
           // that was never added is a no-op, so an early throw is safe.
-          actingRef.current.delete(`${kind}:${experience.id}`);
+          for (const key of acting) actingRef.current.delete(key);
         }
 
         // Anything the helpers returned settles their own call. A success clears
@@ -1318,6 +1397,11 @@ export default function AutopilotProvider({
           // be retried all afternoon.
           if (repeatMoves && outcome.status === 'modified') {
             ledgerRef.current.releaseAttempt(experience.id, 'modify');
+            // And the reservation-scoped lock the modify took alongside it. A
+            // move for a product that wants repeat moves has finished with the
+            // reservation until the next one, and leaving this held would have
+            // the *next* move refused by a lock this same engine is holding.
+            ledgerRef.current.releaseAttempt(experience.id, CHANGE);
           }
           // Publish the committed return time for any other instance to see.
           // Plans are refetched every tenth tick, so without this a second tab
@@ -1809,6 +1893,7 @@ export default function AutopilotProvider({
         bookedCount,
         claimAction,
         releaseAction,
+        publishCommit,
         requireWholeParty: settings.requireWholeParty,
         setRequireWholeParty: on =>
           setSettings(prev => ({ ...prev, requireWholeParty: on })),

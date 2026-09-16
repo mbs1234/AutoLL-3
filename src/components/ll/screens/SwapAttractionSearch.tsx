@@ -2,6 +2,7 @@ import { use, useMemo, useState } from 'react';
 
 import { LLMP } from '@/api/itinerary';
 import { Experience } from '@/api/ll';
+import { CHANGE } from '@/autopilot/autobook';
 import { findHeldByEntitlement } from '@/autopilot/swap';
 import { SearchStop } from '@/autopilot/timesearch';
 import useTimeSearch from '@/autopilot/useTimeSearch';
@@ -71,13 +72,16 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
     changeTime: (offer, time) => ll.changeOfferTime(offer, time),
     commit: offer => ll.book(offer),
     pollPlans,
-    // Keyed to the reservation being given up, and taken as a `swap`: that is
-    // what this is, and it is the kind `chooseSwapVictim` locks on, so the two
-    // cannot both surrender the same held pass.
+    // Keyed to the reservation being given up, under the reservation-scoped
+    // lock. `swap` would have been wrong: Autopilot's swap keys that on the
+    // attraction coming *in*, so the two would never have seen each other
+    // while contending for the very same held pass.
     claimCommit: () =>
-      topAutopilot?.claimAction?.(booking.facilityId, 'swap') ?? true,
+      topAutopilot?.claimAction?.(booking.facilityId, CHANGE) ?? true,
     releaseCommit: () =>
-      topAutopilot?.releaseAction?.(booking.facilityId, 'swap'),
+      topAutopilot?.releaseAction?.(booking.facilityId, CHANGE),
+    onCommitted: moved =>
+      topAutopilot?.publishCommit?.(moved.facilityId, moved.start.time),
     findHeld: findHeldByEntitlement,
     confirmEveryMove: true,
     stopAfterConfirmedMove: true,
@@ -139,6 +143,21 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
               ({search.cycles} {search.cycles === 1 ? 'check' : 'checks'})
             </span>
           </p>
+          {search.contended && (
+            <div
+              role="status"
+              className="mt-3 rounded-sm bg-amber-100 p-2 text-amber-900"
+            >
+              <p className="font-semibold">
+                Waiting for Autopilot to finish a request&hellip;
+              </p>
+              <p className="mt-1">
+                It has one out for this Lightning Lane right now, and two at
+                once is how one of them gives away what the other just secured.
+                This search takes over as soon as that returns.
+              </p>
+            </div>
+          )}
           {search.pending && target && (
             <div className="mt-3 rounded-sm bg-amber-100 p-2 text-amber-900">
               <p className="font-semibold">

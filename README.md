@@ -145,7 +145,8 @@ so nothing else can move that pass mid-search.
 
 When they want the same reservation, the search you started wins. It waits only
 while autopilot has a request genuinely in the air — a few seconds, and the
-screen says so — then takes over. It does not defer to autopilot's lock, because
+screen says so — then takes over. A lock another tab is holding it leaves alone,
+because it cannot tell whether that work has finished. It does not defer to autopilot's lock, because
 that lock is never given back: it records that autopilot moved the ride at some
 point since you switched it on, which may have been hours earlier. That matters
 most in the case only the search can serve, since autopilot sees one return time

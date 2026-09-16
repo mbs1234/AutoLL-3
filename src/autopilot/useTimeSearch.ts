@@ -109,6 +109,16 @@ export interface TimeSearchDeps {
   claimCommit?: () => boolean;
   /** Give the lock back when the commit provably did not happen. */
   releaseCommit?: () => void;
+  /**
+   * Publish a committed return time for other instances to see.
+   *
+   * The engine does this for every action it takes, so another instance's
+   * overlap check cannot pass against a snapshot taken before it existed. This
+   * hook commits outside the engine, so without it there is a window -- until
+   * Plans next refreshes -- where a second tab can book a time that lands on
+   * the move the person is watching happen.
+   */
+  onCommitted?: (booking: LLMP) => void;
 }
 
 /**
@@ -191,12 +201,20 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       if (guard.phase === 'committing' && !commitInFlightRef.current) {
         guard.release();
       }
-      // The `releaseAttempt` escape. Held to the end of the run so Autopilot
-      // cannot move the same reservation mid-search, and given back here so it
-      // does not retire the attraction for the rest of the session. The one
-      // exception is an unknown outcome: a move may have landed, so the lock
-      // stands for exactly the reason the engine's own doubt rules keep it.
-      if (guard.phase !== 'unknown') dropLock();
+      // The `releaseAttempt` escape: the lock is held to the end of the run so
+      // the engine cannot move the same reservation mid-search, and given back
+      // here so it does not retire the attraction for the rest of the session.
+      //
+      // Only when nothing is outstanding, which is narrower than it first
+      // looked. `unknown` is the obvious case -- a move may have landed. But
+      // `committing` with a request still in flight is the same doubt by
+      // another name (the guard three lines up is preserved for exactly that
+      // reason, and releasing the lock while keeping the guard was
+      // contradictory), and `awaiting` means the move *did* land and Plans has
+      // not agreed yet, which is precisely when the engine acting on stale
+      // plans would be worst. Only an idle guard with no request outstanding
+      // is proof there is nothing left to protect.
+      if (guard.phase === 'idle' && !commitInFlightRef.current) dropLock();
       const stoppedReason =
         reason === 'stopped' && guard.phase === 'awaiting'
           ? 'unconfirmed'
@@ -257,6 +275,11 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     let barren = 0;
     let settling = 0;
     let offer: Offer<LLMP> | undefined;
+    // Captured at effect scope for the cleanup below: the guard is created once
+    // and never replaced, so this is the same object either way, but reading a
+    // ref inside a cleanup is the pattern that hides a stale-node bug and the
+    // lint is right to ask.
+    const guardForCleanup = guardRef.current;
     const stopped = () => cancelled || !runningRef.current;
 
     /**
@@ -319,6 +342,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         const moved = await depsRef.current.commit(quoted);
         guard.markCommitted();
         commitInFlightRef.current = false;
+        depsRef.current.onCommitted?.(moved);
         setState(s => ({
           ...s,
           moves: s.moves + 1,
@@ -413,6 +437,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       const moved = await depsRef.current.commit(quoted);
       guard.markCommitted();
       commitInFlightRef.current = false;
+      depsRef.current.onCommitted?.(moved);
       setState(s => ({
         ...s,
         moves: s.moves + 1,
@@ -473,9 +498,23 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     void run();
     return () => {
       cancelled = true;
+      // Back is the ordinary way to leave this screen, and `NavProvider`
+      // unmounts a popped screen -- so without this a claimed lock stayed
+      // published and the engine underneath silently stopped acting on that
+      // attraction for the rest of the session. Losing coverage on a ride you
+      // armed, with nothing on screen saying so, is the worst shape this can
+      // take.
+      //
+      // Phase-aware, for the same reason as `stop`: an unsettled move keeps
+      // its lock, because leaving the screen tells us nothing about whether
+      // the request landed. That lock is then the engine's own to settle
+      // through the ledger, which is where an unsettled action belongs.
+      if (guardForCleanup.phase === 'idle' && !commitInFlightRef.current) {
+        dropLock();
+      }
       void releaseScreenAwake(wakeOwner);
     };
-  }, [state.running, stop, wakeOwner, claimLock]);
+  }, [state.running, stop, wakeOwner, claimLock, dropLock]);
 
   return {
     ...state,

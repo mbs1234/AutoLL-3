@@ -1,7 +1,7 @@
 import { createContext } from 'react';
 
 import { AlertPermission } from '@/autopilot/alert';
-import { ActionKind } from '@/autopilot/autobook';
+import { LockKind } from '@/autopilot/autobook';
 import { DropSummary } from '@/autopilot/observe';
 import { NO_REFUSALS, RefusalState } from '@/autopilot/refusal';
 import { PollerStatus } from '@/autopilot/usePoller';
@@ -135,9 +135,18 @@ export interface AutopilotState {
    *
    * Optional, because the many places that stub this context do not need them.
    */
-  claimAction?: (experienceId: string, kind: ActionKind) => boolean;
+  claimAction?: (experienceId: string, kind: LockKind) => boolean;
   /** Give the lock back, for an action that provably did not happen. */
-  releaseAction?: (experienceId: string, kind: ActionKind) => void;
+  releaseAction?: (experienceId: string, kind: LockKind) => void;
+  /**
+   * Publish a return time a foreground search committed.
+   *
+   * The engine publishes every commit so another instance's overlap check
+   * cannot pass against a snapshot taken before it existed. A search that books
+   * outside the engine has to do the same, or it opens exactly that window for
+   * the minutes until Plans refreshes.
+   */
+  publishCommit?: (facilityId: string, time: ParkTime) => void;
   /** Act only when every party member is eligible. Persisted. */
   requireWholeParty: boolean;
   setRequireWholeParty: (on: boolean) => void;

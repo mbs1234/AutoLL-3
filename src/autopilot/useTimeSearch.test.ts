@@ -367,16 +367,44 @@ describe('useTimeSearch', () => {
 
     // The `releaseAttempt` escape. Without it the search's own lock would
     // retire the attraction for the rest of the engine's session.
-    it('gives the lock back when the search stops', async () => {
+    it('gives the lock back when a settled search stops', async () => {
       const releaseCommit = jest.fn();
+      // The default Plans mock follows the move, so the guard confirms and
+      // returns to idle -- which is the only state that proves nothing is
+      // outstanding. A search that never commits never claims a lock at all,
+      // so there would be nothing to give back.
       const { result } = setup({
         claimCommit: jest.fn(() => true),
         releaseCommit,
       });
       act(() => result.current.start());
       await waitFor(() => expect(result.current.moves).toBeGreaterThan(0));
+      await runCycles(2);
+      expect(result.current.guard.phase).toBe('idle');
       act(() => result.current.cancel());
       expect(releaseCommit).toHaveBeenCalled();
+    });
+
+    /*
+     * But not while anything is outstanding, which is narrower than it looks.
+     * `awaiting` means the move landed and Plans has not agreed yet -- exactly
+     * when the engine acting on stale plans would be worst -- and `committing`
+     * with a request still in the air is the same doubt by another name. Only
+     * an idle guard is proof there is nothing left to protect.
+     */
+    it('keeps the lock when a stopped search is still settling', async () => {
+      const releaseCommit = jest.fn();
+      const { result } = setup({
+        claimCommit: jest.fn(() => true),
+        releaseCommit,
+        // Plans never catches up, so the guard stays `awaiting`.
+        plans: jest.fn(async () => [booking(at(15))]) as never,
+      });
+      act(() => result.current.start());
+      await waitFor(() => expect(result.current.moves).toBeGreaterThan(0));
+      expect(result.current.guard.phase).toBe('awaiting');
+      act(() => result.current.cancel());
+      expect(releaseCommit).not.toHaveBeenCalled();
     });
 
     // The one case where it must not come back: a commit whose outcome nobody
