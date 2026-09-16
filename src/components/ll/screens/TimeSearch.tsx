@@ -1,7 +1,12 @@
-import { use, useState } from 'react';
+import { use, useRef, useState } from 'react';
 
 import { LLMP } from '@/api/itinerary';
-import { CHANGE } from '@/autopilot/autobook';
+import {
+  acquire as acquireLease,
+  leaseKey,
+  release as releaseLease,
+} from '@/autopilot/lease';
+import { saveCommit } from '@/autopilot/storage';
 import { SearchGoal, SearchStop } from '@/autopilot/timesearch';
 import useTimeSearch from '@/autopilot/useTimeSearch';
 import { parseBound } from '@/autopilot/watchlist';
@@ -11,7 +16,7 @@ import { Time } from '@/components/Time';
 import ClientsContext from '@/contexts/ClientsContext';
 import NavContext from '@/contexts/NavContext';
 import PlansContext from '@/contexts/PlansContext';
-import TopAutopilotContext from '@/contexts/TopAutopilotContext';
+import { parkDate } from '@/datetime';
 
 import Home from './Home';
 import { NextLLTimeSearchActivity } from './NextLLActivity';
@@ -44,13 +49,20 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
   const { ll } = use(ClientsContext);
   const { pollPlans } = use(PlansContext);
   const { goBack } = use(NavContext);
-  // The *top-level* engine, not whatever provider happens to be nearest: this
-  // screen can be reached from inside NextLL, whose nested provider is a
-  // short-lived search of its own. The all-day Autopilot is the one still
-  // polling this reservation underneath, and its ledger is the one whose lock
-  // has to be taken. Both publish to the same day-scoped storage, so claiming
-  // through it also covers a second tab.
-  const topAutopilot = use(TopAutopilotContext);
+  const bookingDate = parkDate(booking.start);
+  const reservation = leaseKey(booking.facilityId, bookingDate);
+  /**
+   * This search's own identity on the lease.
+   *
+   * Its own, and not the engine's: the lease is re-entrant for its holder, so
+   * sharing an id with the provider would have the engine's in-flight work
+   * quietly grant this search a claim rather than refuse it -- which is the
+   * whole thing the lease is for. A ref, so StrictMode's double mount does not
+   * produce two searches that cannot release each other's work.
+   */
+  const searchOwner = useRef(
+    `search-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  ).current;
   const [targetText, setTargetText] = useState('');
   const [goal, setGoal] = useState<SearchGoal>({ kind: 'soonest' });
 
@@ -63,15 +75,18 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
     changeTime: (offer, time) => ll.changeOfferTime(offer, time),
     commit: offer => ll.book(offer),
     pollPlans,
-    // The reservation-scoped lock, not `modify`: what this search must not
-    // collide with is anything changing *this booking*, and an autoswap giving
-    // it away keys its own lock on the attraction coming in instead.
-    claimCommit: () =>
-      topAutopilot?.claimAction?.(booking.facilityId, CHANGE) ?? true,
-    releaseCommit: () =>
-      topAutopilot?.releaseAction?.(booking.facilityId, CHANGE),
+    // The operation lease on the reservation this screen was opened for,
+    // taken through the *top-level* engine rather than the nearest provider:
+    // this screen is reachable from inside NextLL, whose nested provider is a
+    // short-lived search of its own.
+    claimCommit: () => acquireLease(reservation, searchOwner),
+    releaseCommit: () => releaseLease(reservation, searchOwner),
     onCommitted: moved =>
-      topAutopilot?.publishCommit?.(moved.facilityId, moved.start.time),
+      saveCommit({
+        facilityId: moved.facilityId,
+        time: String(moved.start.time),
+        date: bookingDate,
+      }),
   });
 
   function begin(kind: SearchGoal['kind']) {

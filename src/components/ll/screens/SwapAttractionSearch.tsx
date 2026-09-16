@@ -1,8 +1,13 @@
-import { use, useMemo, useState } from 'react';
+import { use, useMemo, useRef, useState } from 'react';
 
 import { LLMP } from '@/api/itinerary';
 import { Experience } from '@/api/ll';
-import { CHANGE } from '@/autopilot/autobook';
+import {
+  acquire as acquireLease,
+  leaseKey,
+  release as releaseLease,
+} from '@/autopilot/lease';
+import { saveCommit } from '@/autopilot/storage';
 import { findHeldByEntitlement } from '@/autopilot/swap';
 import { SearchStop } from '@/autopilot/timesearch';
 import useTimeSearch from '@/autopilot/useTimeSearch';
@@ -13,7 +18,7 @@ import { Time } from '@/components/Time';
 import ClientsContext from '@/contexts/ClientsContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import PlansContext from '@/contexts/PlansContext';
-import TopAutopilotContext from '@/contexts/TopAutopilotContext';
+import { parkDate } from '@/datetime';
 
 import { NextLLTimeSearchActivity } from './NextLLActivity';
 
@@ -38,8 +43,23 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
   const { ll } = use(ClientsContext);
   const { experiences } = use(ExperiencesContext);
   const { pollPlans } = use(PlansContext);
-  // The all-day engine, not a nested one -- see the same note on TimeSearch.
-  const topAutopilot = use(TopAutopilotContext);
+  // The reservation's own park day, not whatever date the app is showing. The
+  // lease is on this booking, and a move of a future one filed under today
+  // would warn about a clash on a day it is not on.
+  const bookingDate = parkDate(booking.start);
+  const reservation = leaseKey(booking.facilityId, bookingDate);
+  /**
+   * This search's own identity on the lease.
+   *
+   * Its own, and not the engine's: the lease is re-entrant for its holder, so
+   * sharing an id with the provider would have the engine's in-flight work
+   * quietly grant this search a claim rather than refuse it -- which is the
+   * whole thing the lease is for. A ref, so StrictMode's double mount does not
+   * produce two searches that cannot release each other's work.
+   */
+  const searchOwner = useRef(
+    `search-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  ).current;
   const [targetId, setTargetId] = useState('');
   const target = experiences.find(
     (exp): exp is Experience => exp.id === targetId && !!exp.flex
@@ -72,16 +92,18 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
     changeTime: (offer, time) => ll.changeOfferTime(offer, time),
     commit: offer => ll.book(offer),
     pollPlans,
-    // Keyed to the reservation being given up, under the reservation-scoped
-    // lock. `swap` would have been wrong: Autopilot's swap keys that on the
-    // attraction coming *in*, so the two would never have seen each other
-    // while contending for the very same held pass.
-    claimCommit: () =>
-      topAutopilot?.claimAction?.(booking.facilityId, CHANGE) ?? true,
-    releaseCommit: () =>
-      topAutopilot?.releaseAction?.(booking.facilityId, CHANGE),
+    // The operation lease on the reservation this screen was opened for,
+    // taken through the *top-level* engine rather than the nearest provider:
+    // this screen is reachable from inside NextLL, whose nested provider is a
+    // short-lived search of its own.
+    claimCommit: () => acquireLease(reservation, searchOwner),
+    releaseCommit: () => releaseLease(reservation, searchOwner),
     onCommitted: moved =>
-      topAutopilot?.publishCommit?.(moved.facilityId, moved.start.time),
+      saveCommit({
+        facilityId: moved.facilityId,
+        time: String(moved.start.time),
+        date: bookingDate,
+      }),
     findHeld: findHeldByEntitlement,
     confirmEveryMove: true,
     stopAfterConfirmedMove: true,

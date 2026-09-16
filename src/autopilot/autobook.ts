@@ -111,25 +111,18 @@ export type ClashCheck = (
 export type ActionKind = 'book' | 'modify' | 'swap';
 
 /**
- * A lock on one *reservation*, taken by anything that changes it.
+ * The kind half of a lock key.
  *
- * The per-action locks are per-attraction and exist to stop thrash: one book,
- * one move, one swap per attraction per session. They do not answer the
- * question two engines actually collide over, which is whether somebody else
- * is changing *this reservation* right now -- and they cannot, because a swap
- * locks the attraction coming *in* while the reservation at risk is the one
- * going *out*. A foreground search moving a held Haunted Mansion and an
- * autoswap surrendering that same Haunted Mansion took two different keys and
- * so never saw each other.
- *
- * `change:<facilityId>` is the reservation-scoped lock every path takes: a
- * modify on what it is modifying, a swap on the victim it is giving up, and a
- * foreground search on the booking it was opened for.
+ * Only action kinds now. There was briefly a `change` member here, meant to
+ * lock a *reservation* rather than an attraction -- but mutual exclusion does
+ * not belong in this set at all. An attempt lock is anti-thrash: session-scoped,
+ * shared as a union, never given back for a modify, and therefore unable to say
+ * whether anything is happening *now*. Exclusion lives in `lease.ts`, which is
+ * exclusive, expiring and owned by an instance. Keeping the two apart is what
+ * stopped a search deferring to a marker for work that finished at 9am, and
+ * then stopped a retained marker locking a ride until the 4am rollover.
  */
-export type LockKind = ActionKind | 'change';
-
-/** The reservation-scoped lock for a held booking. */
-export const CHANGE: LockKind = 'change';
+export type LockKind = ActionKind;
 
 /**
  * Per-session record of what the booker has done.

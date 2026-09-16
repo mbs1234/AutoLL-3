@@ -1,5 +1,5 @@
 import { BookingLogEntry } from '@/contexts/AutopilotContext';
-import { ParkTime } from '@/datetime';
+import { ParkTime, parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
 
 export const LOG_KEY = 'autoll3.autopilot.log';
@@ -126,9 +126,11 @@ function logKey(e: BookingLogEntry): string {
  * had recorded, and vice versa: the day's record of what autopilot actually did
  * depended on which screen wrote last.
  *
- * The caller's order is preserved -- it owns it, and the provider builds the
- * list newest first. Entries only this writer has not seen are appended rather
- * than interleaved, so a merge cannot reorder what the caller already arranged.
+ * The result is ordered newest first, which is the order the provider builds in
+ * anyway -- `addLogEntry` prepends. It used to keep the caller's order and slice
+ * afterwards, and that let a stale writer holding twenty older rows discard
+ * newer ones another instance had already recorded: the cap decided by who
+ * wrote last rather than by what happened last.
  */
 export function saveBookingLog(entries: BookingLogEntry[]): void {
   const stored = loadBookingLog();
@@ -150,9 +152,14 @@ export function saveBookingLog(entries: BookingLogEntry[]): void {
     }),
     ...stored.filter(e => !entries.some(x => logKey(x) === logKey(e))),
   ];
+  // Newest first before the cap, not after. Preserving the caller's order and
+  // then slicing let a stale writer holding twenty older rows push out newer
+  // ones another instance had already recorded -- the cap deciding by who wrote
+  // last rather than by what happened last.
+  const ordered = [...merged].sort((a, b) => +b.at - +a.at);
   kvdb.setDaily<StoredLogEntry[]>(
     LOG_KEY,
-    merged.slice(0, LOG_LIMIT).map(e => ({
+    ordered.slice(0, LOG_LIMIT).map(e => ({
       name: e.name,
       at: String(e.at),
       status: e.status,
@@ -381,6 +388,16 @@ export interface CommittedReturn {
   time: string;
   /** `Date.now()` when it was written. Absent in records an older build wrote. */
   at?: number;
+  /**
+   * The park day the reservation is for, not the day the record was written.
+   *
+   * They differ whenever a future date is being worked on, and conflating them
+   * did two wrong things at once: the commit was filed under today, where it
+   * warned about a clash on a day the reservation is not on, and it was absent
+   * from the day it actually belongs to. Absent in records an older build wrote,
+   * which are then read as belonging to the day they are stored under.
+   */
+  date?: string;
 }
 
 /**
@@ -409,15 +426,29 @@ export function loadCommits(): CommittedReturn[] {
  * its age is unknowable; it is treated as expired rather than trusted for the
  * rest of the day.
  */
-export function activeCommits(now = Date.now()): CommittedReturn[] {
+/** The day a record belongs to, defaulting to the day it is stored under. */
+export function commitDate(c: CommittedReturn): string {
+  return c.date ?? parkDate();
+}
+
+export function activeCommits(
+  now = Date.now(),
+  date = parkDate()
+): CommittedReturn[] {
   return loadCommits().filter(
-    c => c.at !== undefined && now - c.at < COMMIT_TTL_MS
+    c =>
+      c.at !== undefined && now - c.at < COMMIT_TTL_MS && commitDate(c) === date
   );
 }
 
 /** Record one committed return time, replacing any earlier one for that ride. */
 export function saveCommit(entry: CommittedReturn): void {
-  const rest = loadCommits().filter(c => c.facilityId !== entry.facilityId);
+  const rest = loadCommits().filter(
+    c =>
+      !(
+        c.facilityId === entry.facilityId && commitDate(c) === commitDate(entry)
+      )
+  );
   kvdb.setDaily<CommittedReturn[]>(COMMITS_KEY, [
     ...rest,
     { at: Date.now(), ...entry },
@@ -425,7 +456,9 @@ export function saveCommit(entry: CommittedReturn): void {
 }
 
 /** Forget a committed return time, once plans show the reservation is gone. */
-export function clearCommit(facilityId: string): void {
-  const rest = loadCommits().filter(c => c.facilityId !== facilityId);
+export function clearCommit(facilityId: string, date = parkDate()): void {
+  const rest = loadCommits().filter(
+    c => !(c.facilityId === facilityId && commitDate(c) === date)
+  );
   kvdb.setDaily<CommittedReturn[]>(COMMITS_KEY, rest);
 }

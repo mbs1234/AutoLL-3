@@ -2,12 +2,7 @@ import { Booking, LLMP, isLLMP } from '@/api/itinerary';
 import { Guest, Guests, Offer, OfferError, OfferExperience } from '@/api/ll';
 import { ParkTime, parkDate } from '@/datetime';
 
-import {
-  AutoBookLedger,
-  CHANGE,
-  ClashCheck,
-  actionWasRejected,
-} from './autobook';
+import { AutoBookLedger, ClashCheck, actionWasRejected } from './autobook';
 import { WatchTarget, inWindow } from './watchlist';
 
 /**
@@ -134,13 +129,6 @@ export function shouldModify(
   // reservation fixed; the API would reject the attempt anyway.
   if (!existing.modifiable) return { ok: false, reason: 'not-modifiable' };
   if (ledger.hasAttempted(target.experienceId, 'modify')) {
-    return { ok: false, reason: 'already-attempted' };
-  }
-  // The reservation-scoped lock, which catches what the per-action one cannot:
-  // an autoswap giving this same pass away keys its lock on the attraction
-  // coming in, and a foreground search keys on nothing at all until it takes
-  // this one.
-  if (ledger.hasAttempted(existing.facilityId, CHANGE)) {
     return { ok: false, reason: 'already-attempted' };
   }
   if (!inWindow(candidateTime, target)) {
@@ -308,25 +296,12 @@ export async function attemptAutoModify(
       return { status: 'skipped', reason: 'no-longer-wanted' };
     }
     ledger.markAttempted(target.experienceId, 'modify');
-    // And the reservation itself, which is what a swap or a foreground search
-    // would collide with. Usually the same attraction, but stated separately
-    // because the two locks answer different questions.
-    ledger.markAttempted(allowed.existing.facilityId, CHANGE);
     const booking = await book(offer);
     ledger.markBooked();
     return { status: 'modified', booking, from, to };
   } catch (error) {
     if (error instanceof OfferError) {
       return { status: 'skipped', reason: 'no-eligible-guests' };
-    }
-    // A rejection is proof the reservation was not touched, so the
-    // reservation-scoped lock comes back at once -- it exists to stop two
-    // engines changing one held pass at the same moment, and after a refusal
-    // there is no such moment. The per-action lock is deliberately kept: that
-    // one paces this engine, and `RETRY_AFTER_MS` decides when it may try
-    // again.
-    if (actionWasRejected(error)) {
-      ledger.releaseAttempt(allowed.existing.facilityId, CHANGE);
     }
     console.error(error);
     return {

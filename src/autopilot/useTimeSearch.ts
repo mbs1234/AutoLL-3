@@ -106,9 +106,9 @@ export interface TimeSearchDeps {
    *
    * Optional: the tests that drive this hook directly do not need a ledger.
    */
-  claimCommit?: () => boolean;
-  /** Give the lock back when the commit provably did not happen. */
-  releaseCommit?: () => void;
+  claimCommit?: () => Promise<boolean>;
+  /** Give the lease back when nothing is outstanding. */
+  releaseCommit?: () => void | Promise<void>;
   /**
    * Publish a committed return time for other instances to see.
    *
@@ -177,20 +177,23 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
   const wakeOwner = useRef({}).current;
 
   /** Take the engine's lock, or report that something else has it. */
-  const claimLock = useCallback(() => {
-    if (holdsLockRef.current) return true;
+  const claimLock = useCallback(async () => {
     const claim = depsRef.current.claimCommit;
-    // Unwired (the hook's own tests, and any caller with no ledger to share):
-    // behave exactly as before rather than refusing to commit.
+    // Unwired (the hook's own tests, and any caller with no engine to contend
+    // with): behave exactly as before rather than refusing to commit.
     if (!claim) return true;
-    holdsLockRef.current = claim();
-    return holdsLockRef.current;
+    // Asked every time rather than only when not already held. The lease
+    // expires, so a run longer than its TTL has to renew, and asking is how it
+    // renews -- acquisition is re-entrant for the holder.
+    const got = await claim();
+    holdsLockRef.current = holdsLockRef.current || got;
+    return got;
   }, []);
 
   const dropLock = useCallback(() => {
     if (!holdsLockRef.current) return;
     holdsLockRef.current = false;
-    depsRef.current.releaseCommit?.();
+    void depsRef.current.releaseCommit?.();
   }, []);
 
   const stop = useCallback(
@@ -332,7 +335,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         // provider NextLL nests) is already acting on this reservation, and
         // committing on top of that is the collision the shared ledger exists
         // to prevent. The search keeps looking and says so rather than dying.
-        if (!claimLock()) {
+        if (!(await claimLock())) {
           guard.release();
           setState(s => ({ ...s, contended: true, phase: guard.phase }));
           return;
@@ -427,7 +430,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       // provider NextLL nests) is already acting on this reservation, and
       // committing on top of that is the collision the shared ledger exists
       // to prevent. The search keeps looking and says so rather than dying.
-      if (!claimLock()) {
+      if (!(await claimLock())) {
         guard.release();
         setState(s => ({ ...s, contended: true, phase: guard.phase }));
         return;
@@ -463,6 +466,13 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
             if (!commitInFlightRef.current || actionWasRejected(error)) {
               guard.release();
               setState(s => ({ ...s, phase: guard.phase }));
+              // And the lease, if this run has already been stopped. `stop`
+              // refuses to release anything that is not settled, which is right
+              // while a request is in the air -- but a definite rejection *is*
+              // the settlement, and it can arrive after the person has pressed
+              // Stop or left the screen. Without this the lease stood until it
+              // expired, on a reservation provably untouched.
+              if (!runningRef.current) dropLock();
             } else {
               guard.markUnknown();
               setState(s => ({
