@@ -1,14 +1,16 @@
 import kvdb from '@/kvdb';
 
 import {
+  DOUBT_CONTRARY_READS,
+  DOUBT_SETTLE_MS,
   LEASE_KEY,
   LEASE_TTL_MS,
   acquire,
   available,
-  clearQuarantinedBefore,
   holder,
   leaseKey,
   quarantine,
+  reconcile,
   release,
 } from './lease';
 
@@ -125,34 +127,71 @@ describe('the operation lease', () => {
   describe('quarantine', () => {
     it('refuses everyone, including the instance that raised it', async () => {
       await acquire(KEY, A);
-      quarantine(KEY, 1000);
+      await quarantine(KEY, {}, 1000);
       await release(KEY, A);
       expect(await acquire(KEY, A)).toBe(false);
       expect(await acquire(KEY, B)).toBe(false);
     });
 
     it('does not expire the way a lease does', async () => {
-      quarantine(KEY, 1000);
+      await quarantine(KEY, {}, 1000);
       expect(await acquire(KEY, A, 1000 + LEASE_TTL_MS * 10)).toBe(false);
     });
 
-    // The evidence is a plans read that started after the doubt was raised.
-    it('clears on evidence gathered after it was raised', async () => {
-      quarantine(KEY, 1000);
-      clearQuarantinedBefore(2000);
-      expect(await acquire(KEY, A)).toBe(true);
+    /*
+     * Positive evidence settles it at once: the reservation is no longer where
+     * it was, so the change landed. The *before* is what is recorded, not the
+     * intended after -- Disney can answer a move with a different time than the
+     * one asked for, so "it is where we wanted" is not a test that can be
+     * relied on, while "it has moved" is.
+     */
+    it('clears as soon as the reservation has moved', async () => {
+      await quarantine(KEY, { from: '19:00:00' }, 1000);
+      await reconcile(() => '11:00:00', 2000);
+      expect(await acquire(KEY, A, 2000)).toBe(true);
     });
 
-    // A read already in flight when the doubt was raised cannot settle it.
-    it('survives evidence that predates it', async () => {
-      quarantine(KEY, 2000);
-      clearQuarantinedBefore(1000);
-      expect(await acquire(KEY, A)).toBe(false);
+    // For a swap, the reservation being gone says the same thing.
+    it('clears when the reservation has gone from plans', async () => {
+      await quarantine(KEY, { from: '19:00:00' }, 1000);
+      await reconcile(() => undefined, 2000);
+      expect(await acquire(KEY, A, 2000)).toBe(true);
+    });
+
+    /*
+     * One read is not enough to say it did *not* happen. This codebase already
+     * demands two agreeing reads for the same question -- Disney's itinerary
+     * lags, and a request that timed out on the client can still land after the
+     * next read has started.
+     */
+    it('does not clear on a single read still showing the old time', async () => {
+      await quarantine(KEY, { from: '19:00:00' }, 1000);
+      await reconcile(() => '19:00:00', 1000 + DOUBT_SETTLE_MS);
+      expect(await acquire(KEY, A, 1000 + DOUBT_SETTLE_MS)).toBe(false);
+    });
+
+    it('clears after enough reads keep saying nothing happened', async () => {
+      await quarantine(KEY, { from: '19:00:00' }, 1000);
+      const settled = 1000 + DOUBT_SETTLE_MS;
+      for (let i = 0; i < DOUBT_CONTRARY_READS; ++i) {
+        await reconcile(() => '19:00:00', settled);
+      }
+      expect(await acquire(KEY, A, settled)).toBe(true);
+    });
+
+    // And absence of change is not evidence at all until the change has had
+    // time to show up.
+    it('ignores contrary reads taken before it could have appeared', async () => {
+      await quarantine(KEY, { from: '19:00:00' }, 1000);
+      for (let i = 0; i < DOUBT_CONTRARY_READS * 3; ++i) {
+        await reconcile(() => '19:00:00', 1500);
+      }
+      expect(await acquire(KEY, A, 1500)).toBe(false);
     });
 
     it('leaves other reservations alone', async () => {
       const other = leaseKey('80010129', '2021-10-01');
-      quarantine(KEY, 1000);
+      await quarantine(KEY, {}, 1000);
       expect(await acquire(other, A)).toBe(true);
     });
   });

@@ -2624,7 +2624,11 @@ describe('AutopilotProvider unresolved reservations', () => {
     expect(await claim()).toBe('true');
   });
 
-  it('lifts the doubt once plans have been read again', async () => {
+  // And keeps it while plans go on showing the reservation exactly as it was.
+  // Lifting it is the plans pipeline's job, and its rule -- see
+  // `PlansProvider reconciles unresolved reservations` and the lease's own
+  // tests -- is deliberately stricter than "one read went by".
+  it('keeps the doubt while nothing has visibly changed', async () => {
     saveWatchList([{ experienceId: BZ, autoModify: true }]);
     const { book } = setupBooking({
       plans: [heldBZAt(19)],
@@ -2635,6 +2639,21 @@ describe('AutopilotProvider unresolved reservations', () => {
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
     expect(await claim()).toBe('false');
     await runTicks(PLANS_EVERY_N_TICKS + 2);
+    expect(await claim()).toBe('false');
+  });
+
+  // A failure before the commit request went out cannot have changed anything:
+  // all three helpers take their ledger lock immediately before `book()`, so a
+  // status-0 on the *offer* call leaves the reservation untouched.
+  it('does not quarantine a failure that never reached the commit', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { offer } = setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      offerErrors: ['no-response'],
+    });
+    await enable();
+    await waitFor(() => expect(offer).toHaveBeenCalled());
     expect(await claim()).toBe('true');
   });
 });

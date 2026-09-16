@@ -1,8 +1,10 @@
 import { use, useCallback, useEffect, useRef, useState } from 'react';
 
 import { Booking } from '@/api/itinerary';
+import { leaseParts, reconcile } from '@/autopilot/lease';
 import ClientsContext from '@/contexts/ClientsContext';
 import PlansContext from '@/contexts/PlansContext';
+import { parkDate } from '@/datetime';
 import useDataLoader from '@/hooks/useDataLoader';
 import useThrottleable from '@/hooks/useThrottleable';
 
@@ -38,6 +40,22 @@ export default function PlansProvider({
       setPlansLoaded(true);
       setLastUpdated(Date.now());
     }
+    // Every successful read is evidence about a reservation left in an unknown
+    // state, so reconciliation belongs here rather than in one engine's poll
+    // loop. It used to live in Autopilot's every-tenth tick, which meant a
+    // doubt raised by a foreground search went unexamined whenever Autopilot
+    // was switched off -- and then vanished at the 4am rollover having never
+    // been settled by anything.
+    //
+    // Not awaited: this is bookkeeping about the read, and a caller waiting on
+    // plans should not also wait on a lock.
+    void reconcile(key => {
+      const { date, facilityId } = leaseParts(key);
+      const booking = fetched.find(
+        b => b.facilityId === facilityId && parkDate(b.start) === date
+      );
+      return booking?.start?.time ? String(booking.start.time) : undefined;
+    });
     // Returned as well as stored: `plans` will not reflect this until the next
     // render, so a background caller acting within the same tick needs the
     // value directly.

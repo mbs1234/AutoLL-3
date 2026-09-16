@@ -99,7 +99,9 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
     // short-lived search of its own.
     claimCommit: () => acquireLease(reservation, searchOwner),
     releaseCommit: () => releaseLease(reservation, searchOwner),
-    quarantineCommit: () => quarantineReservation(reservation),
+    // The hook supplies the reservation's time as it last saw it, so a later
+    // plans read can settle the doubt by seeing it move rather than by a clock.
+    quarantineCommit: from => void quarantineReservation(reservation, { from }),
     onCommitted: moved =>
       saveCommit({
         facilityId: moved.facilityId,

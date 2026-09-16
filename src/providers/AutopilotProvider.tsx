@@ -39,7 +39,6 @@ import {
 } from '@/autopilot/learned';
 import {
   acquire as acquireLease,
-  clearQuarantinedBefore,
   leaseKey,
   quarantine,
   release as releaseLease,
@@ -680,13 +679,8 @@ export default function AutopilotProvider({
       // render behind, so it cannot distinguish "never booked" from "booked
       // moments ago" -- and settling booking doubt needs exactly that.
       let freshPlans: Booking[] | undefined;
-      // When the read *started*. Doubt raised after this moment is not settled
-      // by what it returns, so the quarantine below is cleared against it
-      // rather than against the time the answer arrived.
-      let plansPolledAt = 0;
       if (tickCountRef.current++ % PLANS_EVERY_N_TICKS === 0) {
         try {
-          plansPolledAt = Date.now();
           freshPlans = await pollPlans();
         } catch (error) {
           // Supplementary. A plans failure must not stall availability polling
@@ -745,7 +739,13 @@ export default function AutopilotProvider({
             .filter(
               c =>
                 c.facilityId !== release?.facilityId &&
-                !currentPlans.some(p => p.facilityId === c.facilityId)
+                // Date as well as facility: the same attraction booked on
+                // another day of the trip is a different reservation, and
+                // matching on facility alone had one suppress the other.
+                !currentPlans.some(
+                  p =>
+                    p.facilityId === c.facilityId && parkDate(p.start) === date
+                )
             )
             .map(c => ({
               id: `commit:${c.facilityId}`,
@@ -767,12 +767,6 @@ export default function AutopilotProvider({
       // Only plans fetched during this tick count as evidence.
       if (freshPlans) {
         const settled = freshPlans;
-        // Doubt raised before this read started is now settled, whatever it
-        // shows: the engine reconciles what it holds from this same read, so a
-        // reservation left in an unknown state is either back in plans or gone
-        // from them. A doubt raised *while* this read was in flight is not
-        // settled by it and stays quarantined for the next one.
-        clearQuarantinedBefore(plansPolledAt);
         for (const id of ledgerRef.current.attemptedBookIds) {
           const stillHeld = !!findExistingLL(settled, id, date);
           // The shared commit record exists only to cover the window between
@@ -780,7 +774,7 @@ export default function AutopilotProvider({
           // reservation is not there, that window is over: leaving the record
           // would have it block the very rebooking this settle loop exists to
           // permit, and a return time nobody holds is not something to protect.
-          if (!stillHeld) clearCommit(id);
+          if (!stillHeld) clearCommit(id, date);
           ledgerRef.current.resolveBook(
             id,
             stillHeld,
@@ -805,7 +799,9 @@ export default function AutopilotProvider({
             // on evidence that says nothing about it.
             if (commitDate(commit) !== date) continue;
             const inPlans = settled.some(
-              plan => plan.facilityId === commit.facilityId
+              plan =>
+                plan.facilityId === commit.facilityId &&
+                parkDate(plan.start) === date
             );
             const expired =
               commit.at === undefined || now - commit.at >= COMMIT_TTL_MS;
@@ -1034,6 +1030,9 @@ export default function AutopilotProvider({
         // `outcome` was ever assigned -- an eligibility throw leaves it unset,
         // and that path issued no booking request to be in doubt about.
         let unknownOutcome = false;
+        // What the reservation looked like before this attempt, for the doubt
+        // below. Declared out here so the finally can see it.
+        let wasAt: string | undefined;
         // Declared out here for the same reason as `acting`: the finally has to
         // release under the very owner that acquired.
         const operationOwner = `${lockOwnerRef.current}#${++operationSeq.current}`;
@@ -1179,8 +1178,10 @@ export default function AutopilotProvider({
             kind === 'swap'
               ? chooseSwapVictim(allHeldToday, experience)
               : undefined;
-          const reservation =
-            kind === 'swap' ? victim?.facilityId : existing?.facilityId;
+          const changing = kind === 'swap' ? victim : existing;
+          const reservation = changing?.facilityId;
+          // What a later plans read compares against to settle a doubt.
+          wasAt = changing ? String(changing.start.time) : undefined;
           // `operationOwner` above is one per *operation*, not per provider.
           // The poller's deadline abandons a tick without cancelling it, so an
           // overtime tick and its successor both run -- and with a
@@ -1264,9 +1265,16 @@ export default function AutopilotProvider({
                 stillWantsAction(experience.id, 'book', offerTime),
             });
           }
-          // A failure the helper caught and could not prove harmless: the
-          // request may have applied. `rejected` is the proof that it did not.
-          unknownOutcome = outcome.status === 'failed' && !outcome.rejected;
+          // A failure the helper caught and could not prove harmless -- but
+          // only once the commit request actually went out. All three helpers
+          // take their ledger lock immediately before `book()`, so the lock is
+          // the record of having reached that point: a status-0 on the *offer*
+          // call happens before it and cannot have changed the reservation, and
+          // quarantining on that blocked a pass nothing had touched.
+          unknownOutcome =
+            outcome.status === 'failed' &&
+            !outcome.rejected &&
+            ledgerRef.current.hasAttempted(experience.id, kind);
         } catch (error) {
           // Only guestsFor can throw out here; the attempt helpers handle their
           // own failures. Its status is worth carrying: eligibility is the first
@@ -1289,7 +1297,9 @@ export default function AutopilotProvider({
           // say what happened" is not a duration.
           await Promise.all(
             acting.map(async key => {
-              if (unknownOutcome) quarantine(key);
+              // The time the change was aiming at, so a later plans read can
+              // settle the doubt by *seeing* it rather than by a clock.
+              if (unknownOutcome) await quarantine(key, { from: wasAt });
               await releaseLease(key, operationOwner);
             })
           );

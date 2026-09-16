@@ -118,7 +118,7 @@ export interface TimeSearchDeps {
    * ran out while its own guard still forbade another move, and another engine
    * could take a reservation the guard was still protecting.
    */
-  quarantineCommit?: () => void;
+  quarantineCommit?: (from?: string) => void;
   /**
    * Publish a committed return time for other instances to see.
    *
@@ -184,6 +184,14 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
    * unknown, where a move may have landed and nothing else may pile on.
    */
   const holdsLockRef = useRef(false);
+  /**
+   * The reservation's return time as this search last saw it.
+   *
+   * Mirrored into a ref because the doubt is raised from the run loop, which
+   * closes over the state of the render that started it -- and the time will
+   * have moved since if the search has already committed once.
+   */
+  const heldRef = useRef<ParkTime | undefined>(deps.booking.start.time);
   const wakeOwner = useRef({}).current;
 
   /** Take the engine's lock, or report that something else has it. */
@@ -196,7 +204,9 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     // expires, so a run longer than its TTL has to renew, and asking is how it
     // renews -- acquisition is re-entrant for the holder.
     const got = await claim();
-    holdsLockRef.current = holdsLockRef.current || got;
+    // Only a successful claim means this search holds it. Keeping a stale true
+    // here is what let a lost lease go unnoticed.
+    holdsLockRef.current = got;
     return got;
   }, []);
 
@@ -376,12 +386,22 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         // can outlast the lease, and letting it lapse here would hand the
         // reservation to another engine while this guard still forbids a second
         // move -- the guard and the lease disagreeing about the same fact.
-        void claimLock();
+        //
+        // Awaited, and the refusal acted on. Fire-and-forget left
+        // `holdsLockRef` true after somebody else had taken the lease, so this
+        // search believed it held something it did not and said nothing: a
+        // phone backgrounded past the TTL is exactly how that happens.
+        if (!(await claimLock())) {
+          holdsLockRef.current = false;
+          setState(s => ({ ...s, contended: true }));
+          return;
+        }
         const now = await readHeld();
         if (stopped()) return;
         if (now && guard.requested && +now.start.time === +guard.requested) {
           settling = 0;
           guard.confirm();
+          heldRef.current = now.start.time;
           setState(s => ({ ...s, held: now.start.time, phase: guard.phase }));
           if (depsRef.current.stopAfterConfirmedMove) stop('goal-met');
           return;
@@ -400,6 +420,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       if (stopped()) return;
       if (!current) return;
       if (!current.modifiable) return stop('not-modifiable');
+      heldRef.current = current.start.time;
       setState(s => ({ ...s, held: current.start.time }));
       if (goalMet(goal, current.start.time)) return stop('goal-met');
 
@@ -498,7 +519,9 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
               // the wrong instrument: quarantine the reservation instead, which
               // outlives this screen and is cleared by evidence rather than by
               // a clock.
-              depsRef.current.quarantineCommit?.();
+              depsRef.current.quarantineCommit?.(
+                heldRef.current ? String(heldRef.current) : undefined
+              );
               dropLock();
               setState(s => ({
                 ...s,
