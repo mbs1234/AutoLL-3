@@ -22,6 +22,12 @@ export default function PlansProvider({
   // Plans at once. A slower, older response must not replace the newest view.
   const requestSequence = useRef(0);
   const publishedSequence = useRef(0);
+  // Separate from `publishedSequence` on purpose. That one lets an older
+  // success stand when a newer request failed, because stale data beats no
+  // data on screen. Evidence has the opposite rule: an older response can only
+  // ever weaken a doubt raised since, so a read that has already been overtaken
+  // is not offered as evidence at all.
+  const reconciledSequence = useRef(0);
 
   /**
    * The actual fetch, awaitable and free of UI side effects. Rejects on
@@ -30,6 +36,12 @@ export default function PlansProvider({
    */
   const fetchPlans = useCallback(async () => {
     const request = ++requestSequence.current;
+    // When the read *started*, which is the only honest measure of what it can
+    // speak about. A response already in flight when a reservation fell into
+    // doubt describes the world before the request that caused the doubt went
+    // out -- it is a photograph taken before the event, and reading either
+    // verdict out of it is wrong in both directions.
+    const polledAt = Date.now();
     const fetched = await itinerary.plans();
     // Latest *successful* request wins. If a newer request fails, an older
     // success is still better than discarding valid data; if the newer one
@@ -49,13 +61,20 @@ export default function PlansProvider({
     //
     // Not awaited: this is bookkeeping about the read, and a caller waiting on
     // plans should not also wait on a lock.
-    void reconcile(key => {
-      const { date, facilityId } = leaseParts(key);
-      const booking = fetched.find(
-        b => b.facilityId === facilityId && parkDate(b.start) === date
+    if (request > reconciledSequence.current) {
+      reconciledSequence.current = request;
+      void reconcile(
+        key => {
+          const { date, facilityId } = leaseParts(key);
+          const booking = fetched.find(
+            b => b.facilityId === facilityId && parkDate(b.start) === date
+          );
+          return booking?.start?.time ? String(booking.start.time) : undefined;
+        },
+        Date.now(),
+        polledAt
       );
-      return booking?.start?.time ? String(booking.start.time) : undefined;
-    });
+    }
     // Returned as well as stored: `plans` will not reflect this until the next
     // render, so a background caller acting within the same tick needs the
     // value directly.

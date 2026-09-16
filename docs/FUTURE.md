@@ -399,6 +399,16 @@ it cannot be used at all.
    learner run at approach cadence and see.
 4. **Do the December overlay IDs still resolve?** See §3.3 — a data check, once
    the overlays are running.
+5. **How long does Disney's itinerary take to show a change that has landed?**
+   `DOUBT_SETTLE_MS` is 120 seconds, and the only honest thing to say about that
+   figure is that it was reasoned rather than measured: it is the lease TTL,
+   reused on the argument that a request which has not surfaced within two
+   minutes is not going to. Everything above it is now evidence-driven — a doubt
+   clears on seeing the change, and absence only counts after the window and
+   across separately spaced reads — so the number decides how long an *untouched*
+   reservation stays held, not whether a changed one is caught. Still worth
+   measuring: log the gap between a commit returning and the itinerary agreeing,
+   which `useTimeSearch`'s settle loop already walks past on every cycle.
 
 _Size:_ small, and it must be log lines rather than behaviour changes.
 
@@ -414,6 +424,14 @@ subsystem, and the one the rest of this file keeps calling the worst shape a
 failure can take: you believe it is working. A line on Activity naming the
 reservation and why nothing is acting on it would close it. _Size:_ small.
 _Where:_ `src/autopilot/lease.ts`, `src/components/ll/screens/Activity.tsx`.
+
+This got more urgent on 2026-09-15, not less. The evidence rule tightened --
+absence is no longer proof, a swap waits for the attraction it was for to
+appear, and the reads that settle a doubt must be genuinely separate -- so a
+doubt correctly lives longer than it used to. The protection is better and the
+silence is therefore more expensive. A `Doubt` now carries its `kind` and, for a
+swap, the facility it was gaining, so the message has something to say beyond
+"something is unresolved".
 
 **Exclusion has no fallback where the browser has no Web Locks.**
 `src/autopilot/lease.ts` serialises acquisition through `navigator.locks` and

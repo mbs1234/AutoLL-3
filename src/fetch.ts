@@ -44,26 +44,36 @@ export async function fetchJson<T = any>(
     const controller = new AbortController();
     init.signal = controller.signal;
     const abort = () => controller.abort();
+    // Covers reading the body as well as getting the headers. It used to be
+    // cleared the moment `fetch` resolved, which left `response.json()` with no
+    // bound at all -- a response whose body stops arriving mid-stream hung the
+    // caller indefinitely. That is how an autopilot tick outlived the 90-second
+    // deadline that abandons it and then the 120-second lease protecting the
+    // reservation it was changing.
     const timeoutId = setTimeout(abort, timeout);
-    let response: Response;
 
     try {
-      response = await fetch(url, init);
+      const response = await fetch(url, init);
+      return {
+        ok: response.ok,
+        status: response.status,
+        data: (response.headers.get('Content-Type') || '').startsWith(
+          'application/json'
+        )
+          ? await response.json()
+          : {},
+      };
     } catch (error) {
+      // Status 0 for a body that never finished arriving as well as for a
+      // request that never got out, and deliberately: both mean the same thing
+      // to everything upstream -- the request may have been acted on and the
+      // outcome is unknown. `actionWasRejected` reads 0 as "not proven
+      // harmless", which is the conservative half of the pair.
       console.error(error);
       return { ok: false, status: 0, data: null };
     } finally {
       clearTimeout(timeoutId);
     }
-    return {
-      ok: response.ok,
-      status: response.status,
-      data: (response.headers.get('Content-Type') || '').startsWith(
-        'application/json'
-      )
-        ? await response.json()
-        : {},
-    };
   });
 }
 

@@ -12,6 +12,8 @@ import {
   acquire as acquireLease,
   holder as leaseHolder,
   leaseKey,
+  quarantinedAt,
+  reconcile,
   release as releaseLease,
 } from '@/autopilot/lease';
 import {
@@ -238,14 +240,14 @@ beforeEach(() => {
 
 const party = { eligible: [{ id: 'g1', name: 'A' }], ineligible: [] };
 
-function offerAt(hour: number, minute = 0) {
+function offerAt(hour: number, minute = 0, itinerary: unknown[] = []) {
   return {
     id: 'offer-1',
     offerSetId: 'set-1',
     start: new DateTime(TODAY, new ParkTime(hour, minute)),
     end: new DateTime(TODAY, new ParkTime(hour + 1, minute)),
     guests: party,
-    itinerary: [],
+    itinerary,
     booking: undefined,
   };
 }
@@ -310,6 +312,9 @@ function setupBooking({
   // Holds the availability request open, for scope/cancellation tests before
   // any alerting or booking decision has been made.
   experiencesDelay = undefined as Promise<void> | undefined,
+  // Disney's own view of what the party holds, as of the offer. Fresher than
+  // the plans snapshot the tick started from, and the two can differ by a move.
+  offerItinerary = [] as unknown[],
 } = {}) {
   const guests = jest.fn(async () => {
     if (guestsStatus !== undefined) {
@@ -339,7 +344,7 @@ function setupBooking({
       if (failure !== undefined) {
         throw new RequestError({ ok: false, status: failure, data: {} });
       }
-      return offerAt(offerHour, offerMinute);
+      return offerAt(offerHour, offerMinute, offerItinerary);
     }
   );
   let bookCalls = 0;
@@ -2655,6 +2660,93 @@ describe('AutopilotProvider unresolved reservations', () => {
     await enable();
     await waitFor(() => expect(offer).toHaveBeenCalled());
     expect(await claim()).toBe('true');
+  });
+
+  /*
+   * The doubt is recorded against the reservation as the *offer* found it.
+   *
+   * Plans are polled every tenth tick and this engine is what moves the
+   * reservation in between, so the snapshot a tick starts from can be one move
+   * stale. The quarantine's question is "has it moved since?", so a stale
+   * baseline makes an untouched reservation answer yes -- the protection then
+   * clears itself on its own staleness, on the very next plans read.
+   */
+  it('records the reservation as the offer found it, not as plans did', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { book } = setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      // Disney's view at the offer: already moved since the snapshot.
+      offerItinerary: [
+        { facilityId: BZ, startTime: new ParkTime(13), overlap: 'NONE' },
+      ],
+      bookErrors: ['no-response'],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    const raised = quarantinedAt(leaseKey(BZ, TODAY));
+    expect(raised).toBeDefined();
+    // A plans read finding it where it truly was all along is no evidence at
+    // all. Against the stale snapshot it read as proof the move had landed.
+    await reconcile(() => '13:00:00', raised! + 1, raised! + 1);
+    expect(await claim()).toBe('false');
+  });
+
+  /*
+   * A swap records what should *appear*, not only what was.
+   *
+   * The victim is meant to vanish, so its absence is consistent with the swap
+   * having landed -- and equally consistent with the swap never happening and
+   * one plans response omitting a reservation that is still there. The only
+   * positive proof is the attraction the swap was for turning up.
+   */
+  describe('after a swap', () => {
+    const ranked = (id: string, priority: number): Booking =>
+      ({
+        type: 'LL',
+        subtype: 'MP',
+        id: `ent-${id}`,
+        facilityId: id,
+        name: `Ride ${id}`,
+        experience: { id, name: `Ride ${id}`, priority },
+        start: new DateTime(TODAY, new ParkTime(15)),
+        end: new DateTime(TODAY, new ParkTime(16)),
+        cancellable: true,
+        modifiable: true,
+        guests: [{ id: 'g1', name: 'A' }],
+      }) as unknown as Booking;
+    const victim = leaseKey('w1', TODAY);
+
+    const unknownSwap = async () => {
+      saveWatchList([{ experienceId: BZ, autoSwap: true }]);
+      const { book } = setupBooking({
+        offerHour: 11,
+        experiences: [available(BZ, new ParkTime(11), { priority: 1.0 })],
+        plans: [ranked('w1', 4.1), ranked('w2', 3.0), ranked('w3', 2.0)],
+        bookErrors: ['no-response'],
+      });
+      await enable();
+      await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+      const raised = quarantinedAt(victim);
+      expect(raised).toBeDefined();
+      return raised!;
+    };
+
+    it('does not settle on the victim simply being gone', async () => {
+      const raised = await unknownSwap();
+      await reconcile(() => undefined, raised + 1, raised + 1);
+      expect(quarantinedAt(victim)).toBe(raised);
+    });
+
+    it('settles once the attraction it was for appears', async () => {
+      const raised = await unknownSwap();
+      await reconcile(
+        key => (key === leaseKey(BZ, TODAY) ? '11:00:00' : undefined),
+        raised + 1,
+        raised + 1
+      );
+      expect(quarantinedAt(victim)).toBeUndefined();
+    });
   });
 });
 

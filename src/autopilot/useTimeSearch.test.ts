@@ -6,6 +6,7 @@ import { LLMP, Offer, OfferError } from '@/api/ll';
 import { DateTime, ParkTime } from '@/datetime';
 import { TODAY } from '@/testing';
 
+import { RENEW_INTERVAL_MS } from './lease';
 import { SearchGoal } from './timesearch';
 import useTimeSearch, {
   CYCLE_MS,
@@ -441,6 +442,64 @@ describe('useTimeSearch', () => {
       expect(result.current.guard.phase).toBe('unknown');
       expect(quarantineCommit).toHaveBeenCalled();
       expect(releaseCommit).toHaveBeenCalled();
+    });
+
+    /*
+     * And it records the reservation as it is at the moment of committing.
+     *
+     * An offered move waits on a person, and a person is slow. The engine
+     * underneath, a second tab, or the Disney app itself can move the
+     * reservation in that gap -- and the baseline was left at whatever the last
+     * idle cycle had read. The doubt then asked "has it moved from 3pm?" about
+     * a reservation that had been at 1pm since before the request went out, so
+     * the very next plans read answered yes and cleared it.
+     */
+    it('records the reservation as it is when the move is accepted', async () => {
+      const quarantineCommit = jest.fn();
+      let held = at(15);
+      const { result } = setup({
+        goal: { kind: 'at', target: at(11) },
+        confirmEveryMove: true,
+        plans: jest.fn(async () => [booking(held)]) as never,
+        claimCommit: jest.fn(async () => true),
+        commit: jest.fn().mockRejectedValue(new Error('no response')),
+        quarantineCommit,
+      });
+      act(() => result.current.start());
+      await waitFor(() => expect(result.current.pending).toBeDefined());
+      // It moves while the offer sits waiting for an answer.
+      held = at(13);
+      act(() => result.current.accept());
+      // The commit happens on the next cycle, through the same guard.
+      await runCycles(1);
+      await waitFor(() => expect(quarantineCommit).toHaveBeenCalled());
+      expect(quarantineCommit).toHaveBeenCalledWith(String(at(13)));
+    });
+
+    /*
+     * A commit is the one call here with no bound on how long it can take --
+     * the request timeout does not cover reading the response body. The lease
+     * expires at a fixed TTL, so without renewing it could lapse under a
+     * request still in the air and another engine take the reservation Disney
+     * was about to change. Asking again *is* renewing: acquisition is
+     * re-entrant for the holder.
+     */
+    it('renews the claim while a commit is in the air', async () => {
+      const claimCommit = jest.fn(async () => true);
+      const inFlight = deferred<LLMP>();
+      const commit = jest.fn(() => inFlight.promise);
+      const { result } = setup({ claimCommit, commit });
+      act(() => result.current.start());
+      await waitFor(() => expect(commit).toHaveBeenCalled());
+      const asked = claimCommit.mock.calls.length;
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(RENEW_INTERVAL_MS * 2);
+      });
+      expect(claimCommit.mock.calls.length).toBeGreaterThan(asked);
+      await act(async () => {
+        inFlight.resolve(booking(at(11)));
+        await inFlight.promise;
+      });
     });
   });
 

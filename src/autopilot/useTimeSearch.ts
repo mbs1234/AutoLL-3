@@ -7,7 +7,8 @@ import { ParkTime, parkDate } from '@/datetime';
 import { sleep } from '@/sleep';
 
 import { actionWasRejected } from './autobook';
-import { findExistingLL } from './automodify';
+import { commitBaseline, findExistingLL } from './automodify';
+import { RENEW_INTERVAL_MS } from './lease';
 import {
   CommitGuard,
   CommitPhase,
@@ -185,11 +186,19 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
    */
   const holdsLockRef = useRef(false);
   /**
-   * The reservation's return time as this search last saw it.
+   * The reservation's return time at the last commit boundary this search
+   * reached, and before that the freshest time it has read.
    *
    * Mirrored into a ref because the doubt is raised from the run loop, which
    * closes over the state of the render that started it -- and the time will
    * have moved since if the search has already committed once.
+   *
+   * Kept slightly apart from `state.held`, which is what the screen shows and
+   * comes from Plans. This is the baseline a doubt is settled against, so it
+   * takes the offer's own itinerary when that is fresher -- the same rule
+   * `attemptAutoModify` follows, and for the same reason: the quarantine asks
+   * "has it moved?", and a stale baseline makes an untouched reservation
+   * answer yes.
    */
   const heldRef = useRef<ParkTime | undefined>(deps.booking.start.time);
   const wakeOwner = useRef({}).current;
@@ -306,6 +315,21 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     const stopped = () => cancelled || !runningRef.current;
 
     /**
+     * Keep the claim alive while a request is genuinely in the air.
+     *
+     * The lease expires at a fixed TTL, and a commit is the one call here with
+     * no bound on how long it can take -- the request timeout does not cover
+     * reading the response body. Without this, a slow commit could outlive its
+     * own lease and another engine could take the reservation mid-flight.
+     * Renewing is re-entrant for the holder, so this is the same ask the
+     * commit already made, repeated.
+     */
+    function renewing<T>(body: Promise<T>): Promise<T> {
+      const timer = setInterval(() => void claimLock(), RENEW_INTERVAL_MS);
+      return body.finally(() => clearInterval(timer));
+    }
+
+    /**
      * The reservation as Disney currently reports it.
      *
      * Read from plans rather than carried forward from a commit response,
@@ -342,8 +366,15 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
           guard.release();
           return;
         }
+        // The baseline moves with the read. It was previously left at whatever
+        // the last idle cycle saw, so a reservation that changed while the
+        // offer sat waiting for the user quarantined against a time nobody
+        // held -- and the next plans read then cleared that doubt by finding
+        // the reservation exactly where it had been all along.
+        heldRef.current = current.start.time;
         const fresh = await depsRef.current.createOffer(current);
         if (stopped()) return;
+        heldRef.current = commitBaseline(fresh, current);
         const quoted = await depsRef.current.changeTime(fresh, want);
         if (stopped()) return;
         if (+quoted.start.time !== +want) {
@@ -362,7 +393,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         }
         setState(s => (s.contended ? { ...s, contended: false } : s));
         commitInFlightRef.current = true;
-        const moved = await depsRef.current.commit(quoted);
+        const moved = await renewing(depsRef.current.commit(quoted));
         guard.markCommitted();
         commitInFlightRef.current = false;
         depsRef.current.onCommitted?.(moved);
@@ -429,6 +460,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       // nothing.
       offer = await depsRef.current.createOffer(current);
       if (stopped()) return;
+      heldRef.current = commitBaseline(offer, current);
       const times = await depsRef.current.getTimes(offer);
       if (stopped()) return;
       const want = bestCandidate(goal, current.start.time, times, {
@@ -473,7 +505,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       }
       setState(s => (s.contended ? { ...s, contended: false } : s));
       commitInFlightRef.current = true;
-      const moved = await depsRef.current.commit(quoted);
+      const moved = await renewing(depsRef.current.commit(quoted));
       guard.markCommitted();
       commitInFlightRef.current = false;
       depsRef.current.onCommitted?.(moved);
