@@ -1,102 +1,94 @@
 # Notes for the next Codex round
 
-Against `main` at `1d8f594`. The previous round reviewed `cfd01c6` and raised
-five findings; all five are addressed in `061f52a`'s successor, PR #26 — but not
-one at a time, and the reason matters for reviewing it.
+Against `main` at `01fbb5b`. The previous round reviewed `1d8f594` and raised six
+findings, four P1; all six are fixed in `01fbb5b` (PR #27).
 
-`git diff cfd01c6..1d8f594` touches 12 files. The new module is
+`git diff 1d8f594..01fbb5b` touches 8 files. The new concept is the quarantine in
 `src/autopilot/lease.ts`.
 
 ---
 
-## What changed in kind, not just in detail
+## You were right about the thing I asked you to challenge
 
-Every finding across both rounds traced to one design mistake: **mutual
-exclusion was being expressed with the ledger's attempt locks, which cannot
-carry it.** An attempt lock is anti-thrash — session-scoped, shared as a union,
-never given back for a modify — so it answers "has this been done today". Each
-attempt to make it answer "is anybody doing this now" introduced a new defect:
-first a search deferring to work finished hours earlier, then a foreground claim
-able to take over another provider's live operation, then a retained lock
-holding a ride until the 4am rollover.
+Releasing the lease on a status-0 was defended in the last set of notes on the
+grounds that doubt is the ledger's job. It is not: the ledger's lock is keyed
+`<kind>:<attraction>`, the foreground does not consult it at all any more, and a
+swap for a *different* incoming attraction can target the reservation in doubt.
+That refutation was exact and it changed the design.
 
-So exclusion now lives in `lease.ts` and the attempt locks are left alone. The
-`change:` lock kind is withdrawn entirely, along with its guards in
-`shouldModify` and `shouldSwap`.
+There are now three concepts with three lifetimes, and keeping them apart is the
+thing most worth checking:
 
-**The most useful thing this round would be to say whether that separation is
-actually clean** — whether anything still reads an attempt lock as evidence
-about the present, or reads a lease as evidence about the past.
+| | Answers | Scope | Ends when |
+| --- | --- | --- | --- |
+| Attempt lock (`autobook.ts`) | has this been done today | action + attraction | session, or evidence for `book:` |
+| Lease (`lease.ts`) | is anybody changing this now | reservation + date | released, or TTL |
+| Quarantine (`lease.ts`) | did the last change apply | reservation + date | a plans read that *started* after it |
 
----
-
-## The judgement calls, which are the likeliest place to find something
-
-**A lease is released in the `finally` on every path, including an unknown
-outcome.** The argument: the lease means "somebody is changing this right now",
-and once the request has returned — however it returned — nobody is. Doubt about
-what landed is the ledger's job and it keeps its own lock for exactly that; a
-lease retained for doubt is what produced the last round's finding 3. The
-counter-argument is that an unknown outcome is precisely when a second engine
-acting is worst. **This is the decision most likely to be wrong, and I would
-rather have it challenged than confirmed.**
-
-**A swap leases every held pass for the length of the attempt.** The victim is
-chosen inside `attemptAutoSwap`, so the provider cannot know which one to lease.
-Broader than necessary, deliberately. The previous round found no permanent
-starvation from the equivalent construct; worth re-checking now that the window
-is a lease with a TTL rather than an in-memory set.
-
-**`LEASE_TTL_MS` is 120s**, above the poller's 90-second request deadline so a
-lease cannot expire under a request that is still legitimately outstanding. A
-foreground search renews on each commit. Is there a path that holds a lease
-across a gap longer than the TTL without renewing — and would the consequence be
-a lease expiring under live work?
-
-**Reload no longer inherits anything.** Ownership is per provider instance, and a
-dead instance's leases are reclaimed only by expiry. That was your argument and I
-took it; the cost is up to 120 seconds where a reloaded tab is refused a
-reservation nobody is actually working on. Confirm that is the right side.
+**If any of the three is being read as evidence for another's question, that is
+the finding worth having.**
 
 ---
 
-## Fixed, with the specific thing to check in each
+## The judgement calls in this round
 
-- **Finding 1, acquisition.** `acquire` serialises through
-  `navigator.locks.request` on a single mutex name. Check the critical section
-  really covers the read *and* the write, and that `release`/`releaseAll` are
-  inside it too.
-- **Finding 2, identity.** Per provider instance (`lockOwnerRef`), and a
-  foreground search owns its lease separately again (`searchOwner` in
-  `TimeSearch.tsx` / `SwapAttractionSearch.tsx`). The hole was that a lease is
-  re-entrant for its holder, so a shared id turned a refusal into a grant. Check
-  no path still shares one — particularly the nested NextLL provider.
-- **Finding 3, retained locks.** `change:` is gone. A definite rejection
-  arriving after Stop now releases (`useTimeSearch`'s catch, `!runningRef.current`).
-  Check the unmount path and `reset()` for a lease that can outlive its work.
-- **Finding 4, commit date.** `CommittedReturn.date`; `activeCommits` and
-  `clearCommit` filter on it; the screens pass `parkDate(booking.start)`. Records
-  written by an older build have no `date` and are read as belonging to the day
-  they are stored under — check that fallback is right rather than merely safe.
-- **Finding 5, log cap.** Ordered newest-first before the slice. Check the cap
-  cannot still drop an unseen newer row.
+**The quarantine's clearing rule.** `clearQuarantinedBefore(plansPolledAt)` lifts
+every doubt raised before the read *started*. The argument: the engine settles
+what it holds from that same read, so whatever it shows, the outcome is now
+determined; a doubt raised while that read was in flight is not settled by it and
+stays for the next one. If this is wrong the failure is a reservation stuck until
+the 4am rollover, which is the failure mode this whole subsystem keeps producing.
+
+**Victim-first swap leasing.** The provider now calls `chooseSwapVictim` before
+acquiring, and `attemptAutoSwap` calls it again inside `shouldSwap` a moment
+later. It is pure and both calls see the same `allHeldToday` array in the same
+tick, so I believe they cannot disagree — but if they can, the lease is on the
+wrong reservation and the swap proceeds anyway. Worth a second pair of eyes.
+
+**Per-operation owners, stable owner for the foreground.** Engine attempts take
+`${instance}#${n}`; a foreground search keeps one stable owner for its run
+because it needs re-entrant renewal. Check there is no third caller that wants
+one and gets the other.
+
+**Renewal in the `awaiting` branch** is fire-and-forget (`void claimLock()`). If
+the renewal is refused — somebody else took the lease after it expired — nothing
+notices. Is that reachable, and should it surface?
 
 ---
 
-## Not done, and recorded rather than hidden
+## Fixed, with what to check in each
 
-**No fallback where the browser has no Web Locks.** `available()` reports it and
-nothing surfaces it. The alternatives are a visible warning or failing closed,
-and failing closed is worse than the exposure on a park day. `FUTURE.md` §6.
+- **1, quarantine.** Raised by the provider's `finally` on an unknown outcome and
+  by `useTimeSearch` when its guard goes `unknown`. Refuses everyone including
+  the raiser. Day-scoped through `kvdb.setDaily`.
+- **2, bulk release withdrawn.** No `releaseAll` any more; each attempt returns
+  its own lease in its own `finally`, expiry behind that. Check nothing else
+  releases in bulk.
+- **3, per-operation owner.** Check the `finally` releases under the same owner
+  that acquired — both are now hoisted above the `try` for exactly that reason.
+- **4, renewal and `cancelled`.** `if (!runningRef.current || cancelled)` on the
+  rejection path. Check the unmount path and `reset()` again.
+- **5, commit dates.** `activeCommits(Date.now(), date)` on the read side, the
+  `forToday` gate removed from both read and expiry, `date` on every write, and
+  expiry skips records for other dates. Legacy records without `date` still read
+  as belonging to the day they are stored under.
+- **6, one lease per swap.** The victim only.
 
-**The regression gaps you listed last round are still open**, and I did not close
-them: `TimeSearch.tsx` has no component test; `daytimeline.test.ts` never asserts
-`protectedFrom`/`protectedTo`; nothing pins the `autoll3.*` storage namespace —
-and `lease.ts` adds a key to that surface. All in `FUTURE.md` §6.
+---
 
-**The doubt-hold chain is still in place.** You observed that `bookedCount` has
-no production consumer and the `unresolved` set mainly maintains it. Still true,
-still a live suggestion, still deliberately not mixed into a correctness change.
+## Not done, recorded rather than hidden
+
+- **No fallback where the browser has no Web Locks.** `available()` reports it;
+  nothing surfaces it. `FUTURE.md` §6.
+- **A quarantine is invisible.** Nothing on screen says a reservation is in
+  doubt or why nothing is acting on it — the last silent state in this
+  subsystem. `FUTURE.md` §6.
+- **The regression gaps from two rounds ago are still open**: `TimeSearch.tsx`
+  has no component test, `daytimeline.test.ts` never asserts
+  `protectedFrom`/`protectedTo`, and nothing pins the `autoll3.*` namespace —
+  now four keys wider than when that was first raised.
+- **The doubt-hold chain** (`bookedCount` has no production consumer) is
+  untouched and still a live suggestion.
 
 ---
 
@@ -108,20 +100,21 @@ still a live suggestion, still deliberately not mixed into a correctness change.
 - StrictMode double-mounts; state that must survive lives in a `useRef`.
 - A status-0 result is an **unknown outcome**, not a failure.
 - `vite build` does not typecheck. `npm run checkall` is the gate: 109 suites,
-  1303 tests.
+  1311 tests.
 - Sensor data and header construction are off-limits.
 - The day's action allowance was removed on 2026-09-14: Disney counts a
-  *redemption*, not a booking, so booking and cancelling is free. Please do not
-  propose reinstating a booking cap — `FUTURE.md` §7 carries the argument.
+  *redemption*, not a booking. Please do not propose reinstating a booking cap —
+  `FUTURE.md` §7 carries the argument.
 
-## A method note, now with a fourth example
+## A method note
 
-Every fix this week landed with a test, and each test was run against a reverted
-fix to prove it fails without it. That check has now caught **four** tests that
-passed with the bug still present. The newest: a lease test asserting "two racing
-callers, one wins" passed with the mutex removed, because jsdom has one
-JavaScript context and same-context synchronous bodies never interleave. It now
-asserts the browser mutex is used, which is the part a unit test can prove.
+Every fix landed with a test run against a reverted fix. This round that caught
+one that mattered: mutating the per-operation owner back to per-provider **passed
+the entire suite**, so finding 3 would have been "fixed" with nothing testing it.
+It needed a test driving two genuinely overlapping ticks — an offer held open
+past `TICK_DEADLINE_MS` so the poller abandons and restarts — and that one does
+fail without the fix.
 
-If a finding here rests on a test that looks like coverage, it is worth asking
-whether that test can actually fail.
+That is five tests this week that passed with the bug still present. If a finding
+here rests on a test that looks like coverage, it is worth asking whether that
+test can actually fail.

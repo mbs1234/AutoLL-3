@@ -1,9 +1,11 @@
 import { use } from 'react';
 
 import { Booking } from '@/api/itinerary';
+import { leaseKey, quarantine, quarantinedAt } from '@/autopilot/lease';
 import ClientsContext, { Clients } from '@/contexts/ClientsContext';
 import PlansContext from '@/contexts/PlansContext';
-import { fireEvent, render, screen, waitFor } from '@/testing';
+import { DateTime, ParkTime } from '@/datetime';
+import { TODAY, fireEvent, render, screen, waitFor } from '@/testing';
 
 import PlansProvider from './PlansProvider';
 
@@ -71,5 +73,55 @@ describe('PlansProvider request ordering', () => {
       expect(screen.getByTestId('plans')).toHaveTextContent('Current')
     );
     expect(screen.getByTestId('updated')).toHaveTextContent('300');
+  });
+});
+
+/*
+ * Reconciliation belongs to the read, not to one engine's poll loop.
+ *
+ * It used to run only in Autopilot's every-tenth tick, so a reservation left in
+ * an unknown state by a foreground search went unexamined whenever Autopilot was
+ * off -- and then vanished at the 4am rollover having been settled by nothing.
+ * Every successful plans read is evidence, whoever asked for it.
+ */
+describe('PlansProvider reconciles unresolved reservations', () => {
+  const BZ = '80010114';
+  const key = leaseKey(BZ, TODAY);
+  const held = (time: string) =>
+    ({
+      id: 'ent-1',
+      facilityId: BZ,
+      name: 'Ride',
+      start: new DateTime(TODAY, ParkTime.from(time)),
+    }) as unknown as Booking;
+
+  beforeEach(() => localStorage.clear());
+
+  it('settles a doubt when the reservation has moved', async () => {
+    await quarantine(key, { from: '19:00:00' }, Date.now());
+    const plans = jest.fn(async () => [held('11:00:00')]);
+    render(
+      <ClientsContext value={{ itinerary: { plans } } as unknown as Clients}>
+        <PlansProvider>
+          <View />
+        </PlansProvider>
+      </ClientsContext>
+    );
+    await waitFor(() => expect(plans).toHaveBeenCalled());
+    await waitFor(() => expect(quarantinedAt(key)).toBeUndefined());
+  });
+
+  it('leaves it alone while the reservation is unchanged', async () => {
+    await quarantine(key, { from: '19:00:00' }, Date.now());
+    const plans = jest.fn(async () => [held('19:00:00')]);
+    render(
+      <ClientsContext value={{ itinerary: { plans } } as unknown as Clients}>
+        <PlansProvider>
+          <View />
+        </PlansProvider>
+      </ClientsContext>
+    );
+    await waitFor(() => expect(plans).toHaveBeenCalled());
+    expect(quarantinedAt(key)).toBeDefined();
   });
 });
