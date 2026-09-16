@@ -6,7 +6,14 @@ import { RequestError } from '@/api/client';
 import { Booking } from '@/api/itinerary';
 import { Experience, FlexExperience } from '@/api/ll';
 import { fireAlert, primeAudio } from '@/autopilot/alert';
-import { CHANGE, CONFIRM_ABSENT_POLLS } from '@/autopilot/autobook';
+import { CONFIRM_ABSENT_POLLS } from '@/autopilot/autobook';
+import {
+  LEASE_TTL_MS,
+  acquire as acquireLease,
+  holder as leaseHolder,
+  leaseKey,
+  release as releaseLease,
+} from '@/autopilot/lease';
 import {
   appendDropEvents,
   coverageBucket,
@@ -74,6 +81,8 @@ const DB = '80010129';
 const HM = '80010208';
 /** A lock owner that is not this tab, for simulating another instance. */
 const OTHER_TAB = 'another-tab';
+/** Stands for a foreground search, which owns its lease separately. */
+const PROBE_OWNER = 'a-foreground-search';
 
 function available(
   id: string,
@@ -106,8 +115,6 @@ function Probe() {
     lastSkip,
     sessionLog,
     dropSummaries,
-    claimAction,
-    releaseAction,
   } = use(AutopilotContext);
   const [claimed, setClaimed] = useState<string>('');
   return (
@@ -126,10 +133,18 @@ function Probe() {
       <span data-testid="lastSkip">
         {lastSkip ? `${lastSkip.name}: ${lastSkip.reason}` : ''}
       </span>
-      <button onClick={() => setClaimed(String(claimAction?.(BZ, CHANGE)))}>
+      <button
+        onClick={() => {
+          void acquireLease(leaseKey(BZ, TODAY), PROBE_OWNER).then(ok =>
+            setClaimed(String(ok))
+          );
+        }}
+      >
         claim BZ modify
       </button>
-      <button onClick={() => releaseAction?.(BZ, CHANGE)}>
+      <button
+        onClick={() => void releaseLease(leaseKey(BZ, TODAY), PROBE_OWNER)}
+      >
         release BZ modify
       </button>
       <span data-testid="claimed">{claimed}</span>
@@ -2455,15 +2470,15 @@ describe('AutopilotProvider acting on a plan that changed mid-tick', () => {
  * for the rest of the park day while the screen named no reason.
  */
 /*
- * Foreground precedence.
+ * The operation lease.
  *
- * A Time Search claims through this provider. The lock it would be blocked by
- * says "Autopilot moved this at some point since you switched it on" -- a
- * modify lock is never given back except under repeatMoves -- so deferring to
- * it blocked a deliberate action on something possibly hours finished. The
- * refusal is now narrowed to the moment a request is genuinely in the air.
+ * Exclusion between a foreground search and the engine polling underneath it.
+ * The ledger's attempt locks are deliberately not involved: those answer
+ * "already done today", which made a search defer to work finished hours
+ * earlier, and -- once narrowed -- let one provider take over another's live
+ * operation because identity was per tab and two providers share a tab.
  */
-describe('AutopilotProvider foreground precedence', () => {
+describe('AutopilotProvider operation lease', () => {
   const claim = async () => {
     await act(async () => {
       screen.getByText('claim BZ modify').click();
@@ -2471,58 +2486,24 @@ describe('AutopilotProvider foreground precedence', () => {
     return screen.getByTestId('claimed').textContent;
   };
 
-  it('grants a claim on an attraction nothing is acting on', async () => {
+  it('grants a claim on a reservation nothing is acting on', async () => {
     setupBooking();
     expect(await claim()).toBe('true');
   });
 
-  // The case that used to be refused: Autopilot has already used its one move
-  // on this attraction, so the lock stands for the session with nothing behind
-  // it. A search asking now is asking about a finished action.
-  // The case foreground precedence exists for: this engine has already used
-  // its one move on the reservation, so the lock stands for the session with
-  // nothing behind it. A search asking now is asking about a finished action.
-  it('grants a claim over a lock this engine left behind', async () => {
-    saveWatchList([{ experienceId: BZ, autoModify: true }]);
-    const { book } = setupBooking({
-      plans: [heldBZAt(19)],
-      experiences: [available(BZ, new ParkTime(11))],
-    });
-    await enable();
-    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
-    expect(loadLocks()).toContain(`${CHANGE}:${BZ}`);
-    expect(await claim()).toBe('true');
-  });
-
-  // A lock another instance published is not this engine's to take. It cannot
-  // tell whether that action has finished, and taking it over would make the
-  // eventual release withdraw somebody else's protection rather than its own.
-  it('refuses a claim on a lock another instance published', async () => {
-    saveLocks(OTHER_TAB, [`${CHANGE}:${BZ}`]);
-    saveWatchList([{ experienceId: BZ, autoModify: true }]);
-    setupBooking();
-    await enable();
-    // A tick, so `adoptAttempted` pulls the stored lock into the ledger.
-    await runTicks(2);
-    expect(await claim()).toBe('false');
-  });
-
-  // The one refusal worth making: a request is out right now.
-  it('refuses while a request for that attraction is in the air', async () => {
+  // The refusal that matters: a request is out for this reservation right now.
+  it('refuses while the engine has a request in the air', async () => {
     let releaseOffer = () => {};
     const offerDelay = new Promise<void>(resolve => {
       releaseOffer = resolve;
     });
-    saveWatchList([
-      { experienceId: BZ, autoModify: true, bookThenMove: false },
-    ]);
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
     setupBooking({
       plans: [heldBZAt(19)],
       experiences: [available(BZ, new ParkTime(11))],
       offerDelay,
     });
     await enable();
-    // Let the tick reach the offer, which is now held open.
     await act(async () => {
       await jest.advanceTimersByTimeAsync(IDLE_INTERVAL_MS);
     });
@@ -2530,33 +2511,24 @@ describe('AutopilotProvider foreground precedence', () => {
     await act(async () => releaseOffer());
   });
 
-  /*
-   * Once the search holds a lock, the engine underneath must not reclaim it.
-   *
-   * Only reachable with `repeatMoves`, which is what mints a retry token
-   * (`retryAtRef` is set under that flag alone). The top-level Autopilot never
-   * mints one, so its retry branch is dead -- but NextLL's nested provider runs
-   * with the flag, and the guard is what stops that path handing an attraction
-   * back to a poller while somebody is watching a search on it. The rejection
-   * has to land on the *commit*, not the offer: all three helpers take their
-   * lock after the offer round trip, so a 410 there leaves nothing locked and
-   * mints nothing.
-   */
-  it('does not take a foreground lock back on a due retry', async () => {
+  // And the engine gives it back once the request has returned, however it
+  // returned. Doubt about what landed is the ledger's job; a lease retained for
+  // doubt is what used to lock a ride until the 4am rollover.
+  it('is free again once the engine has finished', async () => {
     saveWatchList([{ experienceId: BZ, autoModify: true }]);
-    const { offer } = setupBooking({
-      repeatMoves: true,
+    const { book } = setupBooking({
       plans: [heldBZAt(19)],
       experiences: [available(BZ, new ParkTime(11))],
-      bookErrors: [410],
     });
     await enable();
-    await waitFor(() => expect(offer).toHaveBeenCalled());
-    const afterRejection = offer.mock.calls.length;
-    await claim();
-    // Well past RETRY_AFTER_MS, when the token would otherwise fall due.
-    await runTicks(Math.ceil(RETRY_AFTER_MS / IDLE_INTERVAL_MS) + 4);
-    expect(offer.mock.calls.length).toBe(afterRejection);
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(await claim()).toBe('true');
+  });
+
+  it('refuses a lease another instance holds', async () => {
+    setupBooking();
+    await acquireLease(leaseKey(BZ, TODAY), 'another-instance');
+    expect(await claim()).toBe('false');
   });
 
   it('lets the engine have it back once the search releases', async () => {
@@ -2565,7 +2537,44 @@ describe('AutopilotProvider foreground precedence', () => {
     await act(async () => {
       screen.getByText('release BZ modify').click();
     });
-    expect(loadLocks()).not.toContain(`modify:${BZ}`);
+    expect(leaseHolder(leaseKey(BZ, TODAY))).toBeUndefined();
+  });
+
+  // A tab closed mid-move leaves its lease behind and nothing comes back for
+  // it. Expiry is the only safe way to reclaim a dead instance's work: a reload
+  // cannot inherit it, because the script is gone but its last request may have
+  // reached Disney and merely lost the response.
+  it('lets a stale lease be taken over', async () => {
+    setupBooking();
+    await acquireLease(leaseKey(BZ, TODAY), 'a-dead-tab', Date.now());
+    jest.setSystemTime(Date.now() + LEASE_TTL_MS + 1000);
+    expect(await claim()).toBe('true');
+  });
+
+  // Two providers live in one tab -- NextLL nests one inside the app's own --
+  // so a provider's identity is per instance, and a foreground search owns its
+  // lease separately again. A shared id let one take over another's live work,
+  // which is the thing ownership exists to stop: the lease is re-entrant for
+  // its holder, so sharing an id turns a refusal into a grant.
+  it('does not let the engine and a search share an identity', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    let releaseOffer = () => {};
+    const offerDelay = new Promise<void>(resolve => {
+      releaseOffer = resolve;
+    });
+    setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      offerDelay,
+    });
+    await enable();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(IDLE_INTERVAL_MS);
+    });
+    // The engine holds it; the search is a different owner and is refused.
+    expect(leaseHolder(leaseKey(BZ, TODAY))).not.toBe(PROBE_OWNER);
+    expect(await claim()).toBe('false');
+    await act(async () => releaseOffer());
   });
 });
 

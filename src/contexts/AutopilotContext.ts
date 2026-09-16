@@ -1,7 +1,6 @@
 import { createContext } from 'react';
 
 import { AlertPermission } from '@/autopilot/alert';
-import { LockKind } from '@/autopilot/autobook';
 import { DropSummary } from '@/autopilot/observe';
 import { NO_REFUSALS, RefusalState } from '@/autopilot/refusal';
 import { PollerStatus } from '@/autopilot/usePoller';
@@ -118,35 +117,6 @@ export interface AutopilotState {
    */
   sessionLog: BookingLogEntry[];
   bookedCount: number;
-  /**
-   * Take the shared per-attraction action lock, for a foreground search.
-   *
-   * `useTimeSearch` runs its own engine against a reservation the top-level
-   * Autopilot is still polling underneath, and its commits went straight to
-   * `ll.book(offer)` -- outside the ledger, so neither engine knew the other
-   * was about to modify the same held pass. These two let the search join the
-   * same lock the engine takes, which is what stops both from acting on one
-   * entitlement at once.
-   *
-   * Returns false when the lock is already held elsewhere. The caller must not
-   * treat that as a reason to fail silently: a foreground search is one the
-   * user is standing there asking for, so it reports the contention and keeps
-   * looking rather than dying.
-   *
-   * Optional, because the many places that stub this context do not need them.
-   */
-  claimAction?: (experienceId: string, kind: LockKind) => boolean;
-  /** Give the lock back, for an action that provably did not happen. */
-  releaseAction?: (experienceId: string, kind: LockKind) => void;
-  /**
-   * Publish a return time a foreground search committed.
-   *
-   * The engine publishes every commit so another instance's overlap check
-   * cannot pass against a snapshot taken before it existed. A search that books
-   * outside the engine has to do the same, or it opens exactly that window for
-   * the minutes until Plans refreshes.
-   */
-  publishCommit?: (facilityId: string, time: ParkTime) => void;
   /** Act only when every party member is eligible. Persisted. */
   requireWholeParty: boolean;
   setRequireWholeParty: (on: boolean) => void;

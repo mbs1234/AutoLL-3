@@ -37,15 +37,19 @@ describe('booking log persistence', () => {
   });
 
   it('round-trips every entry shape', () => {
+    // Newest first, as the provider builds it: `addLogEntry` prepends, and the
+    // store now orders by time before applying the cap so a stale writer
+    // cannot decide which rows survive by writing last.
     const entries: BookingLogEntry[] = [
-      { name: 'A', at: at(9, 47), status: 'booked', returnTime: at(11) },
       {
-        name: 'B',
-        at: at(9, 48),
-        status: 'modified',
-        fromTime: at(19),
-        returnTime: at(11, 20),
+        name: 'F',
+        at: at(9, 51),
+        status: 'dry-run',
+        detail: 'book',
+        returnTime: at(11),
+        reason: 'rehearsed, nothing committed',
       },
+      { name: 'E', at: at(9, 50), status: 'failed', detail: 'boom' },
       {
         name: 'C',
         at: at(9, 49),
@@ -54,14 +58,14 @@ describe('booking log persistence', () => {
         fromTime: at(15),
         returnTime: at(12),
       },
-      { name: 'E', at: at(9, 50), status: 'failed', detail: 'boom' },
       {
-        name: 'F',
-        at: at(9, 51),
-        status: 'dry-run',
-        detail: 'book',
-        returnTime: at(11),
+        name: 'B',
+        at: at(9, 48),
+        status: 'modified',
+        fromTime: at(19),
+        returnTime: at(11, 20),
       },
+      { name: 'A', at: at(9, 47), status: 'booked', returnTime: at(11) },
     ];
     saveBookingLog(entries);
     expect(loadBookingLog()).toEqual(entries);

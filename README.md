@@ -143,10 +143,11 @@ screen — and its moves used to go out without taking any lock at all. It now
 takes the same per-attraction lock as everything else and holds it for the run,
 so nothing else can move that pass mid-search.
 
-When they want the same reservation, the search you started wins. It waits only
-while autopilot has a request genuinely in the air — a few seconds, and the
-screen says so — then takes over. A lock another tab is holding it leaves alone,
-because it cannot tell whether that work has finished. It does not defer to autopilot's lock, because
+When they want the same reservation, whoever gets there first holds it, and the
+other waits and says so on screen. The hold is a short lease on that one
+booking, not a mark against the attraction: the browser hands it out to one
+holder at a time, and it expires by itself, so a tab you close mid-move cannot
+leave a ride locked for the rest of the day. It does not defer to autopilot's lock, because
 that lock is never given back: it records that autopilot moved the ride at some
 point since you switched it on, which may have been hours earlier. That matters
 most in the case only the search can serve, since autopilot sees one return time

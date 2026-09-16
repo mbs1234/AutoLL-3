@@ -406,17 +406,15 @@ _Size:_ small, and it must be log lines rather than behaviour changes.
 
 ## 6. Testing and housekeeping
 
-**The action lock is self-healing, not atomic.** Each key in the day's shared
-record is stored against the tab holding it, and a release only takes effect for
-that holder -- which is what stops one instance withdrawing another's
-protection. Acquisition is still a read-modify-write on `localStorage` and
-cannot be made atomic there, so two instances can interleave and lose an update.
-Every holder re-publishes what it owns on each poll, so a lost key is back
-within a tick rather than gone for the day. The proper fix is an owner lease
-acquired through the Web Locks API, which is async and would have to reach up
-through the ledger's synchronous `onAttemptChange`; that is a change worth
-making deliberately rather than in the weeks before a trip. _Size:_ medium.
-_Where:_ `src/autopilot/storage.ts`'s `saveLocks` and `lockOwnerId`.
+**Exclusion has no fallback where the browser has no Web Locks.**
+`src/autopilot/lease.ts` serialises acquisition through `navigator.locks` and
+reports through `available()` whether it could. Where it cannot -- an old
+browser, or a context where the API is withheld -- the read-modify-write is
+unsynchronised again and two instances can both believe they acquired. Nothing
+currently surfaces that: `available()` is exported and unused. The options are
+to say so on screen, or to fail closed and decline to act at all, and the second
+is worse than the exposure on a park day. _Size:_ small for the warning.
+_Where:_ `src/autopilot/lease.ts`.
 
 
 **Two of four named test deliverables are still missing**, down from four on

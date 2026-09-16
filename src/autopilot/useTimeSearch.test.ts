@@ -321,7 +321,7 @@ describe('useTimeSearch', () => {
    */
   describe('the shared action lock', () => {
     it('takes the lock before a move leaves the device', async () => {
-      const claimCommit = jest.fn(() => true);
+      const claimCommit = jest.fn(async () => true);
       const commit = jest.fn(async () => booking(at(11)));
       const { result } = setup({ claimCommit, commit });
       act(() => result.current.start());
@@ -336,7 +336,7 @@ describe('useTimeSearch', () => {
     // foreground search is one the user is standing there asking for, so it
     // says so and keeps looking rather than committing on top or dying.
     it('does not commit while the engine holds the lock', async () => {
-      const claimCommit = jest.fn(() => false);
+      const claimCommit = jest.fn(async () => false);
       const commit = jest.fn(async () => booking(at(11)));
       const { result } = setup({ claimCommit, commit });
       act(() => result.current.start());
@@ -347,22 +347,28 @@ describe('useTimeSearch', () => {
       expect(result.current.stop).toBeUndefined();
     });
 
-    // Claimed once and held for the run: taking and giving it back between
-    // cycles would leave the engine a window on every one of them.
-    it('claims once across several moves in a run', async () => {
-      const claimCommit = jest.fn(() => true);
+    // Held for the run, never given back between cycles -- that would leave the
+    // engine a window on every one of them. Asked again before each commit
+    // because the lease expires and asking is how a holder renews it: the
+    // acquisition is re-entrant, so a renewal cannot lose the lease it holds.
+    it('renews rather than releasing between moves in a run', async () => {
+      const claimCommit = jest.fn(async () => true);
       // A grid that improves between cycles, so the search genuinely moves
       // more than once. A fixed grid gives one move and proves nothing here.
       const grids = [[[at(13)]], [[at(11)]], [[at(9)]]];
       let cycle = 0;
+      const releaseCommit = jest.fn();
       const { result } = setup({
         claimCommit,
+        releaseCommit,
         getTimes: async () => grids[Math.min(cycle++, grids.length - 1)]!,
       });
       act(() => result.current.start());
       await runCycles(5);
       expect(result.current.moves).toBeGreaterThan(1);
-      expect(claimCommit).toHaveBeenCalledTimes(1);
+      // Once per commit, and never a release in between.
+      expect(claimCommit.mock.calls.length).toBe(result.current.moves);
+      expect(releaseCommit).not.toHaveBeenCalled();
     });
 
     // The `releaseAttempt` escape. Without it the search's own lock would
@@ -374,7 +380,7 @@ describe('useTimeSearch', () => {
       // outstanding. A search that never commits never claims a lock at all,
       // so there would be nothing to give back.
       const { result } = setup({
-        claimCommit: jest.fn(() => true),
+        claimCommit: jest.fn(async () => true),
         releaseCommit,
       });
       act(() => result.current.start());
@@ -395,7 +401,7 @@ describe('useTimeSearch', () => {
     it('keeps the lock when a stopped search is still settling', async () => {
       const releaseCommit = jest.fn();
       const { result } = setup({
-        claimCommit: jest.fn(() => true),
+        claimCommit: jest.fn(async () => true),
         releaseCommit,
         // Plans never catches up, so the guard stays `awaiting`.
         plans: jest.fn(async () => [booking(at(15))]) as never,
@@ -413,7 +419,7 @@ describe('useTimeSearch', () => {
       const releaseCommit = jest.fn();
       const commit = jest.fn().mockRejectedValue(new Error('no response'));
       const { result } = setup({
-        claimCommit: jest.fn(() => true),
+        claimCommit: jest.fn(async () => true),
         releaseCommit,
         commit,
       });
