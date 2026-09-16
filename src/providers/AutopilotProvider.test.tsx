@@ -6,7 +6,7 @@ import { RequestError } from '@/api/client';
 import { Booking } from '@/api/itinerary';
 import { Experience, FlexExperience } from '@/api/ll';
 import { fireAlert, primeAudio } from '@/autopilot/alert';
-import { CONFIRM_ABSENT_POLLS } from '@/autopilot/autobook';
+import { CHANGE, CONFIRM_ABSENT_POLLS } from '@/autopilot/autobook';
 import {
   appendDropEvents,
   coverageBucket,
@@ -72,6 +72,8 @@ const BZ = '80010114';
 const DB = '80010129';
 /** Haunted Mansion: the fixture gives it drop times at 13:30 and 15:30. */
 const HM = '80010208';
+/** A lock owner that is not this tab, for simulating another instance. */
+const OTHER_TAB = 'another-tab';
 
 function available(
   id: string,
@@ -124,10 +126,10 @@ function Probe() {
       <span data-testid="lastSkip">
         {lastSkip ? `${lastSkip.name}: ${lastSkip.reason}` : ''}
       </span>
-      <button onClick={() => setClaimed(String(claimAction?.(BZ, 'modify')))}>
+      <button onClick={() => setClaimed(String(claimAction?.(BZ, CHANGE)))}>
         claim BZ modify
       </button>
-      <button onClick={() => releaseAction?.(BZ, 'modify')}>
+      <button onClick={() => releaseAction?.(BZ, CHANGE)}>
         release BZ modify
       </button>
       <span data-testid="claimed">{claimed}</span>
@@ -2477,17 +2479,32 @@ describe('AutopilotProvider foreground precedence', () => {
   // The case that used to be refused: Autopilot has already used its one move
   // on this attraction, so the lock stands for the session with nothing behind
   // it. A search asking now is asking about a finished action.
-  it('grants a claim over a lock left by a finished action', async () => {
-    saveLocks([`modify:${BZ}`]);
+  // The case foreground precedence exists for: this engine has already used
+  // its one move on the reservation, so the lock stands for the session with
+  // nothing behind it. A search asking now is asking about a finished action.
+  it('grants a claim over a lock this engine left behind', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { book } = setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(loadLocks()).toContain(`${CHANGE}:${BZ}`);
+    expect(await claim()).toBe('true');
+  });
+
+  // A lock another instance published is not this engine's to take. It cannot
+  // tell whether that action has finished, and taking it over would make the
+  // eventual release withdraw somebody else's protection rather than its own.
+  it('refuses a claim on a lock another instance published', async () => {
+    saveLocks(OTHER_TAB, [`${CHANGE}:${BZ}`]);
     saveWatchList([{ experienceId: BZ, autoModify: true }]);
     setupBooking();
     await enable();
-    // One tick, so `adoptAttempted` pulls the stored lock into the ledger.
-    // Without this the ledger has never heard of it and the claim would be
-    // granted for the wrong reason.
+    // A tick, so `adoptAttempted` pulls the stored lock into the ledger.
     await runTicks(2);
-    expect(loadLocks()).toContain(`modify:${BZ}`);
-    expect(await claim()).toBe('true');
+    expect(await claim()).toBe('false');
   });
 
   // The one refusal worth making: a request is out right now.
@@ -2565,7 +2582,7 @@ describe('AutopilotProvider shared action locks', () => {
   // that is the whole point of sharing them.
   it('adopts a lock another instance left behind', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
-    saveLocks([`book:${BZ}`]);
+    saveLocks(OTHER_TAB, [`book:${BZ}`]);
     const { book } = setupBooking();
     await enable();
     await runTicks(3);
@@ -2576,7 +2593,7 @@ describe('AutopilotProvider shared action locks', () => {
   // indistinguishable on screen from nothing being available.
   it('names the adopted lock as the reason it did nothing', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
-    saveLocks([`book:${BZ}`]);
+    saveLocks(OTHER_TAB, [`book:${BZ}`]);
     setupBooking();
     await enable();
     await runTicks(3);

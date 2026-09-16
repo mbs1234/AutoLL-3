@@ -111,6 +111,27 @@ export type ClashCheck = (
 export type ActionKind = 'book' | 'modify' | 'swap';
 
 /**
+ * A lock on one *reservation*, taken by anything that changes it.
+ *
+ * The per-action locks are per-attraction and exist to stop thrash: one book,
+ * one move, one swap per attraction per session. They do not answer the
+ * question two engines actually collide over, which is whether somebody else
+ * is changing *this reservation* right now -- and they cannot, because a swap
+ * locks the attraction coming *in* while the reservation at risk is the one
+ * going *out*. A foreground search moving a held Haunted Mansion and an
+ * autoswap surrendering that same Haunted Mansion took two different keys and
+ * so never saw each other.
+ *
+ * `change:<facilityId>` is the reservation-scoped lock every path takes: a
+ * modify on what it is modifying, a swap on the victim it is giving up, and a
+ * foreground search on the booking it was opened for.
+ */
+export type LockKind = ActionKind | 'change';
+
+/** The reservation-scoped lock for a held booking. */
+export const CHANGE: LockKind = 'change';
+
+/**
  * Per-session record of what the booker has done.
  *
  * Attempts are recorded per action kind, not per attraction. Booking an
@@ -219,6 +240,30 @@ export class AutoBookLedger {
   }
 
   /**
+   * This instance's own locks, minus any it must not publish.
+   *
+   * What goes to the shared copy. `attemptedKeys()` is the wrong list for that
+   * now that each key is stored against its holder: it includes locks adopted
+   * from other instances, and re-publishing those under this instance's id
+   * would quietly transfer ownership -- after which a release here would
+   * withdraw a lock somebody else is relying on.
+   */
+  publishableKeys(): string[] {
+    return [...this.owned].filter(key => !this.unshared.has(key));
+  }
+
+  /**
+   * Whether this instance took the lock itself, as opposed to adopting it.
+   *
+   * The distinction a foreground claim turns on: taking over this engine's own
+   * stale lock is the point of foreground precedence, while taking over one
+   * another instance published is stepping on a live action.
+   */
+  owns(experienceId: string, kind: LockKind = 'book'): boolean {
+    return this.owned.has(`${kind}:${experienceId}`);
+  }
+
+  /**
    * Adopt locks taken elsewhere -- another tab's ledger, most often -- without
    * disturbing this instance's own bookkeeping for them.
    *
@@ -259,7 +304,7 @@ export class AutoBookLedger {
     return this.booked;
   }
 
-  hasAttempted(experienceId: string, kind: ActionKind = 'book'): boolean {
+  hasAttempted(experienceId: string, kind: LockKind = 'book'): boolean {
     return this.attempted.has(`${kind}:${experienceId}`);
   }
 
@@ -287,7 +332,7 @@ export class AutoBookLedger {
    */
   markAttempted(
     experienceId: string,
-    kind: ActionKind = 'book',
+    kind: LockKind = 'book',
     rehearsal = false
   ): void {
     const key = `${kind}:${experienceId}`;
@@ -345,7 +390,7 @@ export class AutoBookLedger {
    * the 30-minute improvement bar, so it converges on the earliest time
    * available rather than oscillating.
    */
-  releaseAttempt(experienceId: string, kind: ActionKind): void {
+  releaseAttempt(experienceId: string, kind: LockKind): void {
     const key = `${kind}:${experienceId}`;
     this.unshared.delete(key);
     this.attempted.delete(key);

@@ -406,6 +406,19 @@ _Size:_ small, and it must be log lines rather than behaviour changes.
 
 ## 6. Testing and housekeeping
 
+**The action lock is self-healing, not atomic.** Each key in the day's shared
+record is stored against the tab holding it, and a release only takes effect for
+that holder -- which is what stops one instance withdrawing another's
+protection. Acquisition is still a read-modify-write on `localStorage` and
+cannot be made atomic there, so two instances can interleave and lose an update.
+Every holder re-publishes what it owns on each poll, so a lost key is back
+within a tick rather than gone for the day. The proper fix is an owner lease
+acquired through the Web Locks API, which is async and would have to reach up
+through the ledger's synchronous `onAttemptChange`; that is a change worth
+making deliberately rather than in the weeks before a trip. _Size:_ medium.
+_Where:_ `src/autopilot/storage.ts`'s `saveLocks` and `lockOwnerId`.
+
+
 **Two of four named test deliverables are still missing**, down from four on
 2026-09-14: `PlanCheck.test.tsx` now covers the tipboard item's button, its
 in-flight state and its failure, and `DayTimeline.test.tsx` now asserts the

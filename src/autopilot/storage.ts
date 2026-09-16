@@ -18,6 +18,7 @@ interface StoredLogEntry {
   replacedName?: string;
   detail?: string;
   repeated?: number;
+  reason?: string;
 }
 
 /** `ParkTime.from` throws on garbage; treat an unparseable time as absent. */
@@ -71,6 +72,11 @@ export function loadBookingLog(): BookingLogEntry[] {
         ...(typeof e.repeated === 'number' && e.repeated > 1
           ? { repeated: Math.floor(e.repeated) }
           : {}),
+        // Rendered on the Activity screen but never written down, so every
+        // explanation of why an action was acceptable vanished on reload --
+        // leaving the row that says what happened without the half that says
+        // why.
+        ...(typeof e.reason === 'string' ? { reason: e.reason } : {}),
       },
     ];
   });
@@ -98,9 +104,13 @@ export function loadBookingLog(): BookingLogEntry[] {
  * the same resolution the on-screen log offers.
  *
  * The cost is that when both providers have hit the same failure on the same
- * attraction, the merged row carries the writer's count rather than the sum.
- * Summing is not available: a provider rewrites its own row as the count
- * climbs, so adding the stored value would compound its own earlier writes.
+ * attraction, the two rows become one. Summing the counts is not available: a
+ * provider rewrites its own row as the count climbs, so adding the stored value
+ * would compound its own earlier writes. What the merge does instead is keep
+ * the *larger* count and the *later* time of the two, so a slower writer can
+ * neither wind a count backwards nor make a burst look older than it is. That
+ * understates two concurrent bursts rather than misreporting one, which is the
+ * right direction to be wrong in.
  */
 function logKey(e: BookingLogEntry): string {
   if (e.status === 'failed') return ['failed', e.name, e.detail].join('|');
@@ -121,10 +131,24 @@ function logKey(e: BookingLogEntry): string {
  * than interleaved, so a merge cannot reorder what the caller already arranged.
  */
 export function saveBookingLog(entries: BookingLogEntry[]): void {
-  const seen = new Set(entries.map(logKey));
+  const stored = loadBookingLog();
+  const storedByKey = new Map(stored.map(e => [logKey(e), e]));
+  // Reconciled rather than simply preferred. The caller's copy wins on order
+  // and content, but a stale writer must not be able to publish a lower count
+  // or an earlier time over a row another instance has already advanced.
   const merged = [
-    ...entries,
-    ...loadBookingLog().filter(e => !seen.has(logKey(e))),
+    ...entries.map(entry => {
+      const other = storedByKey.get(logKey(entry));
+      if (!other) return entry;
+      const repeated = Math.max(entry.repeated ?? 1, other.repeated ?? 1);
+      const at = +other.at > +entry.at ? other.at : entry.at;
+      return {
+        ...entry,
+        at,
+        ...(repeated > 1 ? { repeated } : {}),
+      };
+    }),
+    ...stored.filter(e => !entries.some(x => logKey(x) === logKey(e))),
   ];
   kvdb.setDaily<StoredLogEntry[]>(
     LOG_KEY,
@@ -137,6 +161,7 @@ export function saveBookingLog(entries: BookingLogEntry[]): void {
       ...(e.replacedName ? { replacedName: e.replacedName } : {}),
       ...(e.detail ? { detail: e.detail } : {}),
       ...(e.repeated && e.repeated > 1 ? { repeated: e.repeated } : {}),
+      ...(e.reason ? { reason: e.reason } : {}),
     }))
   );
 }
@@ -216,21 +241,111 @@ export function saveSettings(settings: AutopilotSettings): void {
  * cancel a Lightning Lane by hand and autopilot would refuse to rebook that
  * attraction for the rest of the park day. Only the instance that took a lock
  * passes it here -- see `AutoBookLedger.ownedKeys`.
+ *
+ * Each key carries the id of the instance holding it, and **a release only
+ * takes effect for the holder**. Without that, one instance could withdraw a
+ * lock another instance was relying on: a foreground search that adopted a
+ * lock from the day's copy and later gave it back was removing somebody else's
+ * protection, not its own.
+ *
+ * Not atomic, and localStorage offers no way to make it so -- two instances can
+ * still interleave a read and a write and lose one update. It is instead
+ * self-healing: every holder republishes what it owns on each poll, so a lost
+ * key is back within a tick rather than gone for the day. A genuinely atomic
+ * lease wants the Web Locks API, which is async and would have to reach up
+ * through the ledger's synchronous callbacks; that is a change worth making
+ * deliberately rather than three months before a trip.
  */
+
+/** What is stored: lock key to the id of the instance that holds it. */
+type LockRecord = Record<string, string>;
+
+/**
+ * The owner recorded for a lock written before owners existed.
+ *
+ * Never equal to a real owner id, so a legacy entry is nobody's to release --
+ * which is the safe reading. They age out with the day.
+ */
+const LEGACY_OWNER = '';
+
+function loadLockRecord(): LockRecord {
+  const stored = kvdb.getDaily<unknown>(LOCKS_KEY);
+  // The shape before owners: a bare array of keys.
+  if (Array.isArray(stored)) {
+    return Object.fromEntries(
+      stored.filter(k => typeof k === 'string').map(k => [k, LEGACY_OWNER])
+    );
+  }
+  if (!stored || typeof stored !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(stored as Record<string, unknown>).filter(
+      ([, owner]) => typeof owner === 'string'
+    ) as [string, string][]
+  );
+}
+
 export function loadLocks(): string[] {
-  const stored = kvdb.getDaily<string[]>(LOCKS_KEY);
-  return Array.isArray(stored) ? stored.filter(k => typeof k === 'string') : [];
+  return Object.keys(loadLockRecord());
+}
+
+/** Whether `owner` is the instance recorded as holding `key`. */
+export function holdsLock(key: string, owner: string): boolean {
+  return loadLockRecord()[key] === owner;
+}
+
+export const LOCK_OWNER_KEY = 'autoll3.autopilot.lockOwner';
+
+/**
+ * This browser tab's id in the shared lock record.
+ *
+ * Per *tab*, not per mount, and that distinction is the point. A reload
+ * replaces the provider but not the tab, and the locks the previous instance
+ * published are then nobody's live work -- so the reloaded tab has to be able
+ * to recognise them as its own and take them back. With a fresh id each mount
+ * they would read as another instance's and a foreground search would be
+ * refused on a lock held by a provider that no longer exists.
+ *
+ * `sessionStorage` is exactly tab-scoped and dies with the tab, which is the
+ * lifetime wanted. Prefixed like everything else: this runs on Disney's origin
+ * alongside the other builds. Falls back to a per-mount id where sessionStorage
+ * is unavailable -- a private window, or storage blocked -- which is no worse
+ * than having no owners at all.
+ */
+export function lockOwnerId(): string {
+  const fresh = () =>
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    const stored = sessionStorage.getItem(LOCK_OWNER_KEY);
+    if (stored) return stored;
+    const id = fresh();
+    sessionStorage.setItem(LOCK_OWNER_KEY, id);
+    return id;
+  } catch {
+    return fresh();
+  }
 }
 
 export function saveLocks(
+  owner: string,
   keys: readonly string[],
   remove: readonly string[] = []
 ): void {
-  const dropped = new Set(remove);
-  kvdb.setDaily<string[]>(
-    LOCKS_KEY,
-    [...new Set([...loadLocks(), ...keys])].filter(k => !dropped.has(k))
-  );
+  const record = loadLockRecord();
+  // Only keys this instance owns are written, so re-publishing never steals a
+  // lock from the instance actually holding it. Republished every poll, which
+  // is what heals a write two instances interleaved and lost.
+  for (const key of keys) record[key] = owner;
+  // Removals last, so a release still wins over a re-lock in the same write --
+  // the order the write has always had.
+  //
+  // A release is scoped to the holder. Dropping a key somebody else owns was
+  // the bug: an instance that had adopted a lock from the day's copy and later
+  // gave it back removed the protection its owner was relying on. A key we
+  // just published is ours by definition, so this never blocks our own release.
+  for (const key of remove) {
+    if (record[key] === owner) delete record[key];
+  }
+  kvdb.setDaily<LockRecord>(LOCKS_KEY, record);
 }
 
 /**

@@ -14,6 +14,7 @@ import {
   SETTINGS_KEY,
   activeCommits,
   clearCommit,
+  holdsLock,
   loadBookingLog,
   loadCommits,
   loadLocks,
@@ -262,21 +263,24 @@ describe('settings persistence', () => {
   });
 });
 
+const OWNER = 'owner-a';
+const OTHER = 'owner-b';
+
 describe("the day's action locks", () => {
   it('starts empty', () => {
     expect(loadLocks()).toEqual([]);
   });
 
   it('round-trips a lock', () => {
-    saveLocks(['book:A']);
+    saveLocks(OWNER, ['book:A']);
     expect(loadLocks()).toEqual(['book:A']);
   });
 
   // The union is what stops a slower write from one instance dropping a lock
   // another instance took in the meantime.
   it('keeps a lock this writer does not hold', () => {
-    saveLocks(['book:A']);
-    saveLocks(['book:B']);
+    saveLocks(OWNER, ['book:A']);
+    saveLocks(OWNER, ['book:B']);
     expect(loadLocks().sort()).toEqual(['book:A', 'book:B']);
   });
 
@@ -298,20 +302,20 @@ describe("the day's action locks", () => {
   // day. Cancel a Lightning Lane by hand and the earlier one that drops an
   // hour later would never be taken.
   it('removes a released lock instead of preserving it', () => {
-    saveLocks(['book:A', 'modify:B']);
-    saveLocks(['modify:B'], ['book:A']);
+    saveLocks(OWNER, ['book:A', 'modify:B']);
+    saveLocks(OWNER, ['modify:B'], ['book:A']);
     expect(loadLocks()).toEqual(['modify:B']);
   });
 
   it('removes a released lock the stored copy holds and this writer does not', () => {
-    saveLocks(['book:A']);
-    saveLocks([], ['book:A']);
+    saveLocks(OWNER, ['book:A']);
+    saveLocks(OWNER, [], ['book:A']);
     expect(loadLocks()).toEqual([]);
   });
 
   it('leaves other locks alone when one is released', () => {
-    saveLocks(['book:A', 'book:B', 'swap:C']);
-    saveLocks(['book:B', 'swap:C'], ['book:A']);
+    saveLocks(OWNER, ['book:A', 'book:B', 'swap:C']);
+    saveLocks(OWNER, ['book:B', 'swap:C'], ['book:A']);
     expect(loadLocks().sort()).toEqual(['book:B', 'swap:C']);
   });
 
@@ -320,8 +324,47 @@ describe("the day's action locks", () => {
   // cannot disagree in practice -- but the write must not resurrect a release
   // either way.
   it('drops a key that is both held and released', () => {
-    saveLocks(['book:A'], ['book:A']);
+    saveLocks(OWNER, ['book:A'], ['book:A']);
     expect(loadLocks()).toEqual([]);
+  });
+
+  /*
+   * A release only takes effect for the instance holding the lock.
+   *
+   * Without this, an instance that had adopted a lock from the day's copy and
+   * later gave it back was withdrawing somebody else's protection rather than
+   * its own -- so the engine that was mid-action on that reservation lost the
+   * one thing stopping a second engine acting on it too.
+   */
+  it('ignores a release from an instance that does not hold the lock', () => {
+    saveLocks(OWNER, ['modify:A']);
+    saveLocks(OTHER, [], ['modify:A']);
+    expect(loadLocks()).toEqual(['modify:A']);
+  });
+
+  it('lets the holder release its own lock', () => {
+    saveLocks(OWNER, ['modify:A']);
+    saveLocks(OWNER, [], ['modify:A']);
+    expect(loadLocks()).toEqual([]);
+  });
+
+  // Re-publishing never takes a lock away from the instance that holds it:
+  // each writer only ever sends the keys it owns.
+  it('keeps each lock against the instance that took it', () => {
+    saveLocks(OWNER, ['modify:A']);
+    saveLocks(OTHER, ['modify:B']);
+    expect(holdsLock('modify:A', OWNER)).toBe(true);
+    expect(holdsLock('modify:B', OTHER)).toBe(true);
+    expect(holdsLock('modify:A', OTHER)).toBe(false);
+  });
+
+  // The shape before owners existed. Nobody can release those, which is the
+  // safe reading; they age out with the park day.
+  it('treats a lock stored without an owner as no one to release it', () => {
+    kvdb.setDaily(LOCKS_KEY, ['book:A']);
+    expect(loadLocks()).toEqual(['book:A']);
+    saveLocks(OWNER, [], ['book:A']);
+    expect(loadLocks()).toEqual(['book:A']);
   });
 });
 
