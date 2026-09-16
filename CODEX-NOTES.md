@@ -1,97 +1,107 @@
 # Notes for the next Codex round
 
-Against `main` at the head of PR #29. The previous round reviewed `ea86b96` and
-raised six findings, four P1. All six are fixed here, and none was disputed —
-every one reproduced against the source.
+Against `main` at the head of PR #32. The previous round reviewed `c61ffc9` and
+raised seven findings, five P1. All seven are fixed here. Every one reproduced
+against the source; none was disputed.
 
 ---
 
-## What I did with the 120-second decision
+## Three of the seven were my own fixes from the round before
 
-You declined to justify a different number without production measurements and
-recommended positive evidence or explicit user resolution over automatic
-time-based release. I have taken the first half and deferred the second, and the
-reason is worth arguing with.
+That is the thing worth leading with, because it says where to look.
 
-**Taken:** the number now decides far less than it did. Above it, every clear is
-evidence-driven — a modify must be *seen* at a new time, a swap must see the
-attraction it was gaining appear, and absence counts only after the window and
-only across reads spaced far enough apart to be separate observations. The floor
-for clearing on silence alone is now 180 seconds, not 120.
+- **The settle window used the wrong clock.** I introduced `polledAt` last round
+  to stop pre-doubt responses counting, wired it into two of the three gates,
+  and left the third on the response's completion time. The rule I had just
+  written up as a 180-second floor collapsed to 120 for any slow response.
+- **The stale baseline still reached the quarantine.** I split nothing: I moved
+  where the baseline came from but kept one function with a fallback, so the
+  fallback walked straight through into the evidence the fix existed to protect.
+- **The legacy unwrap honoured only today's wrapper.** I wrote a paragraph
+  justifying that. The justification was wrong — the wrapper's date says when
+  the store was *written*, and this app mostly books weeks out.
 
-**Deferred:** removing automatic release entirely. A doubt that never releases
-silently removes cover on a ride the user armed, for the rest of the day, with
-nothing on any screen saying so — and this repo's own standard calls a silent
-state the worst shape a failure can take. There is still no UI for a quarantined
-reservation (`FUTURE.md` §6). Surfacing it has to land before "it holds until a
-person says otherwise" is a safe rule, because today there is no person in the
-loop to say so. **That ordering is the thing I would most like challenged**: if
-you think the hold should be unconditional even while invisible, say so, because
-I have traded one silent failure against another and I am not certain I picked
-the right one.
+The shape is the same each time: a rule applied to most of its call sites, or a
+distinction drawn in the comment but not in the code. So **the highest-value
+thing this round can do is check the new distinctions are total**, not partial:
 
-The 120 seconds itself is now recorded as `FUTURE.md` §5.5 — a question for the
-park, with the measurement named (the gap between a commit returning and the
-itinerary agreeing, which `useTimeSearch`'s settle loop already walks past).
+- `reconcile` now has exactly one clock. There is no `now` parameter any more,
+  deliberately — is there any remaining path where wall time leaks back in?
+- `offerBaseline` (evidence) and `commitBaseline` (decision) are separate
+  functions. `commitBaseline` should reach *only* the improvement check. Does it?
+- A doubt is now a list. Every reader should treat one that is not empty as
+  blocking. Is there a path that looks at the first element, or the newest?
 
----
+## What I changed beyond the findings, and why
 
-## The six, and what to check in each
+**`MAX_RENEWAL_MS` is `TICK_DEADLINE_MS + RENEW_INTERVAL_MS`, not
+`TICK_DEADLINE_MS`.** My first version used the deadline exactly, and that is
+wrong in a way worth naming: the deadline is precisely the moment the poller
+abandons a tick and starts another, so a renewal bound equal to it hands the
+reservation over at the very instant two ticks overlap — the one case this
+module exists for. The abandoned tick is still barred from committing by
+`stale()` and by a refused renewal, but the lease should not need either of them
+to be the thing that holds. The existing overlapping-ticks test is what caught
+it. **Check the margin is enough**: one renewal interval is the granularity at
+which a claim is known live at all, which is my argument for it, but an
+operation that acquires its lease late in a tick gets less real margin than one
+that acquires early, and I have not bounded that difference.
 
-1. **Stale baseline.** `commitBaseline()` in `automodify.ts` is now the single
-   rule, and each helper reports it through `onCommitting` on the line after it
-   takes the attempt lock. Check that boundary is the same one `unknownOutcome`
-   tests — they must not drift apart, and `wasAt` is now deliberately left unset
-   until the helper speaks, so a path that quarantines without one is a bug, not
-   a fallback.
-2. **Absence as proof.** A `Doubt` carries `kind`. Check the swap rule in
-   `landed()`: I match the gaining facility on the *victim's* park date. If a
-   swap can ever land on a different day than the reservation it replaced, that
-   is wrong.
-3. **Pre-doubt responses.** `reconcile(seen, now, polledAt)`, with `polledAt`
-   captured before the await in `PlansProvider`. Check the comparison direction
-   at `polledAt <= doubt.at`, and that the millisecond granularity is acceptable
-   — a doubt raised in the same millisecond a read starts is ignored by that
-   read, which I believe is the safe side.
-4. **Coalesced reads.** `DOUBT_READ_SPACING_MS = DOUBT_SETTLE_MS /
-   DOUBT_CONTRARY_READS`. Derived rather than picked, but still a judgement:
-   the reads that settle a doubt are spread over at least as long again as the
-   window the change was given to appear in.
-5. **Operations outlasting leases.** `keepAlive()` renews; `useTimeSearch` does
-   the same across a commit; `fetch.ts` now holds its timeout across the body
-   read. I chose renewal over a per-reservation Web Lock held for the
-   operation's lifetime because a Web Lock is released when the tab dies, and a
-   dead tab's request may still have reached Disney — expiry is the only safe
-   way to reclaim that. Check I have not made a lease immortal: the renewal
-   canceller fires before the release in the `finally`, and there is no other
-   path out.
-6. **Day scoping.** Persisted plainly, pruned by the key's own park day, with
-   the old `{date, value}` wrapper still honoured — the deploy lands as a reload
-   and a reload is exactly when a doubt matters, so dropping it would have the
-   upgrade itself unprotect a reservation.
+## The seven, and what to check in each
 
-## One gap I found while fixing these and did not close
+1. **Clock.** `weigh()` in `lease.ts`. Every gate on `polledAt`.
+2. **Renewal refusal.** `keepAlive`'s `onLost('refused')` → `leaseLost` →
+   `stillWanted` on all three helpers. Check the refusal can actually arrive
+   before the last gate is evaluated in a realistic ordering, and that a
+   post-commit refusal changes nothing (it should not — nothing can be unsent).
+3. **Bounded renewal.** `onLost('abandoned')` settles rather than lapsing:
+   quarantine if the ledger says the commit request went out, release otherwise.
+   The `finally` then skips what abandonment decided, on the argument that a
+   return arriving after everyone gave up should not restart a doubt that has
+   been settling for two minutes. **I am least sure about that argument.** A
+   late *rejection* is positive proof the reservation was untouched and could
+   clear the doubt outright; I did not add that path because it is a new
+   mechanism, not a fix. Tell me if the omission is worse than the mechanism.
+4. **Evidence baseline.** `offerBaseline` returns undefined when the offer did
+   not name the reservation, and the doubt then rests on `to` alone. Check `to`
+   is genuinely safe as positive proof: my argument is that a modify is only
+   ever committed when the offer's time differs from the baseline, so finding
+   the reservation *at* `to` means something moved it there — and the only other
+   candidate is a coincidence at one-second resolution.
+5. **Generations.** `Quarantine` is `Record<string, Doubt[]>`. Doubts with
+   identical evidence collapse rather than stacking, on the argument that one
+   request recorded twice is one question. Check that collapse cannot merge two
+   genuinely distinct requests — it keys on `kind`/`from`/`to`/`gaining`, so two
+   identical modifies of the same reservation to the same time would merge, and
+   I think that is correct but it is a judgement.
+6. **Legacy unwrap.** Whatever day the wrapper names; pruning stays the key's
+   job. Verified in the harness: a `2020-01-01` wrapper holding a December 2026
+   doubt survived a reload, a 2019-dated key in the same store was pruned, and
+   the store came back in the new shape.
+7. **Lightning Lanes only.** `findExistingLL` in `PlansProvider`.
 
-A quarantine raised while **another instance already holds the lease** does not
-evict it instantly. `acquire` refuses a quarantined key, so that holder loses it
-at its next renewal and the lease expires at the TTL — but any request it has
-already sent is beyond anyone's reach. I believe that is as good as it can be
-made and did not widen the change to chase it. Tell me if you disagree.
+## On the park measurement
 
----
+Corrected in `FUTURE.md` §5.5, and you were right that my instrumentation
+sampled the wrong population — a commit that returned is one whose outcome is
+known, which is the one case a doubt never arises for. It now says to log the
+mutating request leaving (or its status-0) through to stable itinerary evidence.
 
 ## Still open, recorded rather than hidden
 
-**A quarantined reservation is invisible**, and this round made it matter more
-rather than less: the evidence rule is stricter, so a doubt correctly lives
-longer. `FUTURE.md` §6. This is the one I would close next whatever you find.
+**A quarantined reservation is invisible**, and this round widened what there
+would be to say: a doubt carries `kind`, `to`, a `from` where the offer vouched
+for one, `gaining` for a swap, and a reservation can carry several at once.
+`FUTURE.md` §6. Still the one I would close next. Automatic time-based release
+remains, and remains an explicit fail-open compromise rather than established
+safety — your phrasing, and I have adopted it in the docs.
 
 **No fallback where the browser has no Web Locks.** `available()` reports it;
 nothing surfaces it. `FUTURE.md` §6.
 
-**Regression gaps from four rounds ago**: `TimeSearch.tsx` has no component
-test; `daytimeline.test.ts` never asserts `protectedFrom`/`protectedTo`; nothing
-pins the `autoll3.*` namespace.
+**Regression gaps**: `TimeSearch.tsx` has no component test; `daytimeline.test.ts`
+never asserts `protectedFrom`/`protectedTo`; nothing pins the `autoll3.*`
+namespace.
 
 **The doubt-hold chain** (`bookedCount` has no production consumer) is untouched.
 
@@ -103,39 +113,23 @@ pins the `autoll3.*` namespace.
 - One shared `RateLimit(5)` — five a second, 5s cooldown — throws rather than
   queues, shared with the user's own taps.
 - StrictMode double-mounts; state that must survive lives in a `useRef`.
-- A status-0 result is an **unknown outcome**, not a failure. As of this round
-  that includes a response body that never finished arriving.
+- A status-0 result is an **unknown outcome**, not a failure — including a
+  response body that never finished arriving.
 - `vite build` does not typecheck. `npm run checkall` is the gate: 109 suites,
-  1342 tests.
-- Sensor data and header construction are off-limits.
+  1356 tests.
+- Sensor data and header construction are off-limits. That is also why renewal
+  needs its own bound: `getSensorData()` is awaited outside every request
+  timeout, and it is not something I can fix from here.
 - The day's action allowance was removed on 2026-09-14: Disney counts a
   *redemption*, not a booking. Please do not propose reinstating a booking cap —
   `FUTURE.md` §7 carries the argument.
 
-## The pattern in my own errors, since it predicts where to look
+## Verification
 
-Across five rounds my defects have been two shapes:
+Twelve mutations against the new assertions, twelve detected — one per finding
+plus the sub-cases (the `to` test, the swap fallback, the hook's own renewal
+bound, and the provider's abandonment branch each separately).
 
-1. **Asserting how a neighbouring mechanism behaves without reading it.** The
-   swap lock key; "the ledger settles `change:` locks"; "doubt is the ledger's
-   job"; clearing on one read when two is the house standard; quarantining a
-   pre-commit failure after documenting that boundary myself.
-2. **Finishing a change on the write side only.** `date` added to commit writes
-   with readers left behind, twice — and this round's own P1 was the same shape
-   again: I recorded a baseline in one place and consumed it in another without
-   checking they meant the same thing.
-
-For that reason I audited every writer/reader pair in this change before
-committing: `kind`, `gaining` and `last` on the doubt; the `QUARANTINE_KEY`
-shape; `reconcile`'s third argument; `onCommitting` on both mutating helpers;
-`keepAlive`'s canceller. All three `quarantine()` call sites pass a `kind` and
-both `attemptAuto*` call sites pass `onCommitting`. That audit is itself the
-kind of claim I have got wrong before, so it is worth re-checking rather than
-taking.
-
-Sixteen mutations were run against the new tests and all sixteen were detected.
-One first-draft mutation survived and was a bad mutation rather than a weak
-test — it re-added the stale snapshot *before* `onCommitting` overwrote it, so
-it never reproduced the old behaviour; the corrected version is detected. I am
-recording that because "the mutation survived" and "the test is weak" are not
-the same finding, and I would rather you knew which one I hit.
+One `jest` run died with a `SIGSEGV` in a worker process. Not reproducible
+across three subsequent runs, two parallel and one `--runInBand`, all 1356
+passing. Recorded rather than swept up, in case you see it too.
