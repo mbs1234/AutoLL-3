@@ -677,3 +677,51 @@ describe('attemptAutoModify() against the offer itinerary', () => {
     );
   });
 });
+
+/*
+ * The boundary past which the outcome is in doubt, reported from the only place
+ * that knows it.
+ *
+ * The caller's plans snapshot can be one move stale -- these helpers are what
+ * move the reservation between the every-tenth-tick plans reads. A doubt
+ * recorded against that snapshot asks "has it moved?" about a time nobody held,
+ * so an untouched reservation answers yes and the quarantine clears itself on
+ * its own staleness.
+ */
+describe('attemptAutoModify() commit boundary', () => {
+  it('reports the offer itinerary time, not the caller snapshot', async () => {
+    const onCommitting = jest.fn();
+    await attemptAutoModify(
+      target(),
+      experience,
+      existingLL(at(19)),
+      at(11),
+      deps({
+        createModifyOffer: jest.fn(async () =>
+          offerWithHeld(at(11), at(13, 15))
+        ),
+        onCommitting,
+      })
+    );
+    expect(String(onCommitting.mock.calls[0]?.[0])).toBe(String(at(13, 15)));
+  });
+
+  // Only past the point where a request could have changed anything. A skip
+  // decided before `book()` leaves nothing to be in doubt about, and
+  // quarantining on one blocks a reservation nothing has touched.
+  it('says nothing when the move is skipped before committing', async () => {
+    const onCommitting = jest.fn();
+    const outcome = await attemptAutoModify(
+      target(),
+      experience,
+      existingLL(at(19)),
+      at(11),
+      deps({
+        createModifyOffer: jest.fn(async () => offerAt(at(18, 55))),
+        onCommitting,
+      })
+    );
+    expect(outcome.status).toBe('skipped');
+    expect(onCommitting).not.toHaveBeenCalled();
+  });
+});

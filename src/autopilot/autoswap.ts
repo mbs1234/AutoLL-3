@@ -3,6 +3,7 @@ import { Guest, Guests, Offer, OfferError, OfferExperience } from '@/api/ll';
 import { ParkTime, parkDate } from '@/datetime';
 
 import { AutoBookLedger, ClashCheck, actionWasRejected } from './autobook';
+import { commitBaseline } from './automodify';
 import { comparePriority, isTier1 } from './priority';
 import { WatchTarget, inWindow } from './watchlist';
 
@@ -187,6 +188,19 @@ export interface AutoSwapDeps {
    * Optional, and only passed when the setting is on.
    */
   partyIsAcceptable?: (guests: Guests) => boolean;
+  /**
+   * The victim's return time at the moment the commit request goes out.
+   *
+   * The same boundary `attemptAutoModify` reports, for the same reason: the
+   * caller's plans snapshot can be one move stale, and a doubt settled against
+   * a stale baseline clears itself on its own staleness.
+   *
+   * It is the *contrary* test for a swap rather than the positive one -- the
+   * victim still sitting at this time is what says nothing happened. What says
+   * something did is the incoming attraction appearing, which the caller
+   * already knows and records alongside this.
+   */
+  onCommitting?: (from: ParkTime) => void;
 }
 
 /**
@@ -210,6 +224,7 @@ export async function attemptAutoSwap(
     clashes,
     stillWanted,
     partyIsAcceptable,
+    onCommitting,
   }: AutoSwapDeps
 ): Promise<SwapOutcome> {
   const allowed = shouldSwap(target, incoming, held, ledger);
@@ -242,6 +257,7 @@ export async function attemptAutoSwap(
       return { status: 'skipped', reason: 'no-longer-wanted' };
     }
     ledger.markAttempted(target.experienceId, 'swap');
+    onCommitting?.(commitBaseline(offer, victim));
     const booking = await book(offer);
     ledger.markBooked();
     return {

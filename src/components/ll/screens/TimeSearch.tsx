@@ -84,7 +84,8 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
     releaseCommit: () => releaseLease(reservation, searchOwner),
     // The hook supplies the reservation's time as it last saw it, so a later
     // plans read can settle the doubt by seeing it move rather than by a clock.
-    quarantineCommit: from => void quarantineReservation(reservation, { from }),
+    quarantineCommit: from =>
+      void quarantineReservation(reservation, { kind: 'modify', from }),
     onCommitted: moved =>
       saveCommit({
         facilityId: moved.facilityId,

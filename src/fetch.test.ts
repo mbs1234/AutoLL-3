@@ -96,4 +96,41 @@ describe('fetchJson()', () => {
     jest.advanceTimersByTime(timeout);
     expect(await promise).toEqual({ ok: false, status: 0, data: null });
   });
+
+  /*
+   * The timeout has to cover reading the body, not just getting the headers.
+   *
+   * It used to be cleared the moment `fetch` resolved, so a response whose body
+   * stopped arriving mid-stream hung the caller with no bound at all. That is
+   * how an autopilot tick outlived the 90-second deadline that abandons it and
+   * then the 120-second lease protecting the reservation it was changing -- at
+   * which point another actor could take a reservation with a request still in
+   * the air against it.
+   *
+   * Status 0 rather than a throw, and deliberately: it means the same thing to
+   * everything upstream as a request that never got out -- this may have been
+   * acted on and the outcome is unknown -- and `actionWasRejected` reads 0 as
+   * "not proven harmless", which is the conservative half of that pair.
+   */
+  it('returns status=0 when the body never finishes arriving', async () => {
+    jest.spyOn(console, 'error').mockImplementationOnce(() => null);
+    const timeout = 5000;
+    jest.mocked(fetch).mockImplementationOnce(((
+      _url: string,
+      init: RequestInit
+    ) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: () =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject('aborted'));
+          }),
+      } as unknown as Response)) as typeof fetch);
+    const promise = fetchJson(url, { timeout });
+    await Promise.resolve();
+    jest.advanceTimersByTime(timeout);
+    expect(await promise).toEqual({ ok: false, status: 0, data: null });
+  });
 });

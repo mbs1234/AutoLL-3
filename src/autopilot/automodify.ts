@@ -143,6 +143,48 @@ export function shouldModify(
   return { ok: true, existing };
 }
 
+/**
+ * What is *actually* held, taken from the offer's own itinerary in preference
+ * to the plans snapshot the caller started with.
+ *
+ * Two things depend on this being the freshest value available, and they fail
+ * in opposite directions.
+ *
+ * "Never trade down" is only as good as the time it compares against, and plans
+ * are polled every tenth tick -- around seven and a half minutes apart at the
+ * idle cadence, and these helpers are what move the reservation in between. So
+ * the snapshot could name a return time nobody held any more, and the
+ * comparison was then against fiction: a genuinely better offer reading as a
+ * downgrade and being refused, or in the mirror case a worse one reading as a
+ * gain and being taken.
+ *
+ * And it is the baseline a doubt is settled against when the commit's outcome
+ * is never learned. A stale one there is worse still: the quarantine asks "has
+ * it moved?", so a snapshot that was already one move behind makes an untouched
+ * reservation answer yes, and the protection clears itself on its own staleness.
+ *
+ * The offer response carries Disney's own view as of the offer, which is the
+ * freshest thing available and costs no extra request.
+ *
+ * Matched on `facilityId` because `OfferItineraryItem` carries no entitlement
+ * id. The clash check relies on this itinerary containing the reservation being
+ * changed -- that is what it excludes by `release` -- so it is normally present.
+ *
+ * Falls back to the snapshot when it is absent rather than refusing to act.
+ * Absence probably means the reservation is genuinely gone, but if Disney ever
+ * omits the item under modification instead, skipping would stop every move
+ * working, and that is the more expensive way to be wrong.
+ */
+export function commitBaseline(
+  offer: Pick<Offer<LLMP>, 'itinerary'>,
+  held: Pick<LLMP, 'facilityId' | 'start'>
+): ParkTime {
+  return (
+    offer.itinerary.find(item => item.facilityId === held.facilityId)
+      ?.startTime ?? held.start.time
+  );
+}
+
 export interface AutoModifyDeps {
   /** LLClient.offer bound with the existing booking, so it hits /mod. */
   createModifyOffer: (
@@ -187,6 +229,19 @@ export interface AutoModifyDeps {
    * Optional, and only passed when the setting is on.
    */
   partyIsAcceptable?: (guests: Guests) => boolean;
+  /**
+   * The reservation's return time at the moment the commit request goes out.
+   *
+   * Reported from in here because this is the only place that knows it. The
+   * caller's snapshot can be one move stale, and the value a doubt is settled
+   * against has to be what was true when the request left -- otherwise a plans
+   * read that shows the reservation exactly as this helper found it reads as
+   * proof that the change landed.
+   *
+   * Called immediately before `book()`, on the same line as the attempt lock,
+   * so it marks precisely the boundary past which the outcome is in doubt.
+   */
+  onCommitting?: (from: ParkTime) => void;
 }
 
 /**
@@ -219,6 +274,7 @@ export async function attemptAutoModify(
     minImprovementMinutes = improvementBar(target),
     clashes,
     partyIsAcceptable,
+    onCommitting,
   }: AutoModifyDeps
 ): Promise<ModifyOutcome> {
   const allowed = shouldModify(
@@ -241,35 +297,9 @@ export async function attemptAutoModify(
     );
     const to = offer.start.time;
 
-    /**
-     * What is *actually* held, taken from the offer's own itinerary in
-     * preference to the plans snapshot this tick started with.
-     *
-     * "Never trade down" is only as good as the time it compares against, and
-     * plans are polled every tenth tick -- around seven and a half minutes apart
-     * at the idle cadence, and this same function is what moves the reservation
-     * in between. So the snapshot could name a return time nobody held any more,
-     * and the comparison was then against fiction: a genuinely better offer
-     * reading as a downgrade and being refused, or in the mirror case a worse
-     * one reading as a gain and being taken. The offer response carries Disney's
-     * own view as of the offer, which is the freshest thing available and costs
-     * no extra request.
-     *
-     * Matched on `facilityId` because `OfferItineraryItem` carries no
-     * entitlement id. The clash check below already relies on this itinerary
-     * containing the reservation being modified -- that is what it excludes by
-     * `release` -- so it is normally present.
-     *
-     * Falls back to the snapshot when it is absent rather than refusing to act.
-     * Absence probably means the reservation is genuinely gone, but if Disney
-     * ever omits the item under modification instead, skipping here would stop
-     * every move working, and that is the more expensive way to be wrong. The
-     * fallback is no worse than the behaviour this replaces.
-     */
-    const heldNow = offer.itinerary.find(
-      item => item.facilityId === allowed.existing.facilityId
-    );
-    const from = heldNow?.startTime ?? allowed.existing.start.time;
+    // The baseline both the improvement check and any later doubt are measured
+    // against. See `commitBaseline` for why it is not the caller's snapshot.
+    const from = commitBaseline(offer, allowed.existing);
 
     if (offer.guests.eligible.length === 0) {
       return { status: 'skipped', reason: 'no-eligible-guests' };
@@ -296,6 +326,7 @@ export async function attemptAutoModify(
       return { status: 'skipped', reason: 'no-longer-wanted' };
     }
     ledger.markAttempted(target.experienceId, 'modify');
+    onCommitting?.(from);
     const booking = await book(offer);
     ledger.markBooked();
     return { status: 'modified', booking, from, to };

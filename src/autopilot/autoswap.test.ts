@@ -473,3 +473,65 @@ describe('attemptAutoSwap() clash guard', () => {
     expect(seen).toEqual([expect.objectContaining({ facilityId: 'a' })]);
   });
 });
+
+/*
+ * The same boundary `attemptAutoModify` reports, for the same reason: the
+ * caller's plans snapshot can be one move stale, and a doubt settled against a
+ * stale baseline clears itself on its own staleness.
+ *
+ * For a swap this is the *contrary* test rather than the positive one -- the
+ * victim still sitting at this time is what says nothing happened.
+ */
+describe('attemptAutoSwap() commit boundary', () => {
+  const offerWithVictim = (time: ParkTime, victimAt: ParkTime, id = 'a') =>
+    ({
+      ...offerAt(time),
+      itinerary: [{ facilityId: id, startTime: victimAt, overlap: 'NONE' }],
+    }) as unknown as Offer<LLMP>;
+
+  it("reports the victim's time from the offer itinerary", async () => {
+    const onCommitting = jest.fn();
+    const outcome = await attemptAutoSwap(
+      target(),
+      incoming('new', 1.0),
+      full(),
+      deps({
+        createSwapOffer: jest.fn(async () =>
+          offerWithVictim(at(11), at(16, 30))
+        ),
+        onCommitting,
+      })
+    );
+    expect(outcome.status).toBe('swapped');
+    expect(String(onCommitting.mock.calls[0]?.[0])).toBe(String(at(16, 30)));
+  });
+
+  it('falls back to the snapshot when the itinerary omits the victim', async () => {
+    const onCommitting = jest.fn();
+    await attemptAutoSwap(
+      target(),
+      incoming('new', 1.0),
+      full(),
+      deps({
+        createSwapOffer: jest.fn(async () =>
+          offerWithVictim(at(11), at(16, 30), 'somebody-else')
+        ),
+        onCommitting,
+      })
+    );
+    expect(String(onCommitting.mock.calls[0]?.[0])).toBe(String(at(15)));
+  });
+
+  // Nothing left the device, so there is nothing to be in doubt about.
+  it('says nothing when the swap is skipped before committing', async () => {
+    const onCommitting = jest.fn();
+    const outcome = await attemptAutoSwap(
+      target(),
+      incoming('new', 1.0),
+      full(),
+      deps({ stillWanted: () => false, onCommitting })
+    );
+    expect(outcome.status).toBe('skipped');
+    expect(onCommitting).not.toHaveBeenCalled();
+  });
+});

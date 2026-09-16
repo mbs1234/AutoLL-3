@@ -1,3 +1,4 @@
+import { parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
 
 /**
@@ -21,7 +22,9 @@ import kvdb from '@/kvdb';
  *   reported rather than hidden.
  * - **Expiring.** A tab that is closed mid-request leaves its lease behind, and
  *   nothing will ever come back to release it. A lease older than
- *   `LEASE_TTL_MS` is therefore free to take. Holders renew while they work.
+ *   `LEASE_TTL_MS` is therefore free to take. Holders renew while they work --
+ *   see `keepAlive`, which is what makes "while they work" mean the length of
+ *   the request rather than the length of the tick that started it.
  * - **Owned by an instance, not a tab.** Two providers live in one tab -- NextLL
  *   nests one inside the app's own -- so a tab-scoped identity would let them
  *   take over each other. A reload is not a safe inheritance either: the old
@@ -42,6 +45,15 @@ export const QUARANTINE_KEY = 'autoll3.autopilot.unresolved';
  */
 export const LEASE_TTL_MS = 120_000;
 
+/**
+ * How often a holder renews while its request is still in the air.
+ *
+ * A third of the TTL, so two renewals can be missed -- a phone throttling
+ * timers in a backgrounded tab, a long garbage-collection pause -- before the
+ * lease lapses under a live request.
+ */
+export const RENEW_INTERVAL_MS = LEASE_TTL_MS / 3;
+
 /** The name Web Locks serialises on. One critical section for the whole store. */
 const MUTEX = 'autoll3.autopilot.leases.mutex';
 
@@ -52,6 +64,9 @@ interface Lease {
 }
 
 type Leases = Record<string, Lease>;
+
+/** Which action left the reservation in doubt, because the evidence differs. */
+export type DoubtKind = 'modify' | 'swap';
 
 /**
  * Reservations whose last change may or may not have applied.
@@ -80,18 +95,44 @@ interface Doubt {
   /** `Date.now()` when the doubt was raised. */
   at: number;
   /**
+   * What the change was, because the two actions leave different traces.
+   *
+   * A modify leaves the reservation in place at a new time, so seeing it move
+   * is proof. A swap removes it and puts a different attraction in its slot, so
+   * the proof is the *incoming* attraction turning up -- the victim's absence
+   * is merely consistent with that, and equally consistent with one plans
+   * response having omitted a reservation that is still there.
+   *
+   * Optional only so a store written by an older build parses; absent means no
+   * positive test applies and the doubt settles the slow way.
+   */
+  kind?: DoubtKind;
+  /**
    * The return time the reservation was at *before* the change, as
    * `ParkTime`'s "HH:MM:SS".
    *
    * The before, not the after, because the before is the value we reliably
    * have. Disney can answer a move with a different time than the one asked
    * for, so "it is at the time we wanted" is not a test that can be relied on
-   * -- while "it is no longer where it was" settles a modify, and for a swap
-   * the reservation being gone from plans altogether says the same thing.
+   * -- while "it is no longer where it was" settles a modify.
+   *
+   * Taken at the commit boundary from the offer's own itinerary, not from the
+   * plans snapshot the tick started with: those can differ by one move, and a
+   * stale `from` makes an unchanged reservation look like proof the change
+   * landed.
    */
   from?: string;
-  /** Consecutive reads still showing it exactly as it was. */
+  /**
+   * For a swap, the facility that must appear if the change landed.
+   *
+   * The only positive proof a swap went through. Its own reservation, on the
+   * same park day as the one given up.
+   */
+  gaining?: string;
+  /** Consecutive reads that found no sign of the change. */
   contrary: number;
+  /** When the read that last counted against this doubt *started*. */
+  last?: number;
 }
 
 type Quarantine = Record<string, Doubt>;
@@ -109,27 +150,80 @@ export const DOUBT_SETTLE_MS = LEASE_TTL_MS;
 /** Reads showing no sign of the change before it is declared not to have happened. */
 export const DOUBT_CONTRARY_READS = 2;
 
+/**
+ * The least time between two reads that both count against a doubt.
+ *
+ * `DOUBT_CONTRARY_READS` is meant to be two *independent* observations, and
+ * without a spacing rule it is not: `fetchJson` hands concurrent identical
+ * requests the same promise, so two `pollPlans()` calls in one tick can be one
+ * HTTP response counted twice -- and during a drop burst plans are read far
+ * more often than at idle, so even uncoalesced reads can arrive closer together
+ * than Disney could possibly have changed its answer.
+ *
+ * Derived rather than picked: the reads that settle a doubt are spread over at
+ * least as long again as the window the change was given to appear in.
+ */
+export const DOUBT_READ_SPACING_MS = DOUBT_SETTLE_MS / DOUBT_CONTRARY_READS;
+
+/**
+ * Doubts, with anything belonging to a park day already past dropped.
+ *
+ * Stored plainly rather than through `getDaily`, which scopes a whole value to
+ * *today* -- so every doubt vanished at the 4am rollover whatever day its
+ * reservation was on. That discarded a doubt raised minutes before rollover
+ * before its settle window had run, and it discarded doubts about future-dated
+ * reservations, which is most of what this app books. The keys already name the
+ * day; pruning by that is both narrower and correct.
+ *
+ * Pruned on read rather than rewritten here: the next write persists it, and a
+ * dead entry that is filtered on every read costs nothing until then.
+ */
 function loadQuarantine(): Quarantine {
-  const stored = kvdb.getDaily<unknown>(QUARANTINE_KEY);
-  if (!stored || typeof stored !== 'object') return {};
-  return Object.fromEntries(
-    Object.entries(stored as Record<string, unknown>).flatMap(
-      ([key, value]) => {
-        const doubt = value as Partial<Doubt>;
-        if (typeof doubt?.at !== 'number') return [];
-        return [
-          [
-            key,
-            {
-              at: doubt.at,
-              ...(typeof doubt.from === 'string' ? { from: doubt.from } : {}),
-              contrary: typeof doubt.contrary === 'number' ? doubt.contrary : 0,
-            },
-          ],
-        ];
-      }
-    )
-  );
+  const today = parkDate();
+  const stored = unwrapDaily(kvdb.get<unknown>(QUARANTINE_KEY), today);
+  if (!stored) return {};
+  const out: Quarantine = {};
+  for (const [key, value] of Object.entries(stored)) {
+    const doubt = value as Partial<Doubt>;
+    if (typeof doubt?.at !== 'number') continue;
+    // The day is over: there is no reservation left to protect.
+    if (leaseParts(key).date < today) continue;
+    out[key] = {
+      at: doubt.at,
+      ...(doubt.kind === 'modify' || doubt.kind === 'swap'
+        ? { kind: doubt.kind }
+        : {}),
+      ...(typeof doubt.from === 'string' ? { from: doubt.from } : {}),
+      ...(typeof doubt.gaining === 'string' ? { gaining: doubt.gaining } : {}),
+      contrary: typeof doubt.contrary === 'number' ? doubt.contrary : 0,
+      ...(typeof doubt.last === 'number' ? { last: doubt.last } : {}),
+    };
+  }
+  return out;
+}
+
+/**
+ * A store written by the build that scoped this value to a single day.
+ *
+ * Two lines rather than none because the upgrade lands as a page reload, and a
+ * reload is exactly when a doubt matters most: the script that raised it is
+ * gone and its request may still have reached Disney. Dropping the wrapper on
+ * the floor would have the deploy itself unprotect a reservation. Honoured only
+ * for today, which is all the old shape ever meant.
+ */
+function unwrapDaily(
+  stored: unknown,
+  today: string
+): Record<string, unknown> | undefined {
+  if (!stored || typeof stored !== 'object') return undefined;
+  const daily = stored as { date?: unknown; value?: unknown };
+  if (typeof daily.date === 'string') {
+    if (daily.date !== today) return undefined;
+    return daily.value && typeof daily.value === 'object'
+      ? (daily.value as Record<string, unknown>)
+      : undefined;
+  }
+  return stored as Record<string, unknown>;
 }
 
 /**
@@ -142,16 +236,18 @@ function loadQuarantine(): Quarantine {
  */
 export async function quarantine(
   key: string,
-  was: { from?: string } = {},
+  was: { kind?: DoubtKind; from?: string; gaining?: string } = {},
   now = Date.now()
 ): Promise<void> {
   await exclusive(() => {
-    kvdb.setDaily<Quarantine>(QUARANTINE_KEY, {
+    kvdb.set<Quarantine>(QUARANTINE_KEY, {
       ...loadQuarantine(),
       [key]: {
         at: now,
         contrary: 0,
+        ...(was.kind ? { kind: was.kind } : {}),
         ...(was.from ? { from: was.from } : {}),
+        ...(was.gaining ? { gaining: was.gaining } : {}),
       },
     });
   });
@@ -163,32 +259,76 @@ export function quarantinedAt(key: string): number | undefined {
 }
 
 /**
+ * Whether one plans read proves the change this doubt is about actually landed.
+ *
+ * Deliberately narrow. Only a trace the change itself would have left counts;
+ * everything else -- including the reservation being missing -- is "no sign of
+ * it", which settles the doubt slowly and only by repetition.
+ */
+function landed(
+  key: string,
+  doubt: Doubt,
+  seen: (key: string) => string | undefined
+): boolean {
+  if (doubt.kind === 'swap') {
+    // The attraction the swap was for, in the slot the victim used to hold.
+    // The victim's own absence is not proof: a swap that never happened looks
+    // exactly the same as one plans response leaving the reservation out.
+    if (!doubt.gaining) return false;
+    return seen(leaseKey(doubt.gaining, leaseParts(key).date)) !== undefined;
+  }
+  if (doubt.kind === 'modify') {
+    // Present, and no longer where it was. A modify leaves the reservation in
+    // place, so a disappearance says the read is incomplete rather than that
+    // the move went through.
+    const at = seen(key);
+    return doubt.from !== undefined && at !== undefined && at !== doubt.from;
+  }
+  return false;
+}
+
+/**
  * Offer one plans read as evidence about every reservation in doubt.
  *
- * `seen` reports the return time that read found for a key, or undefined if the
- * reservation was not there. Positive evidence settles at once: the reservation
- * is no longer as it was, so the change happened. Anything else is only evidence
- * once the change has had time to appear, and then only if it keeps saying the
- * same thing -- the standard `resolveBook` already applies to a doubtful
- * booking, for the same reason.
+ * `seen` reports the return time that read found for a key, or undefined if
+ * there is no such reservation. Positive evidence settles at once. Anything
+ * else is only evidence once the change has had time to appear, and then only
+ * if separate reads keep saying the same thing -- the standard `resolveBook`
+ * already applies to a doubtful booking, for the same reason.
+ *
+ * `polledAt` is when the read *started*, which is the only honest measure of
+ * what it can speak about. A response already in flight when the doubt was
+ * raised describes the world before the request went out: counting it either
+ * way is reading evidence out of a photograph taken before the event.
  */
 export async function reconcile(
   seen: (key: string) => string | undefined,
-  now = Date.now()
+  now = Date.now(),
+  polledAt = now
 ): Promise<void> {
   await exclusive(() => {
     const current = loadQuarantine();
     const next: Quarantine = {};
     let changed = false;
     for (const [key, doubt] of Object.entries(current)) {
-      const at = seen(key);
-      if (doubt.from !== undefined && at !== doubt.from) {
-        // It is no longer where it was, so the change landed -- whether that is
-        // a different return time, or, for a swap, the reservation being gone.
+      // Started before the doubt existed, so it saw nothing of it either way.
+      if (polledAt <= doubt.at) {
+        next[key] = doubt;
+        continue;
+      }
+      if (landed(key, doubt, seen)) {
         changed = true;
         continue;
       }
       if (now - doubt.at < DOUBT_SETTLE_MS) {
+        next[key] = doubt;
+        continue;
+      }
+      // Too close to the read that last counted to be a separate observation.
+      if (
+        doubt.last !== undefined &&
+        polledAt - doubt.last < DOUBT_READ_SPACING_MS
+      ) {
         next[key] = doubt;
         continue;
       }
@@ -197,10 +337,10 @@ export async function reconcile(
         changed = true;
         continue;
       }
-      next[key] = { ...doubt, contrary };
+      next[key] = { ...doubt, contrary, last: polledAt };
       changed = true;
     }
-    if (changed) kvdb.setDaily<Quarantine>(QUARANTINE_KEY, next);
+    if (changed) kvdb.set<Quarantine>(QUARANTINE_KEY, next);
   });
 }
 
@@ -272,6 +412,31 @@ export async function acquire(
     kvdb.set<Leases>(LEASE_KEY, { ...leases, [key]: { owner, at: now } });
     return true;
   });
+}
+
+/**
+ * Hold a lease for as long as the request that took it is actually outstanding.
+ *
+ * Acquiring once and trusting the TTL was a hole: the poller abandons a tick at
+ * `TICK_DEADLINE_MS` without cancelling it, and nothing bounds the read of a
+ * response body, so an operation can still be in the air when its lease expires
+ * at 120 seconds -- at which point another actor takes the reservation the
+ * request is about to change.
+ *
+ * Renewal rather than a Web Lock held for the operation's lifetime, which was
+ * the other way to close it: a Web Lock is released when the tab dies, and a
+ * dead tab's request may still have reached Disney. Expiry is the only safe way
+ * to reclaim that, and renewal keeps it while making "outstanding" mean the
+ * request rather than the tick.
+ *
+ * Returns the canceller. Call it before releasing, or the timer re-takes the
+ * lease the release just gave back.
+ */
+export function keepAlive(key: string, owner: string): () => void {
+  const timer = setInterval(() => {
+    void acquire(key, owner);
+  }, RENEW_INTERVAL_MS);
+  return () => clearInterval(timer);
 }
 
 /** Give it back. Only the holder can, so nobody withdraws another's cover. */

@@ -99,9 +99,17 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
     // short-lived search of its own.
     claimCommit: () => acquireLease(reservation, searchOwner),
     releaseCommit: () => releaseLease(reservation, searchOwner),
-    // The hook supplies the reservation's time as it last saw it, so a later
-    // plans read can settle the doubt by seeing it move rather than by a clock.
-    quarantineCommit: from => void quarantineReservation(reservation, { from }),
+    // The hook supplies the reservation's time at the commit boundary, and the
+    // attraction being swapped in is what a later plans read must find to
+    // settle the doubt. The victim merely being gone is not proof: a swap that
+    // never happened looks exactly like one plans response leaving out a
+    // reservation that is still there.
+    quarantineCommit: from =>
+      void quarantineReservation(reservation, {
+        kind: 'swap',
+        from,
+        ...(target ? { gaining: target.id } : {}),
+      }),
     onCommitted: moved =>
       saveCommit({
         facilityId: moved.facilityId,

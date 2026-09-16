@@ -39,6 +39,7 @@ import {
 } from '@/autopilot/learned';
 import {
   acquire as acquireLease,
+  keepAlive as keepLeaseAlive,
   leaseKey,
   quarantine,
   release as releaseLease,
@@ -1024,14 +1025,20 @@ export default function AutopilotProvider({
         // Which call the failure below came from, so a refused eligibility
         // fetch is not also reported against a `book` that never went out.
         let eligibilityFailed = false;
-        // Declared out here so `finally` can close exactly what was opened.
-        const acting: string[] = [];
+        // Declared out here so `finally` can close exactly what was opened:
+        // the lease, and the timer renewing it.
+        const acting: { key: string; stopRenewal: () => void }[] = [];
         // Set where the attempt returns, because `finally` cannot see whether
         // `outcome` was ever assigned -- an eligibility throw leaves it unset,
         // and that path issued no booking request to be in doubt about.
         let unknownOutcome = false;
-        // What the reservation looked like before this attempt, for the doubt
-        // below. Declared out here so the finally can see it.
+        // The reservation's return time at the instant the commit request went
+        // out, reported by whichever helper got that far. Declared out here so
+        // the finally can see it, and left unset until the helper reports it:
+        // the snapshot this tick started from can be one move stale, and a
+        // doubt settled against a stale baseline clears itself on its own
+        // staleness. `unknownOutcome` is only ever true on a path that reached
+        // the boundary, so there is nothing to fall back to.
         let wasAt: string | undefined;
         // Declared out here for the same reason as `acting`: the finally has to
         // release under the very owner that acquired.
@@ -1180,8 +1187,6 @@ export default function AutopilotProvider({
               : undefined;
           const changing = kind === 'swap' ? victim : existing;
           const reservation = changing?.facilityId;
-          // What a later plans read compares against to settle a doubt.
-          wasAt = changing ? String(changing.start.time) : undefined;
           // `operationOwner` above is one per *operation*, not per provider.
           // The poller's deadline abandons a tick without cancelling it, so an
           // overtime tick and its successor both run -- and with a
@@ -1192,7 +1197,16 @@ export default function AutopilotProvider({
           if (reservation) {
             const key = leaseKey(reservation, date);
             if (await acquireLease(key, operationOwner)) {
-              acting.push(key);
+              // Renewed for as long as the request is actually outstanding.
+              // The deadline above abandons a tick without cancelling it, and
+              // nothing bounds a response body that never finishes arriving --
+              // so acquiring once and trusting the TTL let a lease expire at
+              // 120 seconds under a request still in the air, and the next
+              // actor took a reservation Disney was about to change.
+              acting.push({
+                key,
+                stopRenewal: keepLeaseAlive(key, operationOwner),
+              });
             } else {
               leased = false;
             }
@@ -1216,6 +1230,9 @@ export default function AutopilotProvider({
               ledger: ledgerRef.current,
               clashes,
               partyIsAcceptable,
+              onCommitting: from => {
+                wasAt = String(from);
+              },
               // Last gate before the entitlement is spent: generating the
               // offer is another round trip, and every guard above it ran
               // before that.
@@ -1238,6 +1255,9 @@ export default function AutopilotProvider({
                 ledger: ledgerRef.current,
                 clashes,
                 partyIsAcceptable,
+                onCommitting: from => {
+                  wasAt = String(from);
+                },
                 // Last gate before the entitlement is spent: generating the
                 // offer is another round trip, and every guard above it ran
                 // before that.
@@ -1296,10 +1316,22 @@ export default function AutopilotProvider({
           // is quarantined instead, because a lease expires and "until plans
           // say what happened" is not a duration.
           await Promise.all(
-            acting.map(async key => {
-              // The time the change was aiming at, so a later plans read can
-              // settle the doubt by *seeing* it rather than by a clock.
-              if (unknownOutcome) await quarantine(key, { from: wasAt });
+            acting.map(async ({ key, stopRenewal }) => {
+              // Before anything else: a renewal firing after the release below
+              // would take back the lease this is giving up.
+              stopRenewal();
+              // What the reservation was, and -- for a swap -- what should be
+              // there instead, so a later plans read can settle the doubt by
+              // seeing the change rather than by a clock. A swap's proof is the
+              // incoming attraction turning up, not the victim disappearing:
+              // one plans response can omit a reservation that is still there.
+              if (unknownOutcome) {
+                await quarantine(key, {
+                  kind: kind === 'swap' ? 'swap' : 'modify',
+                  from: wasAt,
+                  ...(kind === 'swap' ? { gaining: experience.id } : {}),
+                });
+              }
               await releaseLease(key, operationOwner);
             })
           );
