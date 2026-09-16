@@ -144,11 +144,29 @@ export function shouldModify(
 }
 
 /**
- * What is *actually* held, taken from the offer's own itinerary in preference
- * to the plans snapshot the caller started with.
+ * What Disney itself says is held, as of the offer -- or nothing, if the offer
+ * did not say.
  *
- * Two things depend on this being the freshest value available, and they fail
- * in opposite directions.
+ * The offer response carries Disney's own view at the moment the offer was
+ * made, which is the freshest thing available and costs no extra request.
+ * Matched on `facilityId` because `OfferItineraryItem` carries no entitlement
+ * id. The clash check relies on this itinerary containing the reservation being
+ * changed -- that is what it excludes by `release` -- so it is normally present.
+ *
+ * Undefined when it is not, and that distinction is the whole reason this is
+ * separate from `commitBaseline`. See there.
+ */
+export function offerBaseline(
+  offer: Pick<Offer<LLMP>, 'itinerary'>,
+  held: Pick<LLMP, 'facilityId'>
+): ParkTime | undefined {
+  return offer.itinerary.find(item => item.facilityId === held.facilityId)
+    ?.startTime;
+}
+
+/**
+ * The return time to *decide* against: Disney's view where it gave one, and the
+ * caller's snapshot where it did not.
  *
  * "Never trade down" is only as good as the time it compares against, and plans
  * are polled every tenth tick -- around seven and a half minutes apart at the
@@ -158,31 +176,23 @@ export function shouldModify(
  * downgrade and being refused, or in the mirror case a worse one reading as a
  * gain and being taken.
  *
- * And it is the baseline a doubt is settled against when the commit's outcome
- * is never learned. A stale one there is worse still: the quarantine asks "has
- * it moved?", so a snapshot that was already one move behind makes an untouched
- * reservation answer yes, and the protection clears itself on its own staleness.
+ * Falling back to the snapshot is right *here*. Absence probably means the
+ * reservation is genuinely gone, but if Disney ever omits the item under
+ * modification instead, refusing would stop every move working, and that is the
+ * more expensive way to be wrong.
  *
- * The offer response carries Disney's own view as of the offer, which is the
- * freshest thing available and costs no extra request.
- *
- * Matched on `facilityId` because `OfferItineraryItem` carries no entitlement
- * id. The clash check relies on this itinerary containing the reservation being
- * changed -- that is what it excludes by `release` -- so it is normally present.
- *
- * Falls back to the snapshot when it is absent rather than refusing to act.
- * Absence probably means the reservation is genuinely gone, but if Disney ever
- * omits the item under modification instead, skipping would stop every move
- * working, and that is the more expensive way to be wrong.
+ * It is exactly wrong as **evidence**, which is why `onCommitting` reports
+ * `offerBaseline` and not this. A doubt asks "has it moved from here?", so a
+ * baseline that was already a move behind has an untouched reservation answer
+ * yes -- and the protection then clears itself on its own staleness, which is
+ * the failure it exists to prevent. A missing baseline costs a slower settle; a
+ * wrong one costs the reservation.
  */
 export function commitBaseline(
   offer: Pick<Offer<LLMP>, 'itinerary'>,
   held: Pick<LLMP, 'facilityId' | 'start'>
 ): ParkTime {
-  return (
-    offer.itinerary.find(item => item.facilityId === held.facilityId)
-      ?.startTime ?? held.start.time
-  );
+  return offerBaseline(offer, held) ?? held.start.time;
 }
 
 export interface AutoModifyDeps {
@@ -230,18 +240,18 @@ export interface AutoModifyDeps {
    */
   partyIsAcceptable?: (guests: Guests) => boolean;
   /**
-   * The reservation's return time at the moment the commit request goes out.
+   * What the request is about to do, reported at the instant it goes out.
    *
-   * Reported from in here because this is the only place that knows it. The
-   * caller's snapshot can be one move stale, and the value a doubt is settled
-   * against has to be what was true when the request left -- otherwise a plans
-   * read that shows the reservation exactly as this helper found it reads as
-   * proof that the change landed.
+   * `from` is the reservation's return time as the *offer* reported it, and is
+   * absent when the offer did not name it -- deliberately, because the caller's
+   * snapshot is not evidence and passing it here is what let a doubt clear on
+   * its own staleness. `to` is the time being committed to, which is the test
+   * that still works when `from` is missing.
    *
    * Called immediately before `book()`, on the same line as the attempt lock,
    * so it marks precisely the boundary past which the outcome is in doubt.
    */
-  onCommitting?: (from: ParkTime) => void;
+  onCommitting?: (change: { from?: ParkTime; to: ParkTime }) => void;
 }
 
 /**
@@ -326,7 +336,7 @@ export async function attemptAutoModify(
       return { status: 'skipped', reason: 'no-longer-wanted' };
     }
     ledger.markAttempted(target.experienceId, 'modify');
-    onCommitting?.(from);
+    onCommitting?.({ from: offerBaseline(offer, allowed.existing), to });
     const booking = await book(offer);
     ledger.markBooked();
     return { status: 'modified', booking, from, to };

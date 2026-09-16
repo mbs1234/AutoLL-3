@@ -93,8 +93,12 @@ describe('PlansProvider reconciles unresolved reservations', () => {
   // so a fixture date in the past would make every test here pass vacuously.
   const DATE = parkDate();
   const key = leaseKey(BZ, DATE);
+  // A Multi Pass, and typed as one: evidence goes through `findExistingLL`, so
+  // a booking that is not a Lightning Lane must not answer for one.
   const held = (facilityId: string, time: string) =>
     ({
+      type: 'LL',
+      subtype: 'MP',
       id: `ent-${facilityId}`,
       facilityId,
       name: 'Ride',
@@ -164,6 +168,22 @@ describe('PlansProvider reconciles unresolved reservations', () => {
     mount(plans);
     await waitFor(() => expect(plans).toHaveBeenCalled());
     await waitFor(() => expect(quarantinedAt(key)).toBeUndefined());
+  });
+
+  /*
+   * The itinerary holds more than Multi Passes. A dining reservation, a DAS
+   * return or a Single Pass for the same attraction on the same day used to
+   * answer a question about a Lightning Lane it knows nothing about -- and
+   * "at a different time than the doubt recorded" was read as proof the change
+   * had landed.
+   */
+  it('does not let another kind of booking answer for a Lightning Lane', async () => {
+    await quarantine(key, modifyDoubt, 1000);
+    const notAnLL = { ...held(BZ, '11:00:00'), subtype: 'SP' } as Booking;
+    const plans = jest.fn(async () => [notAnLL]);
+    mount(plans);
+    await waitFor(() => expect(plans).toHaveBeenCalled());
+    expect(quarantinedAt(key)).toBe(1000);
   });
 
   /*

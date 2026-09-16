@@ -1032,17 +1032,55 @@ export default function AutopilotProvider({
         // `outcome` was ever assigned -- an eligibility throw leaves it unset,
         // and that path issued no booking request to be in doubt about.
         let unknownOutcome = false;
-        // The reservation's return time at the instant the commit request went
-        // out, reported by whichever helper got that far. Declared out here so
-        // the finally can see it, and left unset until the helper reports it:
-        // the snapshot this tick started from can be one move stale, and a
-        // doubt settled against a stale baseline clears itself on its own
-        // staleness. `unknownOutcome` is only ever true on a path that reached
-        // the boundary, so there is nothing to fall back to.
+        // What the commit request was about to do, at the instant it went out,
+        // reported by whichever helper got that far. Declared out here so the
+        // finally can see them.
+        //
+        // `wasAt` stays unset unless the *offer* named the reservation: the
+        // snapshot this tick started from can be one move stale, and a doubt
+        // settled against a stale baseline clears itself on its own staleness.
+        // `toAt` is what makes that survivable -- seeing the reservation at the
+        // time the request asked for is proof whether or not we knew where it
+        // started.
         let wasAt: string | undefined;
+        let toAt: string | undefined;
+        /**
+         * Whether the lease this attempt took is still ours.
+         *
+         * A refused renewal means somebody quarantined the reservation, or took
+         * the lease over after it lapsed, while this attempt was still putting
+         * its offer together. Renewing quietly through that had the attempt
+         * commit believing it held cover it had lost -- so it joins the last
+         * gate before the request leaves the device.
+         */
+        let leaseLost = false;
+        /**
+         * Whether abandonment already closed this attempt's lease and doubt.
+         *
+         * An operation outstanding past `MAX_RENEWAL_MS` is one nothing is
+         * coming back to settle, so the renewal timer settles it there instead
+         * of holding the reservation for the rest of the day. If the request
+         * then does return, the `finally` must not redo that under a clock two
+         * minutes later.
+         */
+        let settledEarly = false;
         // Declared out here for the same reason as `acting`: the finally has to
         // release under the very owner that acquired.
         const operationOwner = `${lockOwnerRef.current}#${++operationSeq.current}`;
+        /**
+         * What a later plans read needs to know to settle this.
+         *
+         * A swap's proof is the incoming attraction turning up, not the victim
+         * disappearing: one plans response can omit a reservation that is still
+         * there. A modify's is the reservation sitting at `to`, or having moved
+         * off a `from` the offer itself vouched for.
+         */
+        const doubtRaised = () => ({
+          kind: kind === 'swap' ? ('swap' as const) : ('modify' as const),
+          ...(wasAt ? { from: wasAt } : {}),
+          ...(toAt ? { to: toAt } : {}),
+          ...(kind === 'swap' ? { gaining: experience.id } : {}),
+        });
         try {
           const guests = await guestsFor(experience.id, date);
           // A success clears this call's run. `observeAction` does the clearing,
@@ -1205,7 +1243,24 @@ export default function AutopilotProvider({
               // actor took a reservation Disney was about to change.
               acting.push({
                 key,
-                stopRenewal: keepLeaseAlive(key, operationOwner),
+                stopRenewal: keepLeaseAlive(key, operationOwner, reason => {
+                  leaseLost = true;
+                  if (reason !== 'abandoned') return;
+                  // Nothing is coming back to settle this one. Decide it here
+                  // rather than leaving the reservation held until the 4am
+                  // rollover over a request that wedged: past the commit
+                  // boundary the outcome is unknowable and the reservation is
+                  // in doubt; short of it nothing was ever sent.
+                  settledEarly = true;
+                  const committed = ledgerRef.current.hasAttempted(
+                    experience.id,
+                    kind
+                  );
+                  void (async () => {
+                    if (committed) await quarantine(key, doubtRaised());
+                    await releaseLease(key, operationOwner);
+                  })();
+                }),
               });
             } else {
               leased = false;
@@ -1230,13 +1285,15 @@ export default function AutopilotProvider({
               ledger: ledgerRef.current,
               clashes,
               partyIsAcceptable,
-              onCommitting: from => {
-                wasAt = String(from);
+              onCommitting: ({ from, to }) => {
+                wasAt = from === undefined ? undefined : String(from);
+                toAt = String(to);
               },
               // Last gate before the entitlement is spent: generating the
               // offer is another round trip, and every guard above it ran
               // before that.
               stillWanted: offerTime =>
+                !leaseLost &&
                 !stale() &&
                 stillPermitted() &&
                 stillWantsAction(experience.id, 'swap', offerTime),
@@ -1255,13 +1312,15 @@ export default function AutopilotProvider({
                 ledger: ledgerRef.current,
                 clashes,
                 partyIsAcceptable,
-                onCommitting: from => {
-                  wasAt = String(from);
+                onCommitting: ({ from, to }) => {
+                  wasAt = from === undefined ? undefined : String(from);
+                  toAt = String(to);
                 },
                 // Last gate before the entitlement is spent: generating the
                 // offer is another round trip, and every guard above it ran
                 // before that.
                 stillWanted: offerTime =>
+                  !leaseLost &&
                   !stale() &&
                   stillPermitted() &&
                   stillWantsAction(experience.id, 'modify', offerTime),
@@ -1280,6 +1339,7 @@ export default function AutopilotProvider({
               // offer is another round trip, and every guard above it ran
               // before that.
               stillWanted: offerTime =>
+                !leaseLost &&
                 !stale() &&
                 stillPermitted() &&
                 stillWantsAction(experience.id, 'book', offerTime),
@@ -1320,18 +1380,12 @@ export default function AutopilotProvider({
               // Before anything else: a renewal firing after the release below
               // would take back the lease this is giving up.
               stopRenewal();
-              // What the reservation was, and -- for a swap -- what should be
-              // there instead, so a later plans read can settle the doubt by
-              // seeing the change rather than by a clock. A swap's proof is the
-              // incoming attraction turning up, not the victim disappearing:
-              // one plans response can omit a reservation that is still there.
-              if (unknownOutcome) {
-                await quarantine(key, {
-                  kind: kind === 'swap' ? 'swap' : 'modify',
-                  from: wasAt,
-                  ...(kind === 'swap' ? { gaining: experience.id } : {}),
-                });
-              }
+              // Abandonment already decided this one, and decided it at the
+              // moment the information ran out rather than whenever the request
+              // finally gave up. Redoing it here would only restart the clock
+              // on a doubt that has been settling for two minutes.
+              if (settledEarly) return;
+              if (unknownOutcome) await quarantine(key, doubtRaised());
               await releaseLease(key, operationOwner);
             })
           );

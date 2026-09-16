@@ -9,9 +9,12 @@ import { fireAlert, primeAudio } from '@/autopilot/alert';
 import { CONFIRM_ABSENT_POLLS } from '@/autopilot/autobook';
 import {
   LEASE_TTL_MS,
+  MAX_RENEWAL_MS,
+  RENEW_INTERVAL_MS,
   acquire as acquireLease,
   holder as leaseHolder,
   leaseKey,
+  quarantine,
   quarantinedAt,
   reconcile,
   release as releaseLease,
@@ -309,6 +312,9 @@ function setupBooking({
   bookingDate = TODAY,
   // Holds the offer request open, for the gate between offer and book.
   offerDelay = undefined as Promise<void> | undefined,
+  // The same for `book`, which is the other side of the commit boundary: a
+  // request held open here has already left the device.
+  bookDelay = undefined as Promise<void> | undefined,
   // Holds the availability request open, for scope/cancellation tests before
   // any alerting or booking decision has been made.
   experiencesDelay = undefined as Promise<void> | undefined,
@@ -349,6 +355,7 @@ function setupBooking({
   );
   let bookCalls = 0;
   const book = jest.fn(async () => {
+    if (bookDelay) await bookDelay;
     const failure = bookErrors[bookCalls++];
     if (failure === 'no-response') throw new Error('Network request failed');
     if (failure !== undefined) {
@@ -2688,7 +2695,7 @@ describe('AutopilotProvider unresolved reservations', () => {
     expect(raised).toBeDefined();
     // A plans read finding it where it truly was all along is no evidence at
     // all. Against the stale snapshot it read as proof the move had landed.
-    await reconcile(() => '13:00:00', raised! + 1, raised! + 1);
+    await reconcile(() => '13:00:00', raised! + 1);
     expect(await claim()).toBe('false');
   });
 
@@ -2734,7 +2741,7 @@ describe('AutopilotProvider unresolved reservations', () => {
 
     it('does not settle on the victim simply being gone', async () => {
       const raised = await unknownSwap();
-      await reconcile(() => undefined, raised + 1, raised + 1);
+      await reconcile(() => undefined, raised + 1);
       expect(quarantinedAt(victim)).toBe(raised);
     });
 
@@ -2742,7 +2749,6 @@ describe('AutopilotProvider unresolved reservations', () => {
       const raised = await unknownSwap();
       await reconcile(
         key => (key === leaseKey(BZ, TODAY) ? '11:00:00' : undefined),
-        raised + 1,
         raised + 1
       );
       expect(quarantinedAt(victim)).toBeUndefined();
@@ -2785,6 +2791,108 @@ describe('AutopilotProvider overlapping ticks', () => {
     // reached the offer call.
     expect(offer).toHaveBeenCalledTimes(1);
     await act(async () => releaseOffer());
+  });
+});
+
+/*
+ * What happens to a request that never comes back at all.
+ *
+ * Renewing a lease for as long as its operation is outstanding closed one hole
+ * and opened another. `TICK_DEADLINE_MS` abandons a tick without cancelling it,
+ * sensor generation is awaited outside any request timeout, and a promise that
+ * never settles never reaches the `finally` that stops the timer -- so one
+ * wedged request held a reservation until the 4am rollover, with nothing on any
+ * screen saying why nothing was acting on it.
+ *
+ * `MAX_RENEWAL_MS` is where the engine stops believing in it. What it does then
+ * depends on which side of the commit boundary the request was on, because that
+ * is the difference between a reservation nothing has touched and one whose
+ * state nobody will ever learn.
+ */
+describe('AutopilotProvider abandoned operations', () => {
+  const hang = () => new Promise<void>(() => {});
+
+  it('gives the reservation back when nothing was ever committed', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { offer } = setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      offerDelay: hang(),
+    });
+    await enable();
+    await waitFor(() => expect(offer).toHaveBeenCalledTimes(1));
+    const wedged = leaseHolder(leaseKey(BZ, TODAY));
+    expect(wedged).toBeDefined();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(MAX_RENEWAL_MS + 1);
+    });
+    // Not this operation's any more. A later tick may well have taken it, which
+    // is the point: the reservation is workable again.
+    expect(leaseHolder(leaseKey(BZ, TODAY))).not.toBe(wedged);
+    // And nothing is in doubt, because nothing was sent.
+    expect(quarantinedAt(leaseKey(BZ, TODAY))).toBeUndefined();
+  });
+
+  it('puts the reservation in doubt when a commit never returns', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { book } = setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      bookDelay: hang(),
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(quarantinedAt(leaseKey(BZ, TODAY))).toBeUndefined();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(MAX_RENEWAL_MS + 1);
+    });
+    // The request left the device and its outcome is now unknowable, so the
+    // reservation is protected rather than quietly handed to the next tick.
+    expect(quarantinedAt(leaseKey(BZ, TODAY))).toBeDefined();
+    expect(await claim()).toBe('false');
+  });
+
+  const claim = async () => {
+    await act(async () => {
+      screen.getByText('claim BZ modify').click();
+    });
+    return screen.getByTestId('claimed').textContent;
+  };
+});
+
+/*
+ * A lease lost while the offer was still being put together.
+ *
+ * Renewal answers "is this still mine", and throwing the answer away was the
+ * whole bug: another actor can quarantine the reservation, or take the lease
+ * over after it lapsed, while this attempt is mid-round-trip. Committing on top
+ * of that is exactly what the lease exists to prevent, so the answer belongs in
+ * the last gate before the request leaves the device.
+ */
+describe('AutopilotProvider losing a lease mid-attempt', () => {
+  it('does not commit after a renewal was refused', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    let releaseOffer = () => {};
+    const offerDelay = new Promise<void>(resolve => {
+      releaseOffer = resolve;
+    });
+    const { book, offer } = setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      offerDelay,
+    });
+    await enable();
+    await waitFor(() => expect(offer).toHaveBeenCalledTimes(1));
+    // Somebody else puts the reservation in doubt while the offer is out.
+    await quarantine(leaseKey(BZ, TODAY), { kind: 'modify' });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(RENEW_INTERVAL_MS);
+    });
+    await act(async () => releaseOffer());
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(book).not.toHaveBeenCalled();
   });
 });
 

@@ -503,12 +503,16 @@ describe('attemptAutoSwap() commit boundary', () => {
       })
     );
     expect(outcome.status).toBe('swapped');
-    expect(String(onCommitting.mock.calls[0]?.[0])).toBe(String(at(16, 30)));
+    const change = onCommitting.mock.calls[0]?.[0];
+    expect(String(change.from)).toBe(String(at(16, 30)));
+    expect(String(change.to)).toBe(String(at(11)));
   });
 
-  it('falls back to the snapshot when the itinerary omits the victim', async () => {
+  // The snapshot is not evidence. A doubt settled against a time the offer
+  // never vouched for clears itself on its own staleness.
+  it('reports no baseline when the itinerary omits the victim', async () => {
     const onCommitting = jest.fn();
-    await attemptAutoSwap(
+    const outcome = await attemptAutoSwap(
       target(),
       incoming('new', 1.0),
       full(),
@@ -519,7 +523,8 @@ describe('attemptAutoSwap() commit boundary', () => {
         onCommitting,
       })
     );
-    expect(String(onCommitting.mock.calls[0]?.[0])).toBe(String(at(15)));
+    expect(outcome.status).toBe('swapped');
+    expect(onCommitting.mock.calls[0]?.[0].from).toBeUndefined();
   });
 
   // Nothing left the device, so there is nothing to be in doubt about.

@@ -406,9 +406,17 @@ it cannot be used at all.
    minutes is not going to. Everything above it is now evidence-driven — a doubt
    clears on seeing the change, and absence only counts after the window and
    across separately spaced reads — so the number decides how long an *untouched*
-   reservation stays held, not whether a changed one is caught. Still worth
-   measuring: log the gap between a commit returning and the itinerary agreeing,
-   which `useTimeSearch`'s settle loop already walks past on every cycle.
+   reservation stays held, not whether a changed one is caught.
+
+   **Measure from the request leaving, not from a response arriving.** The
+   obvious instrumentation — the gap between `book()` returning and the
+   itinerary agreeing — measures the wrong population entirely: a commit that
+   returned is a commit whose outcome is known, which is exactly the case a
+   doubt never arises for. The interval that matters runs from the mutating
+   request going out, or from its status-0, through to stable itinerary
+   evidence. Log the send, log every subsequent plans read that does and does
+   not show the change, and let the distribution of the ones that eventually
+   appear set the window.
 
 _Size:_ small, and it must be log lines rather than behaviour changes.
 
@@ -429,9 +437,12 @@ This got more urgent on 2026-09-15, not less. The evidence rule tightened --
 absence is no longer proof, a swap waits for the attraction it was for to
 appear, and the reads that settle a doubt must be genuinely separate -- so a
 doubt correctly lives longer than it used to. The protection is better and the
-silence is therefore more expensive. A `Doubt` now carries its `kind` and, for a
-swap, the facility it was gaining, so the message has something to say beyond
-"something is unresolved".
+silence is therefore more expensive. A doubt now carries its `kind`, the time it
+was moving `to`, the baseline it was moving `from` where the offer vouched for
+one, and for a swap the facility it was gaining -- and a reservation can carry
+several at once, each waiting on its own evidence. So the message has a great
+deal to say beyond "something is unresolved", down to naming which request is
+still unaccounted for. _Updated 2026-09-16._
 
 **Exclusion has no fallback where the browser has no Web Locks.**
 `src/autopilot/lease.ts` serialises acquisition through `navigator.locks` and
