@@ -7,6 +7,7 @@ import {
   DOUBT_SETTLE_MS,
   LEASE_KEY,
   LEASE_TTL_MS,
+  MAX_RENEWAL_MS,
   QUARANTINE_KEY,
   RENEW_INTERVAL_MS,
   acquire,
@@ -148,7 +149,7 @@ describe('the operation lease', () => {
     /** A read that started after the doubt was raised, as every real one does. */
     const read =
       (seen: (key: string) => string | undefined, at: number) => () =>
-        reconcile(seen, at, at);
+        reconcile(seen, at);
 
     it('refuses everyone, including the instance that raised it', async () => {
       await acquire(KEY, A);
@@ -265,8 +266,68 @@ describe('the operation lease', () => {
     it('ignores a read that started before the doubt was raised', async () => {
       await quarantine(KEY, modifyDoubt, RAISED);
       // Data that would settle it outright, from a read that began earlier.
-      await reconcile(() => '11:00:00', SETTLED, RAISED - 1);
+      await reconcile(() => '11:00:00', RAISED - 1);
       expect(await acquire(KEY, A, SETTLED)).toBe(false);
+    });
+
+    /*
+     * The window is measured from when a read *started*, because that is all a
+     * read can ever speak about. Gating it on the completion time collapsed the
+     * whole rule: a response that took four minutes to arrive satisfied a
+     * two-minute window while only ever having seen the world as it was when it
+     * left. A slow read is not an old read.
+     */
+    it('measures the window from when a read started, not when it landed', async () => {
+      await quarantine(KEY, modifyDoubt, RAISED);
+      // Two reads that began moments after the doubt, whenever they arrived.
+      await read(() => '19:00:00', RAISED + 10_000)();
+      await read(() => '19:00:00', RAISED + 10_000 + DOUBT_READ_SPACING_MS)();
+      expect(await acquire(KEY, A, RAISED + DOUBT_SETTLE_MS * 3)).toBe(false);
+    });
+
+    /*
+     * The other half of the pair, and the half that still works when the offer
+     * did not say where the reservation started. Seeing it at exactly the time
+     * the request asked for is about as direct as evidence gets.
+     */
+    it('clears a modify sitting at the time the request asked for', async () => {
+      await quarantine(KEY, { kind: 'modify', to: '11:00:00' }, RAISED);
+      await read(() => '11:00:00', 2000)();
+      expect(await acquire(KEY, A, 2000)).toBe(true);
+    });
+
+    /*
+     * And without a baseline the offer vouched for, "somewhere else" is not
+     * evidence of anything. It was the caller's snapshot that used to fill that
+     * gap, and a snapshot one move behind had an untouched reservation read as
+     * proof the change had landed.
+     */
+    it('does not clear a modify with no baseline that is merely elsewhere', async () => {
+      await quarantine(KEY, { kind: 'modify', to: '11:00:00' }, RAISED);
+      await read(() => '17:00:00', 2000)();
+      expect(await acquire(KEY, A, 2000)).toBe(false);
+    });
+
+    /*
+     * Two unknown requests against one reservation are two questions.
+     *
+     * Reachable through the overlap this module already acknowledges: a lease
+     * that lapsed under an operation the poller had abandoned. A single slot
+     * per reservation had the second doubt overwrite the first, so evidence
+     * that answered one unlocked the reservation for both.
+     */
+    it('frees the reservation only when every doubt about it has settled', async () => {
+      await quarantine(KEY, swapDoubt, RAISED);
+      await quarantine(
+        KEY,
+        { kind: 'modify', from: '19:00:00', to: '17:00:00' },
+        RAISED + 1
+      );
+      // Answers the modify outright, and says nothing at all about the swap:
+      // the attraction that one was for is nowhere in plans.
+      await read(key => (key === KEY ? '17:00:00' : undefined), 2000)();
+      expect(quarantinedAt(KEY)).toBe(RAISED);
+      expect(await acquire(KEY, A, 2000)).toBe(false);
     });
 
     it('leaves other reservations alone', async () => {
@@ -304,12 +365,29 @@ describe('the operation lease', () => {
       expect(await acquire(KEY, A)).toBe(false);
     });
 
-    it('ignores an old day-scoped store from a day that has passed', async () => {
+    /*
+     * And whatever day that wrapper names. Its date says when the store was
+     * *written*, not what is inside it -- and most of what this app books is
+     * dated weeks out, so yesterday's wrapper can easily hold a doubt about a
+     * December reservation. Honouring only today's threw exactly those away.
+     */
+    it('honours an old store written on an earlier day', async () => {
+      const later = leaseKey('80010114', modifyDate(parkDate(), 40));
       kvdb.set(QUARANTINE_KEY, {
         date: modifyDate(parkDate(), -1),
-        value: { [KEY]: { at: RAISED, from: '19:00:00', contrary: 0 } },
+        value: { [later]: { at: RAISED, from: '19:00:00', contrary: 0 } },
       });
-      expect(quarantinedAt(KEY)).toBeUndefined();
+      expect(quarantinedAt(later)).toBe(RAISED);
+    });
+
+    // Pruning is still the key's job, and the key names the reservation's day.
+    it('prunes an old store by each reservation, not by the wrapper', async () => {
+      const past = leaseKey('80010114', modifyDate(parkDate(), -3));
+      kvdb.set(QUARANTINE_KEY, {
+        date: modifyDate(parkDate(), -1),
+        value: { [past]: { at: RAISED, from: '19:00:00', contrary: 0 } },
+      });
+      expect(quarantinedAt(past)).toBeUndefined();
     });
 
     it('drops a doubt whose park day is over', async () => {
@@ -332,6 +410,13 @@ describe('the operation lease', () => {
   describe('renewal', () => {
     afterEach(() => jest.useRealTimers());
 
+    /** Advance fake timers and let the promises they started run. */
+    const act = async (ms: number) => {
+      jest.advanceTimersByTime(ms);
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+
     it('holds the lease past its TTL while a request is outstanding', async () => {
       jest.useFakeTimers({ now: 0, advanceTimers: false });
       await acquire(KEY, A);
@@ -341,6 +426,53 @@ describe('the operation lease', () => {
       expect(holder(KEY)).toBe(A);
       expect(await acquire(KEY, B)).toBe(false);
       stop();
+    });
+
+    /*
+     * Renewal cannot go on forever, and the bound is not a detail. The poller
+     * abandons a tick without cancelling it, sensor generation is awaited
+     * outside any request timeout, and a promise that never settles never
+     * reaches the cleanup that stops the timer -- so renewing unconditionally
+     * turned one wedged request into a reservation held for the rest of the
+     * day, with nothing on any screen saying why.
+     */
+    it('reports abandonment once an operation has run too long', async () => {
+      jest.useFakeTimers({ now: 0, advanceTimers: false });
+      const lost = jest.fn();
+      await acquire(KEY, A);
+      keepAlive(KEY, A, lost);
+      jest.advanceTimersByTime(MAX_RENEWAL_MS - 1);
+      expect(lost).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
+      expect(lost).toHaveBeenCalledWith('abandoned');
+      // And stops renewing, so the lease lapses the way it did before renewal.
+      jest.advanceTimersByTime(LEASE_TTL_MS);
+      expect(holder(KEY)).toBeUndefined();
+    });
+
+    /*
+     * A refused renewal means somebody quarantined the reservation, or took the
+     * lease over after it lapsed. Renewing quietly through that had the holder
+     * go on to commit believing it still had cover it had lost.
+     */
+    it('reports a renewal the lease refused', async () => {
+      jest.useFakeTimers({ now: 0, advanceTimers: false });
+      const lost = jest.fn();
+      await acquire(KEY, A);
+      keepAlive(KEY, A, lost);
+      await quarantine(KEY, { kind: 'modify' });
+      await act(RENEW_INTERVAL_MS);
+      expect(lost).toHaveBeenCalledWith('refused');
+    });
+
+    // The canceller is the caller saying it is done, which is not a loss.
+    it('says nothing when the caller stops it', async () => {
+      jest.useFakeTimers({ now: 0, advanceTimers: false });
+      const lost = jest.fn();
+      await acquire(KEY, A);
+      keepAlive(KEY, A, lost)();
+      jest.advanceTimersByTime(MAX_RENEWAL_MS * 2);
+      expect(lost).not.toHaveBeenCalled();
     });
 
     // Renewal is the holder saying it is still working. Once it stops saying

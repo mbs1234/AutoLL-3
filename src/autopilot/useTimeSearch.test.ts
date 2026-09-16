@@ -6,7 +6,7 @@ import { LLMP, Offer, OfferError } from '@/api/ll';
 import { DateTime, ParkTime } from '@/datetime';
 import { TODAY } from '@/testing';
 
-import { RENEW_INTERVAL_MS } from './lease';
+import { MAX_RENEWAL_MS, RENEW_INTERVAL_MS } from './lease';
 import { SearchGoal } from './timesearch';
 import useTimeSearch, {
   CYCLE_MS,
@@ -44,14 +44,21 @@ function booking(time: ParkTime, rest: Partial<LLMP> = {}): LLMP {
   } as unknown as LLMP;
 }
 
-function offerAt(time: ParkTime): Offer<LLMP> {
+/**
+ * `heldAt` is Disney's own view of the reservation as of the offer, which is
+ * the only baseline a doubt may be settled against. Omitted means the offer did
+ * not name it, which is a real case and leaves the doubt without that test.
+ */
+function offerAt(time: ParkTime, heldAt?: ParkTime): Offer<LLMP> {
   return {
     id: 'offer-1',
     offerSetId: 'set-1',
     start: new DateTime(TODAY, time),
     end: new DateTime(TODAY, time.add({ hours: 1 })),
     guests: { eligible: [], ineligible: [] },
-    itinerary: [],
+    itinerary: heldAt
+      ? [{ facilityId: BZ, startTime: heldAt, overlap: 'NONE' }]
+      : [],
     booking: booking(time),
   } as unknown as Offer<LLMP>;
 }
@@ -89,7 +96,8 @@ function setup({
   const deps: TimeSearchDeps = {
     booking: booking(held),
     goal,
-    createOffer: jest.fn(async () => offerAt(current)),
+    // The offer echoes the reservation it was handed, as Disney's does.
+    createOffer: jest.fn(async (b: LLMP) => offerAt(current, b.start.time)),
     getTimes: getTimes ?? jest.fn(async () => times),
     changeTime: quoted ?? jest.fn(async (_o, t: ParkTime) => offerAt(t)),
     commit:
@@ -473,7 +481,39 @@ describe('useTimeSearch', () => {
       // The commit happens on the next cycle, through the same guard.
       await runCycles(1);
       await waitFor(() => expect(quarantineCommit).toHaveBeenCalled());
-      expect(quarantineCommit).toHaveBeenCalledWith(String(at(13)));
+      expect(quarantineCommit).toHaveBeenCalledWith({
+        from: String(at(13)),
+        to: String(at(11)),
+      });
+    });
+
+    /*
+     * Renewal cannot go on forever either. Renewing a wedged commit
+     * indefinitely held the reservation for the rest of the day behind a screen
+     * still saying "Searching...". Past `MAX_RENEWAL_MS` nothing is coming back
+     * to settle it -- and since this only ever wraps the commit itself, the
+     * request has already left the device, so the reservation is in doubt.
+     */
+    it('gives up on a commit that never returns', async () => {
+      const quarantineCommit = jest.fn();
+      const releaseCommit = jest.fn();
+      const { result } = setup({
+        claimCommit: jest.fn(async () => true),
+        releaseCommit,
+        quarantineCommit,
+        commit: jest.fn(() => new Promise<LLMP>(() => {})),
+      });
+      act(() => result.current.start());
+      await waitFor(() =>
+        expect(result.current.guard.phase).toBe('committing')
+      );
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(MAX_RENEWAL_MS + 1);
+      });
+      expect(quarantineCommit).toHaveBeenCalled();
+      expect(result.current.guard.phase).toBe('unknown');
+      expect(result.current.unresolved).toBeDefined();
+      expect(result.current.stop).toBe('failed');
     });
 
     /*

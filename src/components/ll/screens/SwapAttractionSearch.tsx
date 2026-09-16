@@ -104,10 +104,10 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
     // settle the doubt. The victim merely being gone is not proof: a swap that
     // never happened looks exactly like one plans response leaving out a
     // reservation that is still there.
-    quarantineCommit: from =>
+    quarantineCommit: change =>
       void quarantineReservation(reservation, {
         kind: 'swap',
-        from,
+        ...change,
         ...(target ? { gaining: target.id } : {}),
       }),
     onCommitted: moved =>

@@ -1,10 +1,10 @@
 import { use, useCallback, useEffect, useRef, useState } from 'react';
 
 import { Booking } from '@/api/itinerary';
+import { findExistingLL } from '@/autopilot/automodify';
 import { leaseParts, reconcile } from '@/autopilot/lease';
 import ClientsContext from '@/contexts/ClientsContext';
 import PlansContext from '@/contexts/PlansContext';
-import { parkDate } from '@/datetime';
 import useDataLoader from '@/hooks/useDataLoader';
 import useThrottleable from '@/hooks/useThrottleable';
 
@@ -63,17 +63,15 @@ export default function PlansProvider({
     // plans should not also wait on a lock.
     if (request > reconciledSequence.current) {
       reconciledSequence.current = request;
-      void reconcile(
-        key => {
-          const { date, facilityId } = leaseParts(key);
-          const booking = fetched.find(
-            b => b.facilityId === facilityId && parkDate(b.start) === date
-          );
-          return booking?.start?.time ? String(booking.start.time) : undefined;
-        },
-        Date.now(),
-        polledAt
-      );
+      void reconcile(key => {
+        const { date, facilityId } = leaseParts(key);
+        // Through `findExistingLL` rather than a facility match, because a
+        // doubt is about a Multi Pass and the itinerary holds more than those.
+        // A dining reservation or a DAS return for the same attraction on the
+        // same day would otherwise answer a question it knows nothing about.
+        const booking = findExistingLL(fetched, facilityId, date);
+        return booking ? String(booking.start.time) : undefined;
+      }, polledAt);
     }
     // Returned as well as stored: `plans` will not reflect this until the next
     // render, so a background caller acting within the same tick needs the

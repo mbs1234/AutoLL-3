@@ -7,8 +7,8 @@ import { ParkTime, parkDate } from '@/datetime';
 import { sleep } from '@/sleep';
 
 import { actionWasRejected } from './autobook';
-import { commitBaseline, findExistingLL } from './automodify';
-import { RENEW_INTERVAL_MS } from './lease';
+import { findExistingLL, offerBaseline } from './automodify';
+import { MAX_RENEWAL_MS, RENEW_INTERVAL_MS } from './lease';
 import {
   CommitGuard,
   CommitPhase,
@@ -119,7 +119,7 @@ export interface TimeSearchDeps {
    * ran out while its own guard still forbade another move, and another engine
    * could take a reservation the guard was still protecting.
    */
-  quarantineCommit?: (from?: string) => void;
+  quarantineCommit?: (change: { from?: string; to?: string }) => void;
   /**
    * Publish a committed return time for other instances to see.
    *
@@ -186,21 +186,21 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
    */
   const holdsLockRef = useRef(false);
   /**
-   * The reservation's return time at the last commit boundary this search
-   * reached, and before that the freshest time it has read.
+   * Where the *offer* said the reservation was, at the last commit boundary.
    *
    * Mirrored into a ref because the doubt is raised from the run loop, which
    * closes over the state of the render that started it -- and the time will
    * have moved since if the search has already committed once.
    *
-   * Kept slightly apart from `state.held`, which is what the screen shows and
-   * comes from Plans. This is the baseline a doubt is settled against, so it
-   * takes the offer's own itinerary when that is fresher -- the same rule
-   * `attemptAutoModify` follows, and for the same reason: the quarantine asks
-   * "has it moved?", and a stale baseline makes an untouched reservation
-   * answer yes.
+   * Deliberately not `state.held`, which is what the screen shows and comes
+   * from Plans. This is the baseline a doubt is settled against, and only
+   * Disney's own view at the offer is admissible as that: the quarantine asks
+   * "has it moved from here?", so a baseline a move behind has an untouched
+   * reservation answer yes. Undefined when the offer did not name it, which
+   * costs a slower settle and never a wrong one -- `guard.requested` carries
+   * the other half of the test.
    */
-  const heldRef = useRef<ParkTime | undefined>(deps.booking.start.time);
+  const baselineRef = useRef<ParkTime | undefined>(undefined);
   const wakeOwner = useRef({}).current;
 
   /** Take the engine's lock, or report that something else has it. */
@@ -319,14 +319,57 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
      *
      * The lease expires at a fixed TTL, and a commit is the one call here with
      * no bound on how long it can take -- the request timeout does not cover
-     * reading the response body. Without this, a slow commit could outlive its
-     * own lease and another engine could take the reservation mid-flight.
-     * Renewing is re-entrant for the holder, so this is the same ask the
-     * commit already made, repeated.
+     * generating sensor data, and a promise that never settles never reaches
+     * the cleanup below. Without renewal a slow commit outlived its own lease
+     * and another engine could take the reservation mid-flight.
+     *
+     * Bounded for the mirror-image reason. Renewing forever turned one wedged
+     * request into a reservation held for the rest of the day with nothing on
+     * screen saying why. Past `MAX_RENEWAL_MS` nothing is coming back to settle
+     * this, so it is settled here -- and since this only ever wraps the commit
+     * itself, "here" is always past the boundary: the outcome is unknowable and
+     * the reservation is in doubt.
      */
     function renewing<T>(body: Promise<T>): Promise<T> {
-      const timer = setInterval(() => void claimLock(), RENEW_INTERVAL_MS);
-      return body.finally(() => clearInterval(timer));
+      const renewal = setInterval(() => {
+        void claimLock().then(got => {
+          if (got) return;
+          // Somebody quarantined this reservation, or took the lease over,
+          // while the request was in the air. Nothing can be unsent, but the
+          // screen should stop claiming this search holds anything.
+          stop();
+          setState(s => (s.contended ? s : { ...s, contended: true }));
+        });
+      }, RENEW_INTERVAL_MS);
+      const deadline = setTimeout(() => {
+        stop();
+        abandonCommit();
+      }, MAX_RENEWAL_MS);
+      function stop() {
+        clearInterval(renewal);
+        clearTimeout(deadline);
+      }
+      return body.finally(stop);
+    }
+
+    /** Give up on a commit that is never going to return. */
+    function abandonCommit() {
+      const guard = guardRef.current;
+      if (guard.phase !== 'committing') return;
+      guard.markUnknown();
+      depsRef.current.quarantineCommit?.({
+        ...(baselineRef.current
+          ? { from: String(baselineRef.current) }
+          : undefined),
+        ...(guard.requested ? { to: String(guard.requested) } : undefined),
+      });
+      dropLock();
+      setState(s => ({
+        ...s,
+        unresolved: guard.requested,
+        phase: guard.phase,
+      }));
+      stop('failed');
     }
 
     /**
@@ -366,15 +409,14 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
           guard.release();
           return;
         }
-        // The baseline moves with the read. It was previously left at whatever
-        // the last idle cycle saw, so a reservation that changed while the
-        // offer sat waiting for the user quarantined against a time nobody
+        // The baseline moves with the offer. It was previously left at
+        // whatever the last idle cycle saw, so a reservation that changed while
+        // the offer sat waiting for the user quarantined against a time nobody
         // held -- and the next plans read then cleared that doubt by finding
         // the reservation exactly where it had been all along.
-        heldRef.current = current.start.time;
         const fresh = await depsRef.current.createOffer(current);
         if (stopped()) return;
-        heldRef.current = commitBaseline(fresh, current);
+        baselineRef.current = offerBaseline(fresh, current);
         const quoted = await depsRef.current.changeTime(fresh, want);
         if (stopped()) return;
         if (+quoted.start.time !== +want) {
@@ -432,7 +474,6 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         if (now && guard.requested && +now.start.time === +guard.requested) {
           settling = 0;
           guard.confirm();
-          heldRef.current = now.start.time;
           setState(s => ({ ...s, held: now.start.time, phase: guard.phase }));
           if (depsRef.current.stopAfterConfirmedMove) stop('goal-met');
           return;
@@ -451,7 +492,6 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       if (stopped()) return;
       if (!current) return;
       if (!current.modifiable) return stop('not-modifiable');
-      heldRef.current = current.start.time;
       setState(s => ({ ...s, held: current.start.time }));
       if (goalMet(goal, current.start.time)) return stop('goal-met');
 
@@ -460,7 +500,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       // nothing.
       offer = await depsRef.current.createOffer(current);
       if (stopped()) return;
-      heldRef.current = commitBaseline(offer, current);
+      baselineRef.current = offerBaseline(offer, current);
       const times = await depsRef.current.getTimes(offer);
       if (stopped()) return;
       const want = bestCandidate(goal, current.start.time, times, {
@@ -551,9 +591,14 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
               // the wrong instrument: quarantine the reservation instead, which
               // outlives this screen and is cleared by evidence rather than by
               // a clock.
-              depsRef.current.quarantineCommit?.(
-                heldRef.current ? String(heldRef.current) : undefined
-              );
+              depsRef.current.quarantineCommit?.({
+                ...(baselineRef.current
+                  ? { from: String(baselineRef.current) }
+                  : undefined),
+                ...(guard.requested
+                  ? { to: String(guard.requested) }
+                  : undefined),
+              });
               dropLock();
               setState(s => ({
                 ...s,

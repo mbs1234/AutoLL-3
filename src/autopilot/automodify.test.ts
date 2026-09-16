@@ -703,7 +703,39 @@ describe('attemptAutoModify() commit boundary', () => {
         onCommitting,
       })
     );
-    expect(String(onCommitting.mock.calls[0]?.[0])).toBe(String(at(13, 15)));
+    const change = onCommitting.mock.calls[0]?.[0];
+    expect(String(change.from)).toBe(String(at(13, 15)));
+    expect(String(change.to)).toBe(String(at(11)));
+  });
+
+  /*
+   * The decision falls back to the caller's snapshot; the evidence does not.
+   *
+   * Falling back is right for "never trade down" -- refusing to move because
+   * Disney omitted an itinerary line would stop every move working. It is
+   * exactly wrong as a baseline for a doubt, because the doubt asks "has it
+   * moved from here?", and a snapshot a move behind has an untouched
+   * reservation answer yes. `to` is what carries the evidence instead.
+   */
+  it('reports no baseline when the offer did not name the reservation', async () => {
+    const onCommitting = jest.fn();
+    const outcome = await attemptAutoModify(
+      target(),
+      experience,
+      existingLL(at(19)),
+      at(11),
+      deps({
+        createModifyOffer: jest.fn(async () =>
+          offerWithHeld(at(11), at(13, 15), 'another-ride')
+        ),
+        onCommitting,
+      })
+    );
+    // The move still happened: the fallback is what let it be judged at all.
+    expect(outcome.status).toBe('modified');
+    const change = onCommitting.mock.calls[0]?.[0];
+    expect(change.from).toBeUndefined();
+    expect(String(change.to)).toBe(String(at(11)));
   });
 
   // Only past the point where a request could have changed anything. A skip
