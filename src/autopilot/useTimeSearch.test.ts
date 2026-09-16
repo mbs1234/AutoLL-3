@@ -67,6 +67,7 @@ function setup({
   findHeld,
   claimCommit,
   releaseCommit,
+  quarantineCommit,
   getTimes,
 }: {
   goal?: SearchGoal;
@@ -80,6 +81,7 @@ function setup({
   findHeld?: TimeSearchDeps['findHeld'];
   claimCommit?: jest.Mock;
   releaseCommit?: jest.Mock;
+  quarantineCommit?: jest.Mock;
   getTimes?: TimeSearchDeps['getTimes'];
 } = {}) {
   let current = held;
@@ -103,6 +105,7 @@ function setup({
     findHeld,
     claimCommit,
     releaseCommit,
+    quarantineCommit,
   };
   const view = renderHook(() => useTimeSearch(deps));
   return { ...view, deps };
@@ -366,8 +369,11 @@ describe('useTimeSearch', () => {
       act(() => result.current.start());
       await runCycles(5);
       expect(result.current.moves).toBeGreaterThan(1);
-      // Once per commit, and never a release in between.
-      expect(claimCommit.mock.calls.length).toBe(result.current.moves);
+      // At least once per commit -- and more, because settling renews. What
+      // matters is that it is never *released* between moves.
+      expect(claimCommit.mock.calls.length).toBeGreaterThanOrEqual(
+        result.current.moves
+      );
       expect(releaseCommit).not.toHaveBeenCalled();
     });
 
@@ -413,20 +419,28 @@ describe('useTimeSearch', () => {
       expect(releaseCommit).not.toHaveBeenCalled();
     });
 
-    // The one case where it must not come back: a commit whose outcome nobody
-    // learned may have moved the reservation, and the engine must not pile on.
-    it('keeps the lock when a commit outcome is unknown', async () => {
+    /*
+     * The one outcome a lease cannot express. A move nobody learned the result
+     * of must be protected until fresh plans say what happened, and that is not
+     * a duration -- so the reservation is quarantined and the lease given back,
+     * rather than a lease being held past its own expiry by a search that has
+     * stopped and will never renew it again.
+     */
+    it('quarantines the reservation when an outcome is unknown', async () => {
       const releaseCommit = jest.fn();
+      const quarantineCommit = jest.fn();
       const commit = jest.fn().mockRejectedValue(new Error('no response'));
       const { result } = setup({
         claimCommit: jest.fn(async () => true),
         releaseCommit,
+        quarantineCommit,
         commit,
       });
       act(() => result.current.start());
       await waitFor(() => expect(result.current.stop).toBe('failed'));
       expect(result.current.guard.phase).toBe('unknown');
-      expect(releaseCommit).not.toHaveBeenCalled();
+      expect(quarantineCommit).toHaveBeenCalled();
+      expect(releaseCommit).toHaveBeenCalled();
     });
   });
 

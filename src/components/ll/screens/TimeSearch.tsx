@@ -4,6 +4,7 @@ import { LLMP } from '@/api/itinerary';
 import {
   acquire as acquireLease,
   leaseKey,
+  quarantine as quarantineReservation,
   release as releaseLease,
 } from '@/autopilot/lease';
 import { saveCommit } from '@/autopilot/storage';
@@ -81,6 +82,7 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
     // short-lived search of its own.
     claimCommit: () => acquireLease(reservation, searchOwner),
     releaseCommit: () => releaseLease(reservation, searchOwner),
+    quarantineCommit: () => quarantineReservation(reservation),
     onCommitted: moved =>
       saveCommit({
         facilityId: moved.facilityId,

@@ -30,6 +30,7 @@ import kvdb from '@/kvdb';
  */
 
 export const LEASE_KEY = 'autoll3.autopilot.leases';
+export const QUARANTINE_KEY = 'autoll3.autopilot.unresolved';
 
 /**
  * How long a lease stands without renewal.
@@ -51,6 +52,66 @@ interface Lease {
 }
 
 type Leases = Record<string, Lease>;
+
+/**
+ * Reservations whose last change may or may not have applied.
+ *
+ * A lease answers "is anybody changing this now" and expires, which is right
+ * for work in progress and wrong for work whose outcome nobody learned. A
+ * request that times out may have moved the reservation; until fresh plans say
+ * otherwise, *nothing* may touch it -- and "until fresh plans say otherwise" is
+ * not a duration, so it cannot be a TTL.
+ *
+ * Releasing the lease on a status-0 and trusting the ledger's attempt lock was
+ * the mistake this replaces. That lock is keyed `<kind>:<attraction>`, a
+ * foreground search does not consult it at all, and a swap for a *different*
+ * incoming attraction can target the very reservation left in doubt -- so the
+ * reservation had no protection at all in the one state where it needed most.
+ */
+type Quarantine = Record<string, { at: number }>;
+
+function loadQuarantine(): Quarantine {
+  const stored = kvdb.getDaily<unknown>(QUARANTINE_KEY);
+  if (!stored || typeof stored !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(stored as Record<string, unknown>).flatMap(([key, value]) =>
+      typeof (value as { at?: unknown })?.at === 'number'
+        ? [[key, { at: (value as { at: number }).at }]]
+        : []
+    )
+  );
+}
+
+/** Mark a reservation as being in an unknown state. Nothing may touch it. */
+export function quarantine(key: string, now = Date.now()): void {
+  kvdb.setDaily<Quarantine>(QUARANTINE_KEY, {
+    ...loadQuarantine(),
+    [key]: { at: now },
+  });
+}
+
+/** Whether a reservation is in doubt, and since when. */
+export function quarantinedAt(key: string): number | undefined {
+  return loadQuarantine()[key]?.at;
+}
+
+/**
+ * Clear every doubt raised before `polledAt`.
+ *
+ * The evidence is a plans read that *started* after the request did: whatever
+ * it shows, the outcome is now determined, because the engine settles what it
+ * holds from the same read. A doubt raised while that read was in flight is not
+ * settled by it and stays.
+ */
+export function clearQuarantinedBefore(polledAt: number): void {
+  const current = loadQuarantine();
+  const rest = Object.fromEntries(
+    Object.entries(current).filter(([, entry]) => entry.at >= polledAt)
+  );
+  if (Object.keys(rest).length !== Object.keys(current).length) {
+    kvdb.setDaily<Quarantine>(QUARANTINE_KEY, rest);
+  }
+}
 
 /** Keyed by reservation and the day it belongs to, not by action. */
 export function leaseKey(facilityId: string, date: string): string {
@@ -104,6 +165,10 @@ export async function acquire(
   now = Date.now()
 ): Promise<boolean> {
   return exclusive(() => {
+    // Doubt outranks everything, including the instance that raised it: until
+    // plans settle what happened, a second request is exactly what must not
+    // occur.
+    if (quarantinedAt(key) !== undefined) return false;
     const leases = load(now);
     const held = leases[key];
     if (held && held.owner !== owner) return false;
@@ -136,15 +201,4 @@ export async function release(
  */
 export function holder(key: string, now = Date.now()): string | undefined {
   return load(now)[key]?.owner;
-}
-
-/** Release everything one instance holds, for an unmount or a park-day roll. */
-export async function releaseAll(owner: string, now = Date.now()) {
-  await exclusive(() => {
-    const leases = load(now);
-    const rest = Object.fromEntries(
-      Object.entries(leases).filter(([, lease]) => lease.owner !== owner)
-    );
-    kvdb.set<Leases>(LEASE_KEY, rest);
-  });
 }

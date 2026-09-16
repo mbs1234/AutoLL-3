@@ -25,9 +25,11 @@ import {
 } from '@/autopilot/observe';
 import { NO_REFUSALS, refusedCalls } from '@/autopilot/refusal';
 import {
+  BACKOFF_BASE_MS,
   BURST_INTERVAL_MS,
   IDLE_INTERVAL_MS,
   MAX_CONSECUTIVE_FAILURES,
+  TICK_DEADLINE_MS,
   syncedParkTime,
 } from '@/autopilot/schedule';
 import {
@@ -2578,6 +2580,103 @@ describe('AutopilotProvider operation lease', () => {
   });
 });
 
+/*
+ * Doubt at the reservation level.
+ *
+ * A status-0 may have moved the reservation. Releasing the lease and trusting
+ * the ledger's attempt lock left it unprotected: that lock is keyed by action
+ * and attraction, a foreground search does not consult it, and a swap for a
+ * different incoming attraction can target the very pass in doubt.
+ */
+describe('AutopilotProvider unresolved reservations', () => {
+  const claim = async () => {
+    await act(async () => {
+      screen.getByText('claim BZ modify').click();
+    });
+    return screen.getByTestId('claimed').textContent;
+  };
+
+  it('quarantines a reservation whose move never came back', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { book } = setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      bookErrors: ['no-response'],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    // The lease is given back -- nothing is in flight any more -- but the
+    // reservation is not free, and will not be until plans say what happened.
+    expect(leaseHolder(leaseKey(BZ, TODAY))).toBeUndefined();
+    expect(await claim()).toBe('false');
+  });
+
+  // A rejection is proof nothing happened, so there is no doubt to record.
+  it('does not quarantine a move Disney refused outright', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { book } = setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      bookErrors: [410],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(await claim()).toBe('true');
+  });
+
+  it('lifts the doubt once plans have been read again', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { book } = setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      bookErrors: ['no-response'],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(await claim()).toBe('false');
+    await runTicks(PLANS_EVERY_N_TICKS + 2);
+    expect(await claim()).toBe('true');
+  });
+});
+
+/*
+ * Two ticks of one provider overlapping.
+ *
+ * The poller's deadline *abandons* an overtime tick without cancelling it --
+ * `onTick` keeps running, and only a `stale()` predicate tells it to stop
+ * committing. So the next tick starts while the first is still in flight. With
+ * one owner for the whole provider the lease is re-entrant between them, so
+ * both could hold the same reservation, and whichever finished first would
+ * withdraw the other's lease on its way out.
+ */
+describe('AutopilotProvider overlapping ticks', () => {
+  it('does not lease the same reservation to two of its own ticks', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    let releaseOffer = () => {};
+    const offerDelay = new Promise<void>(resolve => {
+      releaseOffer = resolve;
+    });
+    const { offer } = setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      offerDelay,
+    });
+    await enable();
+    await waitFor(() => expect(offer).toHaveBeenCalledTimes(1));
+    // Past the deadline, so the poller abandons that tick and runs another
+    // while the first is still holding its offer open.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(
+        TICK_DEADLINE_MS + BACKOFF_BASE_MS * 4
+      );
+    });
+    // The second tick found the reservation leased and skipped it, so it never
+    // reached the offer call.
+    expect(offer).toHaveBeenCalledTimes(1);
+    await act(async () => releaseOffer());
+  });
+});
+
 describe('AutopilotProvider shared action locks', () => {
   it('publishes a lock it takes', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
@@ -2710,7 +2809,9 @@ describe('AutopilotProvider cross-instance overlaps', () => {
     await enable();
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
     expect(loadCommits()).toEqual([
-      { facilityId: BZ, time: '11:00:00', at: expect.any(Number) },
+      // Carries the reservation's own park day, so a future-date move is filed
+      // under the day it is on rather than under today.
+      { facilityId: BZ, time: '11:00:00', at: expect.any(Number), date: TODAY },
     ]);
   });
 
