@@ -1,21 +1,65 @@
 # Roadmap
 
 Written 2026-09-16, against `main` at `787cff3`, version 0.5.0.
+Trip dates recorded 2026-09-17; items re-checked against `b7f225f` the same day.
+
+Three items name a commit or a line number. Those were verified still true at
+`b7f225f`: the cadence inputs are still gated on `watchingToday`
+(`AutopilotProvider.tsx:1795`), `useQuarantine()` is still absent from Today, and
+`shouldHoldTierSlot` still returns a boolean. Anything here that stops being true
+should be struck rather than quietly left standing.
 
 `docs/FUTURE.md` is the standing list of everything not done. This file is the
-argument about what to do next and in what order, and it is shorter on purpose:
-there are roughly ten weeks between now and the December freeze, worked in
-evenings, with a full external review cycle around each change. Nine items fit.
-Everything else is after the trip.
+argument about what to do next and in what order, worked in evenings with a full
+external review cycle around each change.
 
-**How to read it.** Each item says what it is, why it earns time *before the
-trip specifically*, what could go wrong, and — the part that matters — what
-"done" observably means. Sizes are honest rather than encouraging: _small_ is an
-evening, _medium_ is a session or two with tests, _large_ is a week and a
-decision. Nothing here is scheduled.
+**The app is not built for these trips.** The dates below decide *when* work
+lands and *when* an assumption can be replaced by a measurement. They must not
+decide what the app does. Every item here is written for "a future park date",
+"a held pass", "a reservation in doubt" — never for December 22, and never for
+Walt Disney World in one particular week. If an item can only be stated in terms
+of a specific date, it is data maintenance (item 7) or it does not belong here.
+
+**How to read it.** Each item says what it is, why it earns time now, what could
+go wrong, and — the part that matters — what "done" observably means. Sizes are
+honest rather than encouraging: _small_ is an evening, _medium_ is a session or
+two with tests, _large_ is a week and a decision. Nothing here is scheduled.
 
 **Nothing in this file is required.** The tool is usable today. This is what
 would make it better, ordered by what it is worth on a park day.
+
+---
+
+## Two dates, and what each is for
+
+**October 18–20, 2026 — a park trip to test the app.** Thirty-one days out. This
+is the more important of the two for this file, because it is the only chance
+before December to replace guesses with observations. Several things this
+project has been reasoning about for six rounds are simply unmeasurable from a
+desk: how long Disney's itinerary takes to show a change that landed
+(`DOUBT_SETTLE_MS` is still 120 seconds, reasoned rather than measured), whether
+an expired unredeemed pass frees its slot, whether the Tier 1 limit lifts
+per-guest, and what `bookWindows` returns for a date whose window has not opened.
+
+The consequence for ordering: **instrumentation earns its place before features
+do.** A park day with no logging is a park day spent. Anything that turns an
+assumption into a recorded fact should land before October 18; anything that
+acts on an assumption is better built after, on the fact.
+
+It also means an earlier stability point than this file originally assumed. The
+app wants to be in a known-good state on October 18 — not frozen, but not
+mid-surgery either.
+
+**December 22–28, 2026 — the trip the deadlines are set by.** A two-week freeze
+puts the last change around December 8.
+
+One piece of arithmetic worth having written down, because an item below turns
+on it. The booking-date picker offers today plus twenty-one days
+(`NUM_BOOKING_DAYS = 22`), so December 22 becomes selectable on December 1 and
+December 28 on December 7 — the last of them arriving about a day before the
+freeze. The December plan can therefore be built in the picker, day by day,
+during the first week of December. It works, with almost no slack, and it is the
+workflow that works today.
 
 ---
 
@@ -31,14 +75,14 @@ ranked first: on the 7:00 a.m. morning a *future* park date's booking window
 opens, the poller idles at forty-five seconds. That is the minute the trip's
 headliners are won or lost.
 
-**3. Make the December plan exist, and check the facts it rests on.** A December
-plan cannot currently be built at all — and not for the reason `FUTURE.md` §3.2
-gives. Three of the facts the plan depends on are unverified and checkable
-before the freeze.
+**3. Let a plan exist before the booking window does, and check the data it
+rests on.** A plan for a date more than twenty-two days out cannot currently be
+built at all — and not for the reason `FUTURE.md` §3.2 gives. Separately, three
+facts in the shipped data are unverified and checkable without a park.
 
 ---
 
-## Before the freeze
+## Before the trips
 
 ### 1. Burst at 7:00 a.m. when a future date's booking window opens — _medium_
 
@@ -76,8 +120,11 @@ pasted into a comment beside the change, with the date it was captured.
 **Where.** `src/autopilot/schedule.ts`, `src/providers/AutopilotProvider.tsx`,
 `src/api/ll.ts`, `src/providers/BookingDateProvider.tsx`.
 
-This is also the only item here that cannot be done later. After December it is
-a feature for a trip that has happened.
+It is also the item the October trip most directly serves: the investigation
+step needs a real session against a real future date, and October supplies one
+thirty-one days from now. The feature itself is about any future park date and
+outlives both trips — which is the reason to build it from what the API actually
+returns rather than from a date somebody typed.
 
 ### 2. Say on Today when the engine has stopped touching a reservation — _small_
 
@@ -120,9 +167,11 @@ What remains is the real thing: one edge-triggered alert per pass when synced
 park time is within N minutes of `end.time` and the pass is not redeemed, tagged
 like the existing reopened alert, with the same countdown on Today's Held list.
 
-**Risk.** N is a guess and stays one until December. Pick a number, name it, and
-write in the comment that it is unverified — do not launder a guess into a
-constant that reads as knowledge.
+**Risk.** N is a guess. October is the first chance to replace it with an
+observation, which is an argument for shipping the warning with a named,
+explicitly-unverified constant *before* October and correcting it after — not
+for guessing harder now. Do not launder a guess into a constant that reads as
+knowledge.
 
 ### 4. Name the attraction the Tier 1 hold is waiting for — _small_
 
@@ -163,10 +212,10 @@ the two missing steps.
 pre-trip is most of the time — the copy must distinguish "not checked yet" from
 "checked, with findings" or the row goes permanently amber and gets ignored.
 
-### 6. Make a December plan possible — _large_
+### 6. Let a plan outlive the booking window — _large_
 
-A December plan cannot be built today, and the reason is not the one
-`FUTURE.md` §3.2 gives. §3.2 blames the add list needing a live tip board. The
+A plan for a date beyond the booking window cannot be built today, and the
+reason is not the one `FUTURE.md` §3.2 gives. §3.2 blames the add list needing a live tip board. The
 harder wall is the **date**: `addTarget` stamps `date: bookingDate`,
 `bookingDate` is clamped to twenty-two days by `NUM_BOOKING_DAYS`, and every
 per-target edit is gated on `targetApplies(target, park.id, bookingDate)`. So a
@@ -186,8 +235,12 @@ Widening it so an unbookable date becomes selectable would put the poller on a
 day Disney refuses. The safe shape is a plan date that is free and a booking
 date that stays bounded.
 
-**This is the item to cut first if the weeks run out.** Cut it and you plan from
-the hotel the night before — the workflow that works today.
+**Demoted 2026-09-17, and this is the item to cut first.** The December days all
+become selectable in the picker before the freeze, so the plan can be built
+natively in the first week of December. The date blocker is still real and still
+worth fixing — planning a trip should not depend on being inside a twenty-two-day
+window — but it is no longer load-bearing for a trip, which is exactly the reason
+to keep it general and unhurried rather than shaping it around one December.
 
 ### 7. Run the late-November data check — _small_
 
@@ -228,9 +281,10 @@ burst. Keep it in its own component owning its own interval.
 
 Four small diffs, none changing shipped behaviour.
 
-**(a) Record how long a change takes to land.** This is before-trip or never:
-the December park days are the only chance to collect the sample, and PRs #33
-and #34 already did the hard half. `Doubt.at` is the instant the mutating
+**(a) Record how long a change takes to land.** Promoted 2026-09-17: this now
+has a deadline of **October 18**, because a park day without it is a park day
+spent. It is also the cheapest of all of these — PRs #33 and #34 already did the
+hard half. `Doubt.at` is the instant the mutating
 request left the device, written from `MutationOperation.dispatchedAt` at the
 transport boundary; `reconcile()` already receives `polledAt` and already
 computes `landed()`. The start, the end and the contrary reads all pass through
@@ -261,7 +315,7 @@ how a red check stops meaning anything.
 Ordered loosely by value, not by effort.
 
 - **Automatic expiry rescue** — _large_. Build it as a synthesized hit through
-  the existing booking path, not a second commit path. December supplies the
+  the existing booking path, not a second commit path. A park day supplies the
   fact the warning in item 3 cannot.
 - **Extract one commit primitive and decompose `AutopilotProvider` around it** —
   _large_. The provider is the file every round of review keeps returning to.
@@ -321,15 +375,15 @@ reconsidered and rejected again, so the next pass does not rediscover them:
 
 ## Questions only the owner can answer
 
-**What are the actual December 2026 trip dates?** They are nowhere in the
-repository, and three judgements above rest on inferring them from the December
-freeze. Put them in `PLAN.md` §11 with the date recorded. If the trip starts
-before roughly December 17, item 6 drops in urgency — the twenty-two-day picker
-reaches those days with time to spare.
+**~~What are the actual December 2026 trip dates?~~** Answered 2026-09-17:
+December 22–28, with a test trip October 18–20. Both are recorded above and
+should go into `PLAN.md` §11 with the date they were recorded. The answer
+demotes item 6 — the picker reaches every December day before the freeze — and
+promotes the instrumentation half of item 9, which now has a deadline.
 
-**Expiry rescue: build it before the trip on an unverified assumption, or ship
-only the warning and let December supply the fact?** Recommendation: the
-warning. It captures most of the park-day value — the phone says "Jingle Cruise
+**Expiry rescue: build it on an unverified assumption, or ship only the warning
+and let a park day supply the fact?** Recommendation: the warning, and October
+is now the park day — which makes this the clearer call than it was. It captures most of the park-day value — the phone says "Jingle Cruise
 ends in 20 minutes and nobody has tapped in" while you can still act — without
 betting an automatic action on a grace period nobody in this repo has measured.
 
@@ -338,10 +392,12 @@ API-driven if the instant is genuinely there; a clock-driven 07:00 trigger
 avoids depending on the API but hardcodes a rule Disney can change and fires on
 mornings when nothing opens.
 
-**Item 6 is large and could eat the ten weeks.** Full plan-date model, the
-narrow date-only version, or skip? Recommendation: the narrow version if the
-trip starts after about December 17, skip if earlier. The date half is
-load-bearing; without it nothing else about offline planning is real.
+**Item 6 is large, and the dates have taken the urgency out of it.** Full
+plan-date model, the narrow date-only version, or skip for now?
+Recommendation: skip for this cycle and revisit after December. Nothing about
+these two trips needs it, and the honest general version — a plan date genuinely
+independent of the booking window — is better designed once a park day has shown
+how the rest of the planning flow actually gets used.
 
 **Jingle Cruise and Jungle Cruise are two facility IDs for one ride.** Build the
 alias, or arm both by hand in December? Recommendation: by hand for this trip,
