@@ -367,6 +367,10 @@ export interface CommittedReturn {
    * which are then read as belonging to the day they are stored under.
    */
   date?: string;
+  /** Whether this known success added a slot or only changed an existing one. */
+  kind?: 'book' | 'modify' | 'swap';
+  /** Booking/entitlement identities for distinguishing split-party records. */
+  reservationIds?: string[];
 }
 
 /**
@@ -386,6 +390,17 @@ export function loadCommits(): CommittedReturn[] {
     (c): c is CommittedReturn =>
       typeof c?.facilityId === 'string' && typeof c?.time === 'string'
   );
+}
+
+function validReservationIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(
+      value.filter(
+        (id): id is string => typeof id === 'string' && id.length > 0
+      )
+    ),
+  ];
 }
 
 /**
@@ -410,24 +425,57 @@ export function activeCommits(
   );
 }
 
-/** Record one committed return time, replacing any earlier one for that ride. */
+/** Record one committed return time, replacing only that reservation's record. */
 export function saveCommit(entry: CommittedReturn): void {
-  const rest = loadCommits().filter(
-    c =>
-      !(
-        c.facilityId === entry.facilityId && commitDate(c) === commitDate(entry)
-      )
-  );
+  const ids = validReservationIds(entry.reservationIds);
+  const entryIds = new Set(ids);
+  const rest = loadCommits().filter(current => {
+    if (
+      current.facilityId !== entry.facilityId ||
+      commitDate(current) !== commitDate(entry)
+    ) {
+      return true;
+    }
+    const currentIds = validReservationIds(current.reservationIds);
+    // A legacy record has no finer identity than ride and date. New records
+    // replace it conservatively; two identified split-party reservations are
+    // distinct only when their entitlement sets do not overlap.
+    return (
+      currentIds.length > 0 &&
+      entryIds.size > 0 &&
+      !currentIds.some(id => entryIds.has(id))
+    );
+  });
   kvdb.setDaily<CommittedReturn[]>(COMMITS_KEY, [
     ...rest,
-    { at: Date.now(), ...entry },
+    {
+      at: Date.now(),
+      facilityId: entry.facilityId,
+      time: entry.time,
+      ...(entry.date ? { date: entry.date } : {}),
+      ...(entry.kind ? { kind: entry.kind } : {}),
+      ...(ids.length ? { reservationIds: ids } : {}),
+    },
   ]);
 }
 
-/** Forget a committed return time, once plans show the reservation is gone. */
-export function clearCommit(facilityId: string, date = parkDate()): void {
-  const rest = loadCommits().filter(
-    c => !(c.facilityId === facilityId && commitDate(c) === date)
-  );
+/** Forget a committed return once Plans supersedes it or its bridge expires. */
+export function clearCommit(
+  facilityId: string,
+  date = parkDate(),
+  reservationIds?: readonly string[]
+): void {
+  const expected = new Set(validReservationIds(reservationIds));
+  const rest = loadCommits().filter(current => {
+    if (current.facilityId !== facilityId || commitDate(current) !== date) {
+      return true;
+    }
+    const currentIds = validReservationIds(current.reservationIds);
+    return (
+      expected.size > 0 &&
+      currentIds.length > 0 &&
+      !currentIds.some(id => expected.has(id))
+    );
+  });
   kvdb.setDaily<CommittedReturn[]>(COMMITS_KEY, rest);
 }

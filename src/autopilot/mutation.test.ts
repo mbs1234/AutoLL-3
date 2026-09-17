@@ -35,6 +35,7 @@ describe('MutationOperation', () => {
       kind: 'modify' as const,
       from: String(new ParkTime(15)),
       to: String(new ParkTime(11)),
+      reservationIds: ['ent-1'],
     };
     expect(operation.markDispatched(evidence, 1_234)).toBe(true);
     expect(operation.dispatchedAt).toBe(1_234);

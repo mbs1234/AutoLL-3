@@ -374,7 +374,10 @@ function setupBooking({
         if (failure !== undefined) {
           throw new RequestError({ ok: false, status: failure, data: {} });
         }
-        return { id: 'ent-1' };
+        return {
+          id: 'ent-1',
+          guests: [{ id: 'g1', name: 'A', entitlementId: 'ent-1' }],
+        };
       };
       return control?.start ? control.start(send) : send();
     }
@@ -1222,6 +1225,29 @@ describe('AutopilotProvider swap', () => {
     expect(offerOptions[0]).not.toHaveProperty('booking');
   });
 
+  it('does not book past the third slot when the confirmation read lags', async () => {
+    saveSettings({ ...DEFAULT_SETTINGS, avoidOverlaps: false });
+    saveWatchList([
+      { experienceId: BZ, autoBook: true },
+      { experienceId: DB, autoBook: true },
+    ]);
+    const { book } = setupBooking({
+      experiences: [
+        available(BZ, new ParkTime(11)),
+        available(DB, new ParkTime(19)),
+      ],
+      // Two slots are occupied. The first successful booking fills the third,
+      // but the immediate Plans read still returns this pre-booking snapshot.
+      plans: fullOfWorse().slice(0, 2),
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalled());
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(book).toHaveBeenCalledTimes(1);
+  });
+
   it('does not swap when nothing held is worse', async () => {
     saveWatchList([{ experienceId: BZ, autoSwap: true }]);
     const { book, offer } = setupBooking({
@@ -1241,7 +1267,7 @@ describe('AutopilotProvider swap', () => {
     expect(book).not.toHaveBeenCalled();
   });
 
-  it('does not swap when the flag is off, even when full', async () => {
+  it('does not book or swap when the flag is off and all slots are full', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
     const { offerOptions, book } = setupBooking({
       offerHour: 11,
@@ -1249,10 +1275,12 @@ describe('AutopilotProvider swap', () => {
       plans: fullOfWorse(),
     });
     await enable();
-    // Plain auto-book still tries a fresh booking (Disney would reject it);
-    // the point is that it never reaches for someone else's reservation.
-    await waitFor(() => expect(book).toHaveBeenCalled());
-    expect(offerOptions[0]).not.toHaveProperty('booking');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000);
+    });
+    expect(book).not.toHaveBeenCalled();
+    expect(offerOptions).toEqual([]);
+    expect(screen.getByTestId('lastSkip')).toHaveTextContent('slots-full');
   });
 });
 
@@ -2750,11 +2778,15 @@ describe('AutopilotProvider unresolved reservations', () => {
         kind: 'modify',
         from: '13:00:00',
         to: '11:00:00',
+        reservationIds: ['ent-1'],
       }),
     ]);
     // A plans read finding it where it truly was all along is not the exact
     // destination the request asked for, so it cannot settle the operation.
-    await reconcile(() => ({ time: '13:00:00', id: 'held-bz' }), raised! + 1);
+    await reconcile(
+      () => ({ time: '13:00:00', reservationIds: ['ent-1'] }),
+      raised! + 1
+    );
     expect(await claim()).toBe('false');
   });
 
@@ -2795,6 +2827,12 @@ describe('AutopilotProvider unresolved reservations', () => {
       await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
       const raised = quarantinedAt(victim);
       expect(raised).toBeDefined();
+      expect(quarantinedMutations()).toEqual([
+        expect.objectContaining({
+          key: victim,
+          reservationIds: ['ent-w1'],
+        }),
+      ]);
       return raised!;
     };
 
@@ -2809,7 +2847,7 @@ describe('AutopilotProvider unresolved reservations', () => {
       await reconcile(
         key =>
           key === leaseKey(BZ, TODAY)
-            ? { time: '11:00:00', id: 'incoming-bz' }
+            ? { time: '11:00:00', reservationIds: ['ent-w1'] }
             : undefined,
         raised + 1
       );
@@ -3180,8 +3218,110 @@ describe('AutopilotProvider cross-instance overlaps', () => {
     expect(loadCommits()).toEqual([
       // Carries the reservation's own park day, so a future-date move is filed
       // under the day it is on rather than under today.
-      { facilityId: BZ, time: '11:00:00', at: expect.any(Number), date: TODAY },
+      {
+        facilityId: BZ,
+        time: '11:00:00',
+        at: expect.any(Number),
+        date: TODAY,
+        kind: 'book',
+        reservationIds: ['ent-1'],
+      },
     ]);
+  });
+
+  it('keeps a committed time through a lagging Plans read', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book } = setupBooking({
+      experiences: [available(BZ, new ParkTime(11))],
+      plans: [],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(loadCommits()).toHaveLength(1);
+
+    // The next scheduled read still lacks the booking. That is exactly the
+    // lag this record bridges, so absence cannot remove it before its TTL.
+    await runTicks(PLANS_EVERY_N_TICKS + 2);
+    expect(loadCommits()).toHaveLength(1);
+  });
+
+  it('keeps a committed move while Plans still shows its old time', async () => {
+    saveCommit({
+      facilityId: BZ,
+      time: '11:00:00',
+      kind: 'modify',
+      reservationIds: ['ent-1'],
+    });
+    saveWatchList([{ experienceId: DB, autoBook: true }]);
+    setupBooking({
+      experiences: [available(DB, new ParkTime(19))],
+      plans: [heldBZAt(19)],
+      offerHour: 19,
+    });
+    await enable();
+    await runTicks(PLANS_EVERY_N_TICKS + 2);
+    expect(loadCommits().some(commit => commit.facilityId === BZ)).toBe(true);
+  });
+
+  it('enforces a committed move while Plans still shows its old time', async () => {
+    saveCommit({
+      facilityId: BZ,
+      time: '11:00:00',
+      kind: 'modify',
+      reservationIds: ['ent-1'],
+    });
+    saveWatchList([{ experienceId: DB, autoBook: true }]);
+    const { book } = setupBooking({
+      experiences: [available(DB, new ParkTime(11, 20))],
+      plans: [heldBZAt(19)],
+      offerHour: 11,
+      offerMinute: 20,
+    });
+    await enable();
+    await runTicks(3);
+    expect(book).not.toHaveBeenCalled();
+  });
+
+  it('does not settle a commit from another same-ride reservation', async () => {
+    saveCommit({
+      facilityId: BZ,
+      time: '11:00:00',
+      kind: 'modify',
+      reservationIds: ['ent-target'],
+    });
+    saveWatchList([{ experienceId: DB, autoBook: true }]);
+    const otherReservation = {
+      ...heldBZAt(11),
+      id: 'ent-other',
+      guests: [{ id: 'g1', name: 'A', entitlementId: 'ent-other' }],
+    } as Booking;
+    setupBooking({
+      experiences: [available(DB, new ParkTime(19))],
+      plans: [otherReservation],
+      offerHour: 19,
+    });
+    await enable();
+    await runTicks(PLANS_EVERY_N_TICKS + 2);
+    expect(loadCommits().some(commit => commit.facilityId === BZ)).toBe(true);
+  });
+
+  it('does not ignore a split-party commit when moving the same ride', async () => {
+    saveCommit({
+      facilityId: BZ,
+      time: '11:00:00',
+      kind: 'modify',
+      reservationIds: ['ent-other-half'],
+    });
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { book } = setupBooking({
+      experiences: [available(BZ, new ParkTime(11, 20))],
+      plans: [heldBZAt(19)],
+      offerHour: 11,
+      offerMinute: 20,
+    });
+    await enable();
+    await runTicks(3);
+    expect(book).not.toHaveBeenCalled();
   });
 
   // The regression: another instance holds 11:00, and this one is asked to book
@@ -3270,7 +3410,7 @@ describe('AutopilotProvider cross-instance overlaps', () => {
     });
     await enable();
     await runTicks(PLANS_EVERY_N_TICKS + 2);
-    expect(loadCommits()).toEqual([]);
+    expect(loadCommits().some(commit => commit.facilityId === BZ)).toBe(false);
   });
 
   it('forgets one that has outlived its window', async () => {
@@ -3284,7 +3424,7 @@ describe('AutopilotProvider cross-instance overlaps', () => {
     });
     await enable();
     await runTicks(PLANS_EVERY_N_TICKS + 2);
-    expect(loadCommits()).toEqual([]);
+    expect(loadCommits().some(commit => commit.facilityId === BZ)).toBe(false);
   });
 
   // The park failure: an expired record must stop refusing return times as

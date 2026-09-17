@@ -1,6 +1,6 @@
 import { use, useCallback, useEffect, useRef, useState } from 'react';
 
-import { Booking } from '@/api/itinerary';
+import { Booking, LLMP } from '@/api/itinerary';
 import { isLLMP, isMultipleExperiences } from '@/api/itinerary';
 import { leaseParts, reconcile } from '@/autopilot/lease';
 import ClientsContext from '@/contexts/ClientsContext';
@@ -64,7 +64,7 @@ export default function PlansProvider({
     // plans should not also wait on a lock.
     if (request > reconciledSequence.current) {
       reconciledSequence.current = request;
-      void reconcile(key => {
+      void reconcile((key, reservationIds, requestedTime) => {
         const { date, facilityId } = leaseParts(key);
         // Evidence asks a different question from swap eligibility. A fully
         // redeemed pass no longer occupies a slot, but its exact requested
@@ -72,16 +72,29 @@ export default function PlansProvider({
         // A historical/non-cancellable entry, another booking kind, or a
         // Multiple Experiences replacement cannot answer merely because it
         // shares a facility id.
-        const booking = fetched.find(
-          plan =>
-            isLLMP(plan) &&
-            parkDate(plan.start) === date &&
-            !!plan.cancellable &&
-            !isMultipleExperiences(plan) &&
-            plan.facilityId === facilityId
-        );
+        const expected = new Set(reservationIds);
+        const idsOf = (plan: LLMP) => [
+          plan.id,
+          ...plan.guests.map(guest => guest.entitlementId),
+        ];
+        const booking = fetched.find((plan): plan is LLMP => {
+          if (
+            !isLLMP(plan) ||
+            parkDate(plan.start) !== date ||
+            !plan.cancellable ||
+            isMultipleExperiences(plan) ||
+            plan.facilityId !== facilityId ||
+            String(plan.start.time) !== requestedTime
+          ) {
+            return false;
+          }
+          return idsOf(plan).some(id => expected.has(id));
+        });
         return booking
-          ? { time: String(booking.start.time), id: booking.id }
+          ? {
+              time: String(booking.start.time),
+              reservationIds: idsOf(booking),
+            }
           : undefined;
       }, polledAt).catch(error => console.error(error));
     }

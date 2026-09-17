@@ -2,7 +2,7 @@ import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { RequestNotSent } from '@/api/client';
 import type { RequestControl } from '@/api/client';
-import { Booking } from '@/api/itinerary';
+import { Booking, isLLMP } from '@/api/itinerary';
 import { Guests } from '@/api/ll';
 import {
   AlertPermission,
@@ -94,6 +94,7 @@ import {
 import { syncedParkTime } from '@/autopilot/schedule';
 import {
   COMMIT_TTL_MS,
+  CommittedReturn,
   activeCommits,
   clearCommit,
   commitDate,
@@ -715,7 +716,36 @@ export default function AutopilotProvider({
       const heldToday = (experienceId: string) =>
         findExistingLL(currentPlans, experienceId, date);
       let allHeldToday = heldMPToday(currentPlans, date);
-      let partyIsFull = allHeldToday.length >= MAX_HELD_MP;
+      const planCarriesCommit = (commit: CommittedReturn, plan: Booking) => {
+        if (
+          !isLLMP(plan) ||
+          plan.facilityId !== commit.facilityId ||
+          parkDate(plan.start) !== commitDate(commit) ||
+          String(plan.start.time) !== commit.time
+        ) {
+          return false;
+        }
+        const expected = commit.reservationIds;
+        if (!expected?.length) return true;
+        return [plan.id, ...plan.guests.map(guest => guest.entitlementId)].some(
+          id => expected.includes(id)
+        );
+      };
+      const slotsAreFull = () => {
+        const heldFacilities = new Set(
+          allHeldToday.map(booking => booking.facilityId)
+        );
+        const pendingBookings = new Set(
+          activeCommits(Date.now(), date)
+            .filter(
+              commit =>
+                commit.kind === 'book' && !heldFacilities.has(commit.facilityId)
+            )
+            .map(commit => commit.facilityId)
+        );
+        return allHeldToday.length + pendingBookings.size >= MAX_HELD_MP;
+      };
+      let partyIsFull = slotsAreFull();
 
       /**
        * Whether a return time lands on top of something already planned.
@@ -749,14 +779,15 @@ export default function AutopilotProvider({
           const unseen = activeCommits(Date.now(), date)
             .filter(
               c =>
-                c.facilityId !== release?.facilityId &&
-                // Date as well as facility: the same attraction booked on
-                // another day of the trip is a different reservation, and
-                // matching on facility alone had one suppress the other.
-                !currentPlans.some(
-                  p =>
-                    p.facilityId === c.facilityId && parkDate(p.start) === date
-                )
+                // Ignore only the exact reservation being replaced. A split
+                // party can hold another reservation for this same ride, and
+                // its pending committed time still constrains the replacement.
+                !(release && c.reservationIds?.includes(release.id)) &&
+                // Plans supersede the wider commit span only once they carry
+                // the exact committed reservation at the committed time. A
+                // stale old-time entry for the same ride is precisely the lag
+                // this record exists to bridge.
+                !currentPlans.some(p => planCarriesCommit(c, p))
             )
             .map(c => ({
               id: `commit:${c.facilityId}`,
@@ -780,12 +811,6 @@ export default function AutopilotProvider({
         const settled = freshPlans;
         for (const id of ledgerRef.current.attemptedBookIds) {
           const stillHeld = !!findExistingLL(settled, id, date);
-          // The shared commit record exists only to cover the window between
-          // committing and plans catching up. Once a plans poll says the
-          // reservation is not there, that window is over: leaving the record
-          // would have it block the very rebooking this settle loop exists to
-          // permit, and a return time nobody holds is not something to protect.
-          if (!stillHeld) clearCommit(id, date);
           ledgerRef.current.resolveBook(
             id,
             stillHeld,
@@ -809,14 +834,14 @@ export default function AutopilotProvider({
             // commit. Another date's record is left alone rather than expired
             // on evidence that says nothing about it.
             if (commitDate(commit) !== date) continue;
-            const inPlans = settled.some(
-              plan =>
-                plan.facilityId === commit.facilityId &&
-                parkDate(plan.start) === date
+            const inPlans = settled.some(plan =>
+              planCarriesCommit(commit, plan)
             );
             const expired =
               commit.at === undefined || now - commit.at >= COMMIT_TTL_MS;
-            if (inPlans || expired) clearCommit(commit.facilityId, date);
+            if (inPlans || expired) {
+              clearCommit(commit.facilityId, date, commit.reservationIds);
+            }
           }
         }
 
@@ -986,6 +1011,10 @@ export default function AutopilotProvider({
           : partyIsFull && wantsSwap
             ? 'swap'
             : 'book';
+        if (!existing && partyIsFull && !wantsSwap) {
+          bumpSkip('slots-full', experience.name);
+          continue;
+        }
         if (ledgerRef.current.hasAttempted(experience.id, kind)) {
           // Held for good, unless this is a rejection whose wait has run out.
           const retryAt = retryAtRef.current.get(`${kind}:${experience.id}`);
@@ -1163,6 +1192,14 @@ export default function AutopilotProvider({
               : undefined;
           const changing = kind === 'swap' ? victim : existing;
           const reservation = changing?.facilityId;
+          const changingReservationIds = changing
+            ? [
+                ...new Set([
+                  changing.id,
+                  ...changing.guests.map(guest => guest.entitlementId),
+                ]),
+              ]
+            : undefined;
           const owner = mutationId(`${kind}-${experience.id}`);
           operation = new MutationOperation({
             id: owner,
@@ -1240,9 +1277,13 @@ export default function AutopilotProvider({
 
           const requestControl = (
             offerTime: ParkTime,
-            evidence?: MutationEvidence
+            evidence?: Omit<MutationEvidence, 'reservationIds'>
           ): RequestControl => {
             const current = operation!;
+            const dispatchEvidence =
+              evidence && changingReservationIds
+                ? { ...evidence, reservationIds: changingReservationIds }
+                : undefined;
             return {
               signal: current.signal,
               start: async send => {
@@ -1270,7 +1311,7 @@ export default function AutopilotProvider({
                 return begun.value;
               },
               onDispatch: () => {
-                if (!current.markDispatched(evidence)) {
+                if (!current.markDispatched(dispatchEvidence)) {
                   throw new RequestNotSent(
                     'Action was abandoned before the request could be sent'
                   );
@@ -1542,7 +1583,23 @@ export default function AutopilotProvider({
             // only today: a second instance working the same future date needs
             // this exactly as much.
             date,
+            kind:
+              outcome.status === 'booked'
+                ? 'book'
+                : outcome.status === 'modified'
+                  ? 'modify'
+                  : 'swap',
+            reservationIds: [
+              ...new Set([
+                outcome.booking.id,
+                ...outcome.booking.guests.map(guest => guest.entitlementId),
+              ]),
+            ],
           });
+          // A successful fresh booking occupies a slot immediately, even when
+          // the confirmation read below still returns its pre-booking snapshot.
+          // The short-lived commit record is the bridge until Plans catches up.
+          partyIsFull = slotsAreFull();
           // Any change shifts eligibility across every experience at once via
           // party, tier and overlap limits, so the whole cache is invalid.
           cacheRef.current.clear();
@@ -1572,7 +1629,7 @@ export default function AutopilotProvider({
             // it -- see the `let currentPlans` above.
             currentPlans = await pollPlans();
             allHeldToday = heldMPToday(currentPlans, date);
-            partyIsFull = allHeldToday.length >= MAX_HELD_MP;
+            partyIsFull = slotsAreFull();
           } catch (error) {
             console.error(error);
           }

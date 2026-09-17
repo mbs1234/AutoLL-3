@@ -137,14 +137,19 @@ describe('Activity diagnostics', () => {
     expect(
       screen.getByText(/1 unresolved Lightning Lane change/)
     ).toBeVisible();
+    expect(
+      screen.getByText(/saved by an older AutoLL-3 version/)
+    ).toBeVisible();
     fireEvent.click(screen.getByText('I checked Disney — resolve this'));
     expect(screen.getByText(/Clear this only after checking/)).toBeVisible();
     expect(quarantinedAt(key)).toBeDefined();
     fireEvent.click(screen.getByText('Clear this protection'));
     await waitFor(() => expect(quarantinedAt(key)).toBeUndefined());
-    expect(
-      screen.queryByText(/unresolved Lightning Lane change/)
-    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/unresolved Lightning Lane change/)
+      ).not.toBeInTheDocument()
+    );
   });
 
   it('names a reservation outside the currently loaded tipboard', async () => {

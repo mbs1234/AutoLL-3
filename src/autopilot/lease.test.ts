@@ -142,6 +142,7 @@ describe('the operation lease', () => {
       kind: 'modify' as const,
       from: '19:00:00',
       to: '11:00:00',
+      reservationIds: ['booking-1'],
     };
     const swapDoubt = {
       id: 'swap-1',
@@ -149,18 +150,26 @@ describe('the operation lease', () => {
       from: '19:00:00',
       to: '13:00:00',
       gaining: '80010129',
+      reservationIds: ['booking-1'],
     };
     /** What a plans read reporting nothing at all looks like. */
     const nothing = () => undefined;
     /** A read that started after the doubt was raised, as every real one does. */
     const read =
       (
-        seen: (key: string) => { time: string; id: string } | undefined,
+        seen: (
+          key: string,
+          reservationIds: readonly string[],
+          requestedTime: string
+        ) => { time: string; reservationIds: string[] } | undefined,
         at: number
       ) =>
       () =>
         reconcile(seen, at);
-    const seenAt = (time: string, id = 'booking-1') => ({ time, id });
+    const seenAt = (time: string, id = 'booking-1') => ({
+      time,
+      reservationIds: [id],
+    });
 
     it('refuses everyone, including the instance that raised it', async () => {
       await acquire(KEY, A);
@@ -208,7 +217,12 @@ describe('the operation lease', () => {
       });
       const raised = await quarantine(
         KEY,
-        { id: 'page-local', kind: 'modify', to: '11:00:00' },
+        {
+          id: 'page-local',
+          kind: 'modify',
+          to: '11:00:00',
+          reservationIds: ['booking-1'],
+        },
         RAISED
       );
       expect(raised.durable).toBe(false);
@@ -294,12 +308,28 @@ describe('the operation lease', () => {
       expect(await acquire(KEY, A, 2000)).toBe(false);
     });
 
+    it('does not let another reservation at the requested time answer the doubt', async () => {
+      await quarantine(KEY, modifyDoubt, RAISED);
+      await read(() => seenAt('11:00:00', 'another-booking'), 2000)();
+      expect(await acquire(KEY, A, 2000)).toBe(false);
+    });
+
+    it('keeps a legacy doubt without reservation identity for manual review', async () => {
+      await quarantine(
+        KEY,
+        { id: 'legacy-shape', kind: 'modify', to: '11:00:00' },
+        RAISED
+      );
+      await read(() => seenAt('11:00:00'), 2000)();
+      expect(await acquire(KEY, A, 2000)).toBe(false);
+    });
+
     it('clears a swap when the incoming attraction appears at the sent time', async () => {
       await quarantine(KEY, swapDoubt, RAISED);
       await read(
         key =>
           key === leaseKey('80010129', DATE)
-            ? seenAt('13:00:00', 'incoming-booking')
+            ? seenAt('13:00:00', 'booking-1')
             : undefined,
         2000
       )();
@@ -311,7 +341,19 @@ describe('the operation lease', () => {
       await read(
         key =>
           key === leaseKey('80010129', DATE)
-            ? seenAt('13:05:00', 'incoming-booking')
+            ? seenAt('13:05:00', 'booking-1')
+            : undefined,
+        2000
+      )();
+      expect(await acquire(KEY, A, 2000)).toBe(false);
+    });
+
+    it('does not clear a swap from another incoming reservation', async () => {
+      await quarantine(KEY, swapDoubt, RAISED);
+      await read(
+        key =>
+          key === leaseKey('80010129', DATE)
+            ? seenAt('13:00:00', 'another-booking')
             : undefined,
         2000
       )();
@@ -362,6 +404,7 @@ describe('the operation lease', () => {
           kind: 'modify',
           from: '19:00:00',
           to: '17:00:00',
+          reservationIds: ['booking-1'],
         },
         RAISED + 1
       );
