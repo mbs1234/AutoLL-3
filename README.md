@@ -23,6 +23,10 @@ you actually hold.
 Open the [setup page](https://mbs1234.github.io/AutoLL-3/) on the phone you will
 use in the park and install either the bookmarklet or the userscript.
 
+The [user guide](https://mbs1234.github.io/AutoLL-3/guide.html) walks through
+setup, the park day and what to do when something breaks;
+[docs/USER-GUIDE.md](docs/USER-GUIDE.md) is the same text in this repository.
+
 Three things worth knowing before you do:
 
 - **It installs alongside v1.0 without touching it.** AutoLL-3 keeps its
@@ -292,6 +296,8 @@ roadmap and the record of what was decided;
 [docs/UX-PLAN.md](docs/UX-PLAN.md) is the same for the screens;
 [docs/FUTURE.md](docs/FUTURE.md) is what remains, and [ROADMAP.md](ROADMAP.md)
 is what to do about it next.
+[docs/USER-GUIDE.md](docs/USER-GUIDE.md) is the guide written for whoever is
+holding the phone, rather than for whoever is changing the code.
 [SECURITY.md](SECURITY.md) covers token handling.
 
 ## License
