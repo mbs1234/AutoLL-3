@@ -166,6 +166,11 @@ jobs:
             echo "::error::base-static/sensor-data.js not found; booking will fail"
             exit 1
           fi
+          # Recorded here, checked after branding. This payload is the one file
+          # in dist/ that no step of ours may alter: it is obfuscated, so it has
+          # no redundancy to notice damage with, and Disney is the only party
+          # that validates it. See the branding step for what was reaching it.
+          sha256sum dist/sensor-data.js | cut -d' ' -f1 > /tmp/sensor-data.sha256
 
       - name: Brand installer assets for AutoLL-3
         run: |
@@ -177,7 +182,20 @@ jobs:
           # start-page preference key must be rewritten as well. Otherwise a
           # person installing AutoLL-3 sees AutoLL-2 and the two builds share
           # that preference on Disney's origin.
-          find dist -type f \( -name '*.html' -o -name '*.js' -o -name '*.css' \) -print0 \
+          # `sensor-data.js` is excluded by name, and the exclusion is the
+          # point rather than a tidy-up. It matches `*.js`, it is copied into
+          # dist/ by the step above, and it was therefore in this rewrite's
+          # input set on every deploy that has ever run. Nothing has been
+          # damaged only because none of the four patterns below happens to
+          # occur in 8 KB of obfuscated code -- luck, not design. A future
+          # payload whose encoded strings contain `autoll2` would be edited in
+          # place, and obfuscated code has no redundancy to fail loudly with:
+          # the build stays green, the manifest hashes the corrupted file, and
+          # it surfaces in a park as every booking failing with no HTTP status.
+          # The repository's own rule is that this payload's contents are
+          # off-limits; this pipeline had been quietly exempting itself.
+          find dist -type f \( -name '*.html' -o -name '*.js' -o -name '*.css' \) \
+              -not -name 'sensor-data.js' -print0 \
             | xargs -0 --no-run-if-empty \
                 sed -i \
                   -e "s|https://joelface\.github\.io/bg1|$PAGES_ORIGIN|g" \
@@ -252,6 +270,21 @@ jobs:
       #
       # It runs before the manifest below on purpose: the guide is served, so
       # it belongs in `autoll3-files.sha256` like every other served file.
+      - name: Verify the sensor payload was not rewritten
+        run: |
+          set -euo pipefail
+          # An exclusion in a `find` is a claim; this is the check. It costs a
+          # hash and it closes the only path in this pipeline that could ship a
+          # corrupted file with a green build and a manifest that faithfully
+          # records the corruption.
+          expected=$(cat /tmp/sensor-data.sha256)
+          actual=$(sha256sum dist/sensor-data.js | cut -d' ' -f1)
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::sensor-data.js changed after it was copied ($expected -> $actual); something in this workflow is rewriting the payload and every booking would fail with no HTTP status"
+            exit 1
+          fi
+          echo "sensor-data.js unchanged ($actual)"
+
       - name: Overlay the user guide
         run: |
           set -euo pipefail
@@ -290,8 +323,17 @@ jobs:
             # so a renamed chunk would have passed every gate. Jest never touches
             # the built bundle and typecheck does not know about filenames, which
             # leaves this check as the only thing that would notice.
+            # `contact.html` is here for a reason that is not about the app
+            # working. It carries the only clickable joelface/bg1 and
+            # jgeurts/bg1 links in the whole published site -- FORK.md long
+            # said they were in start.html and index.html, and they are in
+            # neither. This build is GPL-3.0-only and those links are its
+            # attribution, so a deploy that quietly drops the file is a deploy
+            # that quietly drops the attribution. The overlay still treats it
+            # as degradable, which is right for a page a link points at; this
+            # is the step that says it may not actually go missing.
             for file in bg1.js bg1.css responder.html responder.js wdw.js \
-                        sensor-data.js index.html index.css \
+                        sensor-data.js index.html index.css contact.html \
                         autoloader.user.js; do
               # Anchored to end of line so a `.map` or a same-named file in a
               # subdirectory cannot satisfy the check for the real one.

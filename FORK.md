@@ -71,11 +71,27 @@ booking from this build was confirmed working on 2026-09-05.
 **One deployment trap, already sprung once.** `sensor-data.js` is loaded by
 dynamic import at runtime and is *not* a rollup input, so `vite build` does not
 emit it — it has to be copied into `dist/` by the deploy workflow, from
-`gh-pages` rather than `goofy` (both branches carry that filename and they are
-different vintages). When it is missing the import rejects with an error
-carrying no HTTP status, so `useDataLoader` shows "Unknown error occurred" and
-every booking fails without naming a cause. The overlay step now fails the
-build rather than warning, so this cannot recur silently.
+`gh-pages` rather than `goofy` (both branches carry that filename; they were
+different vintages when this was written, and as of 2026-09-17 they are the same
+blob, `7b3512ae`. The workflow still reads `gh-pages`, because that is the
+branch whose vintage is paired with this base and nothing guarantees they stay
+identical). When it is missing the import rejects with an error carrying no HTTP
+status, so `useDataLoader` shows "Unknown error occurred" and every booking fails
+without naming a cause. The overlay step now fails the build rather than
+warning, so this cannot recur silently.
+
+**And a second trap, found 2026-09-17 and closed the same day.** The branding
+step rewrites `AutoLL-2` to `AutoLL-3` across every `.html`, `.js` and `.css`
+file in `dist/` — and by then `sensor-data.js` is a `.js` file in `dist/`, so it
+had been in that rewrite's input set on every deploy that ever ran. Nothing was
+ever damaged, because none of the four patterns happens to occur in 8 KB of
+obfuscated code. That is luck, not design. A payload whose encoded strings
+contained `autoll2` would have been edited in place, and obfuscated code has no
+redundancy to fail loudly with: the build stays green, `autoll3-files.sha256`
+faithfully records the corrupted file, and it surfaces in a park as every booking
+failing with no HTTP status. It is now excluded by name, and its hash is taken
+when it is copied and checked again after branding — an exclusion is a claim, and
+the hash is the check.
 
 If Disney changes the scheme again, that repair is not part of this project.
 Disney has moved four times in ten months — off in November 2025, worked around
@@ -121,8 +137,13 @@ Deliberately left pointing at upstream infrastructure:
   precisely; replace only if you want zero third-party dependency.
 - `src/api/livedata.ts` → `bg1.joelface.com/livedata/*.json` — show times
   sourced from ThemeParks.wiki, not available via Disney's tipboard.
-- `github.com/joelface/bg1` source links in `start.html` / `index.html` —
-  GPL-3.0 attribution, kept intentionally.
+- `github.com/joelface/bg1` and `github.com/jgeurts/bg1` source links in
+  `contact.html` — GPL-3.0 attribution, kept intentionally. That page and only
+  that page: this was recorded as `start.html` / `index.html` until 2026-09-17,
+  when checking found the links in neither. Because `contact.html` sits in the
+  overlay's warn-and-continue tier, the site's whole attribution was degradable,
+  so the file is now in the release manifest's required list where its absence
+  fails the deploy.
 
 Not copied from `goofy`: `diu.js` and `dlr.js` (upstream's Disneyland
 modules; nothing in this build loads them), `sensor-data.js` (bot-detection
