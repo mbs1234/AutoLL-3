@@ -453,19 +453,29 @@ export async function quarantine(
 /** Remove only the question whose outcome is now known. */
 export async function resolveDoubt(key: string, id: string): Promise<void> {
   let changed = false;
-  await exclusive(() => {
-    const current = loadPersistedQuarantine();
-    const doubts = current[key];
-    if (!doubts?.some(d => d.id === id)) return;
-    const rest = doubts.filter(d => d.id !== id);
-    const next = { ...current };
-    if (rest.length) next[key] = rest;
-    else delete next[key];
-    kvdb.set<Quarantine>(QUARANTINE_KEY, next);
-    changed = true;
-  });
-  const volatileChanged = forgetVolatile(key, id);
-  if (changed || volatileChanged) publishQuarantineChange();
+  // The page-local copy goes first, and in a `finally`, because the durable
+  // read is one of the two things that can be broken here -- and if it throws,
+  // the volatile doubt it was raised alongside would otherwise have no terminus
+  // but a reload, which is the one thing the panel warns destroys protection.
+  // `reconcile()` already clears the volatile store outside its `exclusive()`
+  // for the same reason; this was the asymmetry.
+  let volatileChanged = false;
+  try {
+    await exclusive(() => {
+      const current = loadPersistedQuarantine();
+      const doubts = current[key];
+      if (!doubts?.some(d => d.id === id)) return;
+      const rest = doubts.filter(d => d.id !== id);
+      const next = { ...current };
+      if (rest.length) next[key] = rest;
+      else delete next[key];
+      kvdb.set<Quarantine>(QUARANTINE_KEY, next);
+      changed = true;
+    });
+  } finally {
+    volatileChanged = forgetVolatile(key, id);
+    if (changed || volatileChanged) publishQuarantineChange();
+  }
 }
 
 /** Every unresolved mutation, for Plan Check and Activity. */

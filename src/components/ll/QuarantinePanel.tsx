@@ -1,5 +1,6 @@
 import { use, useEffect, useId, useRef, useState } from 'react';
 
+import { attractionName } from '@/autopilot/attractionName';
 import { resolveDoubt } from '@/autopilot/lease';
 import type { QuarantinedMutation } from '@/autopilot/lease';
 import Button from '@/components/Button';
@@ -54,18 +55,7 @@ export default function QuarantinePanel({
   }, [confirming]);
   if (!doubts.length) return null;
 
-  const nameOf = (id: string) => {
-    const current = experiences.find(experience => experience.id === id)?.name;
-    if (current) return current;
-    if (resort.knows(id)) {
-      try {
-        return resort.experience(id).name;
-      } catch {
-        // An explicitly ignored catalogue entry has no usable display name.
-      }
-    }
-    return id;
-  };
+  const nameOf = (id: string) => attractionName(id, experiences, resort);
   const identity = (doubt: QuarantinedMutation) => `${doubt.key}:${doubt.id}`;
 
   async function clear(doubt: QuarantinedMutation) {

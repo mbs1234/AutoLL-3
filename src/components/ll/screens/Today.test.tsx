@@ -177,15 +177,29 @@ describe('Today', () => {
     expect(screen.queryByText(/current as of/)).not.toBeInTheDocument();
   });
 
-  it('lists what is held on the date, with the grace scan', () => {
+  it('lists what is held on the date, with its return window', () => {
     setup({ plans: [createBooking(hm)] });
     expect(
       screen.getByRole('heading', { name: 'Held (1)' })
     ).toBeInTheDocument();
     expect(screen.getByText(hm.name)).toBeVisible();
-    expect(screen.getByText(/grace scan until/)).toBeVisible();
-    // 12:00 plus 119 minutes.
-    expect(document.querySelector('time[datetime="13:59:00"]')).not.toBeNull();
+    expect(document.querySelector('time[datetime="12:00:00"]')).not.toBeNull();
+  });
+
+  /*
+   * It used to promise one, in the words "(grace scan until 1:59 PM)" against
+   * every held pass -- 119 minutes past the end of the window, a number with no
+   * constant, no comment and no origin anybody could trace. Nothing in the
+   * engine scans for a lapsing pass, then or now. Telling a user on a park day
+   * that something is watching a reservation when nothing is watching it is the
+   * worst shape a failure takes in this project, and it was printed on the
+   * screen they hold. Warning before a pass lapses is worth building; saying so
+   * before it is built is not.
+   */
+  it('does not promise to watch a pass it is not watching', () => {
+    setup({ plans: [createBooking(hm)] });
+    expect(screen.queryByText(/grace scan/i)).not.toBeInTheDocument();
+    expect(document.querySelector('time[datetime="13:59:00"]')).toBeNull();
   });
 
   it('says when nothing is held', () => {

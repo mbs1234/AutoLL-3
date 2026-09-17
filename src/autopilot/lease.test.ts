@@ -191,6 +191,73 @@ describe('the operation lease', () => {
       await resolveDoubt(KEY, modifyDoubt.id);
     });
 
+    /*
+     * A doubt that only ever lived in this page still needs a way out.
+     *
+     * Its durable write failed, so `reconcile()` cannot find it in storage --
+     * it has a separate pass over the volatile store, and that pass is the only
+     * automatic terminus a page-local doubt has. Without it the reservation
+     * stays blocked until the reload the panel warns destroys protection.
+     */
+    it('settles a page-local doubt on the same evidence as a durable one', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const realSet = kvdb.set.bind(kvdb);
+      const set = jest.spyOn(kvdb, 'set').mockImplementation((key, value) => {
+        if (key === QUARANTINE_KEY) throw new Error('storage unavailable');
+        realSet(key, value);
+      });
+      const raised = await quarantine(
+        KEY,
+        { id: 'page-local', kind: 'modify', to: '11:00:00' },
+        RAISED
+      );
+      expect(raised.durable).toBe(false);
+      set.mockRestore();
+
+      try {
+        await read(() => seenAt('11:00:00'), 2000)();
+        expect(quarantinedAt(KEY)).toBeUndefined();
+        expect(await acquire(KEY, A, 2000)).toBe(true);
+      } finally {
+        await resolveDoubt(KEY, 'page-local');
+      }
+    });
+
+    /*
+     * And a way out the user can take, even when the broken thing is the read.
+     *
+     * `resolveDoubt` consults durable storage first; if that throws, the
+     * page-local copy it was raised alongside used to survive the failure --
+     * so pressing "I checked Disney" reported an error and left the
+     * reservation blocked. The volatile clear belongs in a `finally`, which is
+     * where `reconcile()` has always had it.
+     */
+    it('clears a page-local doubt by hand even when the durable read fails', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const realSet = kvdb.set.bind(kvdb);
+      const set = jest.spyOn(kvdb, 'set').mockImplementation((key, value) => {
+        if (key === QUARANTINE_KEY) throw new Error('storage unavailable');
+        realSet(key, value);
+      });
+      await quarantine(KEY, { id: 'page-local', kind: 'modify' }, RAISED);
+      set.mockRestore();
+
+      const get = jest.spyOn(kvdb, 'get').mockImplementation(key => {
+        if (key === QUARANTINE_KEY) throw new Error('storage unavailable');
+        return undefined;
+      });
+      try {
+        await expect(resolveDoubt(KEY, 'page-local')).rejects.toThrow(
+          'storage unavailable'
+        );
+      } finally {
+        get.mockRestore();
+      }
+
+      expect(quarantinedAt(KEY)).toBeUndefined();
+      expect(await acquire(KEY, A)).toBe(true);
+    });
+
     it('does not infer that quarantine is empty when storage cannot be read', async () => {
       const get = jest.spyOn(kvdb, 'get').mockImplementation(key => {
         if (key === QUARANTINE_KEY) throw new Error('storage unavailable');
@@ -484,6 +551,46 @@ describe('the operation lease', () => {
       expect(lost).toHaveBeenCalledWith('refused');
     });
 
+    /*
+     * Renewal has its own quarantine gate, and it is the one that stops a
+     * holder walking into a doubt raised while its request was being prepared.
+     * Its existing test passes without it, because `quarantine()` also evicts
+     * the lease and the owner check then refuses first. A doubt that could not
+     * be persisted evicts nothing, so this is the state that tells them apart.
+     */
+    it('reports a loss when a page-local doubt appears under a live lease', async () => {
+      jest.useFakeTimers({ now: 0, advanceTimers: false });
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const lost = jest.fn();
+      await acquire(KEY, A);
+      const realSet = kvdb.set.bind(kvdb);
+      const set = jest.spyOn(kvdb, 'set').mockImplementation((key, value) => {
+        if (key === QUARANTINE_KEY) throw new Error('storage unavailable');
+        realSet(key, value);
+      });
+      await quarantine(KEY, { id: 'page-local', kind: 'modify' });
+      set.mockRestore();
+      // The lease survived, because eviction shares the failed write's section.
+      expect(holder(KEY)).toBe(A);
+
+      try {
+        const stop = keepAlive(KEY, A, lost);
+        // Async: the renewal goes through the same `exclusive()` critical
+        // section as everything else, so the refusal is a promise, not a
+        // synchronous return.
+        await jest.advanceTimersByTimeAsync(RENEW_INTERVAL_MS);
+        expect(lost).toHaveBeenCalledWith('refused');
+        stop();
+      } finally {
+        // `volatileQuarantine` is module state that `beforeEach` cannot reach,
+        // so a page-local doubt outlives its own test unless it is cleared
+        // here -- and it has to be cleared on the failure path too, or one
+        // broken assertion takes the rest of the file with it.
+        jest.useRealTimers();
+        await resolveDoubt(KEY, 'page-local');
+      }
+    });
+
     // The canceller is the caller saying it is done, which is not a loss.
     it('says nothing when the caller stops it', async () => {
       jest.useFakeTimers({ now: 0, advanceTimers: false });
@@ -565,6 +672,42 @@ describe('the operation lease', () => {
         started: false,
       });
       expect(send).not.toHaveBeenCalled();
+    });
+
+    /*
+     * The gate that is only reachable when the doubt could not be persisted.
+     *
+     * `quarantine()` normally evicts the holder's lease in the same critical
+     * section, so the owner check a line below fires first and this one never
+     * runs -- which is why deleting it left the whole suite green. When the
+     * durable write fails the eviction never happens either: the doubt lives
+     * only in this page, and a live lease then sits alongside a real doubt.
+     * This check is the only thing between that pair and a dispatch.
+     */
+    it('refuses dispatch on a doubt that could not be persisted', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const realSet = kvdb.set.bind(kvdb);
+      const set = jest.spyOn(kvdb, 'set').mockImplementation((key, value) => {
+        if (key === QUARANTINE_KEY) throw new Error('storage unavailable');
+        realSet(key, value);
+      });
+      await acquire(KEY, A);
+      const raised = await quarantine(KEY, {
+        id: 'page-local-doubt',
+        kind: 'modify',
+      });
+      expect(raised.durable).toBe(false);
+      // The lease survived, because eviction shares the failed write's section.
+      expect(holder(KEY)).toBe(A);
+
+      const send = jest.fn(async () => 'sent');
+      expect(await startWhileHeld(KEY, A, () => true, send)).toEqual({
+        started: false,
+      });
+      expect(send).not.toHaveBeenCalled();
+
+      set.mockRestore();
+      await resolveDoubt(KEY, 'page-local-doubt');
     });
 
     it('checks expiry when the browser mutex is entered, not when queued', async () => {

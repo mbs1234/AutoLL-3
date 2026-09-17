@@ -1,5 +1,6 @@
 import { use } from 'react';
 
+import { attractionName } from '@/autopilot/attractionName';
 import { SKIP_TEXT } from '@/autopilot/events';
 import {
   DEMOTION_MIN_COVERED_DAYS,
@@ -13,6 +14,7 @@ import QuarantinePanel from '@/components/ll/QuarantinePanel';
 import AutopilotContext from '@/contexts/AutopilotContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import ParkContext from '@/contexts/ParkContext';
+import ResortContext from '@/contexts/ResortContext';
 
 export const ACTIVITY = 'Activity';
 
@@ -40,10 +42,11 @@ export default function Activity() {
   const { bookingLog, skipCounts, dropSummaries } = use(AutopilotContext);
   const { experiences } = use(ExperiencesContext);
   const { park } = use(ParkContext);
+  const resort = use(ResortContext);
   const doubts = useQuarantine();
 
   const nameOf = (experienceId: string) =>
-    experiences.find(e => e.id === experienceId)?.name ?? experienceId;
+    attractionName(experienceId, experiences, resort);
   // Only attractions with something to say: an observation, or a scheduled
   // time the poller has actually watched for at least once.
   const learned = dropSummaries.filter(

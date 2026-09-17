@@ -1,8 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { PollerStatus } from '@/autopilot/usePoller';
 import { BookingLogEntry } from '@/contexts/AutopilotContext';
 import { ParkTime } from '@/datetime';
 
-import { latestActivity, latestEvent } from './events';
+import { SKIP_TEXT, latestActivity, latestEvent } from './events';
 
 const now = new ParkTime(11, 45);
 const off: PollerStatus = { mode: 'off', consecutiveFailures: 0, polls: 0 };
@@ -173,5 +176,46 @@ describe('latestActivity', () => {
     expect(latestActivity({ bookingLog: [booked] })?.text).toBe(
       'Booked Space Mountain for 1:10 PM'
     );
+  });
+});
+
+/*
+ * Every reason the log can print needs plain English, and the check has to be
+ * over the *declared* reasons rather than a list kept by hand.
+ *
+ * `skipText` falls back to the raw identifier, which is right at runtime -- a
+ * log entry persisted by an older build can name a reason this one has dropped,
+ * and crashing over it would be worse. But it also means a newly added reason
+ * ships silently as a slug, which is what put "waiting-to-retry" on screen at
+ * exactly the moment a user is asking why nothing is booking. Three more were
+ * unlabelled beside it.
+ */
+describe('SKIP_TEXT', () => {
+  const union = (file: string, name: string): string[] => {
+    const source = readFileSync(
+      join(process.cwd(), 'src', 'autopilot', file),
+      'utf8'
+    );
+    const declaration = new RegExp(`export type ${name} =([^;]+);`).exec(
+      source
+    );
+    if (!declaration) throw new Error(`${name} not found in ${file}`);
+    return [...declaration[1]!.matchAll(/'([a-z-]+)'/g)].map(
+      match => match[1]!
+    );
+  };
+
+  it('has plain English for every skip reason that can reach the log', () => {
+    const declared = [
+      ...union('autobook.ts', 'SkipReason'),
+      ...union('automodify.ts', 'ModifySkipReason'),
+      ...union('autoswap.ts', 'SwapSkipReason'),
+      // Raised by the provider itself rather than returned by a helper, so no
+      // union declares them.
+      'outside-window',
+      'tier-hold',
+    ];
+    expect(declared.length).toBeGreaterThan(10);
+    expect(declared.filter(reason => !(reason in SKIP_TEXT))).toEqual([]);
   });
 });
