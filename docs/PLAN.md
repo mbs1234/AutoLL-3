@@ -866,6 +866,21 @@ cannot be answered on the trip at all.
 
 ## 11. December specifics
 
+- **Trip dates, recorded 2026-09-17:** December 22–28, 2026. A park trip to test
+  the app in the parks runs October 18–20, 2026.
+
+  These are scheduling facts and nothing more. They decide when work lands and
+  when an assumption can be replaced by a measurement; they must not decide what
+  the app does. Nothing in the build is keyed to a date somebody typed here.
+
+  Two consequences worth having written down. The booking-date picker offers
+  today plus twenty-one days (`NUM_BOOKING_DAYS = 22`), so December 22 becomes
+  selectable on December 1 and December 28 on December 7 — every day of the trip
+  arrives before a two-week freeze starting around December 8, so the plan can be
+  built in the picker during that first week. And October is the first park day
+  available to answer the questions in §10 that no amount of desk work can:
+  itinerary propagation time, the expiry grace period, per-guest tier release,
+  and what the booking-window endpoint returns for a date not yet open.
 - **Party nights** truncate MK on 13 dates and HS on 7. On those MK dates
   daytime crowds are low and the 6pm close kills evening drops; on non-party
   dates crowds are displaced and drops run late.
