@@ -77,7 +77,7 @@ in the LL tab's header.
 
 **Autopilot is visible from every tab.** While it is running and you are
 anywhere else, a thin strip above the tab bar says what it is doing —
-"Checking rapidly · Dry run · 3 armed · 2 actions left" — and tapping it opens
+"Checking rapidly · Dry run · 3 armed" — and tapping it opens
 Today. It is navigation only, so a mis-tap can never change what gets booked.
 
 **Each watched attraction is one line.** "Auto-book and move · 10:00 AM to
@@ -171,6 +171,26 @@ deadline. A request that neither succeeds nor fails used to park the loop
 forever while the screen still read "Checking rapidly" — the worst state this
 app can be in, because you believe it is working while you queue for a churro.
 
+**A change whose outcome nobody learned now says so, and stops.** A booking
+request can leave the phone and never come back: the park's wifi drops, the
+response never arrives. It may have worked or it may not, and nothing arriving
+later can tell you which. Retrying risks moving a reservation twice; forgetting
+it leaves a pass unprotected while something else books over it.
+
+That reservation is now held, and the hold is visible. Activity and Plan Check
+both list it, naming the attraction and what the change was trying to do — "Move
+Haunted Mansion from 7:15 PM to 11:40 AM on December 5" — including for
+reservations weeks out and in other parks. Nothing touches that pass until
+Disney's own itinerary shows the exact result the request asked for. If you would
+rather decide yourself, there is a two-step release that asks you to check
+Disney's Plans first: clearing protection is the one action here that can cost
+you a reservation, so it is the one that asks twice.
+
+If the browser cannot store that protection durably, the open page still enforces
+it and says plainly that it will not survive a reload or reach another tab. And
+Plan Check warns when the browser has no Web Locks, rather than quietly giving up
+cross-tab exclusion.
+
 **Sign-in you can get out of.** If Disney's sheet does not load, it gives up
 after fifteen seconds and shows a card with a retry button. If you close the
 sheet on purpose it stays closed. Both of v1.0's failure modes end in a blank
@@ -236,6 +256,8 @@ the whole of its advantage.
 
 These and everything else still outstanding are listed in
 [docs/FUTURE.md](docs/FUTURE.md), with what each would cost to fix.
+[ROADMAP.md](ROADMAP.md) is the shorter argument about what to do next, and in
+what order, before the December freeze.
 
 **It depends on the AutoLL-2 repository to publish.** The installer pages and
 the runtime module both come from that repo at deploy time. AutoLL-2 must stay
@@ -252,7 +274,7 @@ the repository says it is.
 
 `main` is protected: a pull request, a passing `check` run, linear history, no
 force-pushes. The deploy gates independently on typecheck and the full test
-suite — 108 suites, 1293 tests — and if either fails, the publish is skipped and
+suite — 114 suites, 1428 tests — and if either fails, the publish is skipped and
 Pages keeps serving the build already on your phone.
 
 ## Development
@@ -268,7 +290,8 @@ npm run build
 deploy assembles one. [docs/PLAN.md](docs/PLAN.md) is the booking-intelligence
 roadmap and the record of what was decided;
 [docs/UX-PLAN.md](docs/UX-PLAN.md) is the same for the screens;
-[docs/FUTURE.md](docs/FUTURE.md) is what remains.
+[docs/FUTURE.md](docs/FUTURE.md) is what remains, and [ROADMAP.md](ROADMAP.md)
+is what to do about it next.
 [SECURITY.md](SECURITY.md) covers token handling.
 
 ## License
