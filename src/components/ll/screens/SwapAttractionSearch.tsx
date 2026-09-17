@@ -123,7 +123,12 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
     // never happened looks exactly like one plans response leaving out a
     // reservation that is still there.
     quarantineCommit: async (id, change, dispatchedAt) => {
-      await quarantineReservation(reservation, { id, ...change }, dispatchedAt);
+      const result = await quarantineReservation(
+        reservation,
+        { id, ...change },
+        dispatchedAt
+      );
+      return result.durable;
     },
     resolveCommit: id => resolveDoubt(reservation, id),
     retainCommit: id => resolveDoubtAndAcquire(reservation, id, searchOwner),

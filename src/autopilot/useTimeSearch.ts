@@ -111,7 +111,7 @@ export interface TimeSearchDeps {
    * Optional: the tests that drive this hook directly do not need a ledger.
    */
   claimCommit?: () => Promise<boolean>;
-  /** Renew the claimed lease while the mutation request is outstanding. */
+  /** Renew the claimed lease from the first commit until the run stops. */
   keepCommitAlive?: (onLost: () => void) => () => void;
   /** Atomically revalidate the lease and start the HTTP request. */
   startCommit?: <T>(
@@ -127,13 +127,15 @@ export interface TimeSearchDeps {
    * whose result nobody learned has to be protected until fresh plans say what
    * happened -- which is not a duration. Without this the search's lease simply
    * ran out while its own guard still forbade another move, and another engine
-   * could take a reservation the guard was still protecting.
+   * could take a reservation the guard was still protecting. Return false when
+   * protection exists only in this page rather than durable browser storage;
+   * legacy void callbacks are treated as durable.
    */
   quarantineCommit?: (
     id: string,
     change: MutationEvidence,
     dispatchedAt: number
-  ) => void | Promise<void>;
+  ) => boolean | void | Promise<boolean | void>;
   /** Remove this operation's doubt after a definitive rejection. */
   resolveCommit?: (id: string) => void | Promise<void>;
   /** Resolve a definitive success and retain the lease without a gap. */
@@ -166,7 +168,8 @@ export interface TimeSearchDeps {
  *
  * 1. A live-work lease is taken before the request, while the mutation object
  *    records the exact post-sensor dispatch boundary. An unanswered request
- *    becomes visible, durable quarantine before the lease is released.
+ *    becomes visible quarantine before the lease is released; if durable
+ *    storage fails, the page-local fallback and its limitation are surfaced.
  * 2. A move to a *later* time is never committed on its own. Giving up an
  *    earlier reservation is the one direction that cannot be undone if the
  *    search was wrong about what the party wanted, so it is offered and the
@@ -206,6 +209,8 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
   const commitInFlightRef = useRef(false);
   /** The one commit whose sensor/fetch path can still be cancelled or settled. */
   const activeOperationRef = useRef<MutationOperation | undefined>(undefined);
+  /** Cancels the one renewal loop owned by this whole search run. */
+  const stopRenewalRef = useRef<(() => void) | undefined>(undefined);
   /**
    * Whether this search currently holds the engine's per-attraction lock.
    *
@@ -238,9 +243,9 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     // Unwired (the hook's own tests, and any caller with no engine to contend
     // with): behave exactly as before rather than refusing to commit.
     if (!claim) return true;
-    // Asked every time rather than only when not already held. The lease
-    // expires, so a run longer than its TTL has to renew, and asking is how it
-    // renews -- acquisition is re-entrant for the holder.
+    // Asked again at each commit/settle boundary as an immediate ownership
+    // check. The run-scoped keepalive handles elapsed time between them, and
+    // acquisition remains re-entrant for this holder.
     const got = await claim();
     // Only a successful claim means this search holds it. Keeping a stale true
     // here is what let a lost lease go unnoticed.
@@ -256,11 +261,18 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     holdsLockRef.current = false;
   }, []);
 
+  const stopRenewal = useCallback(() => {
+    const cancel = stopRenewalRef.current;
+    stopRenewalRef.current = undefined;
+    cancel?.();
+  }, []);
+
   const stop = useCallback(
     (reason: SearchStop) => {
       runningRef.current = false;
       acceptedRef.current = false;
       activeOperationRef.current?.abandon('stopped');
+      stopRenewal();
       const guard = guardRef.current;
       if (guard.phase === 'committing' && !commitInFlightRef.current) {
         guard.release();
@@ -294,7 +306,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       }));
       void releaseScreenAwake(wakeOwner);
     },
-    [wakeOwner, dropLock]
+    [wakeOwner, dropLock, stopRenewal]
   );
 
   /**
@@ -383,7 +395,6 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         to: String(quoted.start.time),
         ...(kind === 'swap' && gaining ? { gaining } : {}),
       };
-      let stopRenewal: () => void = () => undefined;
       const operation = new MutationOperation({
         id: mutationId(`search-${kind}`),
         kind,
@@ -393,16 +404,24 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
             guard.markUnknown();
             commitInFlightRef.current = false;
             let protectedUnknown = false;
+            let durableUnknown = false;
             let protectionError: unknown;
             const saveQuarantine = depsRef.current.quarantineCommit;
             if (saveQuarantine) {
               try {
-                await saveQuarantine(
-                  abandoned.id,
-                  abandoned.evidence,
-                  abandoned.dispatchedAt!
-                );
+                const durable =
+                  (await saveQuarantine(
+                    abandoned.id,
+                    abandoned.evidence,
+                    abandoned.dispatchedAt!
+                  )) !== false;
                 protectedUnknown = true;
+                durableUnknown = durable;
+                if (!durable) {
+                  protectionError = new Error(
+                    'Protection is available only in this open page'
+                  );
+                }
               } catch (error) {
                 protectionError = error;
                 console.error(error);
@@ -412,18 +431,22 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
                 'No unresolved-change store is configured'
               );
             }
-            // A persisted quarantine replaces the live lease. If persistence
-            // failed, keep renewing the lease as the only protection still
-            // available. Simply leaving its current record in place was not
-            // sufficient: it expired after LEASE_TTL_MS and silently reopened
-            // the reservation while the screen still said unresolved.
+            // Durable or page-local quarantine replaces the live lease. The
+            // production store always returns one of those two outcomes; a
+            // rejecting custom dependency is treated as an explicit failure,
+            // not an invisible renewal loop that can outlive this screen.
             if (protectedUnknown) {
               stopRenewal();
-              try {
-                await dropLock();
-              } catch (error) {
-                protectionError ??= error;
-                console.error(error);
+              // A durable doubt replaces the lease. Page-local protection is
+              // supplemented by the existing lease record until its TTL, but
+              // the renewal loop still stops with the run.
+              if (durableUnknown) {
+                try {
+                  await dropLock();
+                } catch (error) {
+                  protectionError ??= error;
+                  console.error(error);
+                }
               }
             }
             if (mountedRef.current) {
@@ -475,10 +498,27 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       });
       activeOperationRef.current = operation;
       try {
-        stopRenewal =
-          depsRef.current.keepCommitAlive?.(() =>
-            operation.abandon('lease-refused')
-          ) ?? stopRenewal;
+        if (!stopRenewalRef.current && depsRef.current.keepCommitAlive) {
+          stopRenewalRef.current = depsRef.current.keepCommitAlive(() => {
+            // keepAlive has already stopped itself before reporting loss.
+            stopRenewalRef.current = undefined;
+            holdsLockRef.current = false;
+            const active = activeOperationRef.current;
+            if (active && !active.settled) {
+              active.abandon('lease-refused');
+              return;
+            }
+            if (mountedRef.current) {
+              setState(s => ({
+                ...s,
+                contended: true,
+                lastError:
+                  'AutoLL-3 lost the reservation lock. Refresh Plans before trying again.',
+              }));
+              stop('failed');
+            }
+          });
+        }
       } catch (error) {
         console.error(error);
         operation.abandon('stopped');
@@ -543,12 +583,24 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
           if (activeOperationRef.current === operation) {
             activeOperationRef.current = undefined;
           }
-          stopRenewal();
-          try {
-            await dropLock();
-          } catch (caught) {
-            resolutionError ??= caught;
-            console.error(caught);
+          // A definite Disney rejection is one completed cycle, not the end of
+          // a foreground run. Keep the run-scoped lease through the next
+          // barren/offer cycles so the background engine cannot take this
+          // reservation in between. Local cancellations and late results after
+          // Stop have no continuing run and release promptly.
+          const keepRunLease =
+            operation.dispatched &&
+            actionWasRejected(error) &&
+            !stopped() &&
+            holdsLockRef.current;
+          if (!keepRunLease) {
+            stopRenewal();
+            try {
+              await dropLock();
+            } catch (caught) {
+              resolutionError ??= caught;
+              console.error(caught);
+            }
           }
           if (mountedRef.current) {
             setState(s => ({
@@ -583,20 +635,30 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         if (!operation.abandoned) {
           guard.markUnknown();
           let protectedUnknown = false;
+          let durableUnknown = false;
+          let protectionError: unknown;
           const saveQuarantine = depsRef.current.quarantineCommit;
           if (saveQuarantine) {
             try {
-              await saveQuarantine(
-                operation.id,
-                evidence,
-                operation.dispatchedAt!
-              );
+              const durable =
+                (await saveQuarantine(
+                  operation.id,
+                  evidence,
+                  operation.dispatchedAt!
+                )) !== false;
               protectedUnknown = true;
+              durableUnknown = durable;
+              if (!durable) {
+                protectionError = new Error(
+                  'Protection is available only in this open page'
+                );
+              }
             } catch (caught) {
+              protectionError = caught;
               console.error(caught);
             }
           }
-          if (!protectedUnknown && mountedRef.current) {
+          if ((!protectedUnknown || protectionError) && mountedRef.current) {
             setState(s => ({
               ...s,
               lastError:
@@ -605,10 +667,12 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
           }
           if (protectedUnknown) {
             stopRenewal();
-            try {
-              await dropLock();
-            } catch (caught) {
-              console.error(caught);
+            if (durableUnknown) {
+              try {
+                await dropLock();
+              } catch (caught) {
+                console.error(caught);
+              }
             }
           }
         }
@@ -658,11 +722,10 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         console.error(error);
       }
       const canContinue = retained && !retainError;
-      // A healthy success has atomically retained/renewed the run's lease, so
-      // the settling loop can take over renewal. If local persistence failed,
-      // leave this operation's renewal alive as the only remaining protection;
-      // the stopped screen tells the user to refresh Plans before acting.
-      if (!retainError) stopRenewal();
+      // Renewal belongs to the run, not this request. A healthy success keeps
+      // it through settling and later cycles; an inability to retain the lease
+      // ends both together.
+      if (!canContinue) stopRenewal();
       setState(s => ({
         ...s,
         moves: s.moves + 1,
@@ -869,6 +932,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     return () => {
       cancelled = true;
       activeOperationRef.current?.abandon('unmounted');
+      stopRenewal();
       // Back is the ordinary way to leave this screen, and `NavProvider`
       // unmounts a popped screen -- so without this a claimed lock stayed
       // published and the engine underneath silently stopped acting on that
@@ -885,7 +949,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       }
       void releaseScreenAwake(wakeOwner);
     };
-  }, [state.running, stop, wakeOwner, claimLock, dropLock]);
+  }, [state.running, stop, wakeOwner, claimLock, dropLock, stopRenewal]);
 
   return {
     ...state,

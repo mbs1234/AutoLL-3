@@ -3,7 +3,12 @@ import { Booking, LLMP, isLLMP } from '@/api/itinerary';
 import { Guest, Guests, Offer, OfferError, OfferExperience } from '@/api/ll';
 import { ParkTime, parkDate } from '@/datetime';
 
-import { AutoBookLedger, ClashCheck, actionWasRejected } from './autobook';
+import {
+  AutoBookLedger,
+  ClashCheck,
+  actionWasRejected,
+  withAttemptDispatch,
+} from './autobook';
 import { WatchTarget, inWindow } from './watchlist';
 
 /**
@@ -342,21 +347,12 @@ export async function attemptAutoModify(
       return { status: 'skipped', reason: 'no-longer-wanted' };
     }
     const change = { from: offerBaseline(offer, allowed.existing), to };
-    const onDispatch = () => {
-      ledger.markAttempted(target.experienceId, 'modify');
-      onCommitting?.(change);
-    };
     const built = requestControl?.(change);
-    const control = built
-      ? {
-          ...built,
-          onDispatch: () => {
-            built.onDispatch?.();
-            onDispatch();
-          },
-        }
-      : undefined;
-    if (!built) onDispatch();
+    const control = withAttemptDispatch(
+      built,
+      () => ledger.markAttempted(target.experienceId, 'modify'),
+      () => onCommitting?.(change)
+    );
     const booking = await book(offer, control);
     ledger.markBooked();
     return { status: 'modified', booking, from, to };

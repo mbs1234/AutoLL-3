@@ -20,7 +20,7 @@ export function respond(...responses: ReturnType<typeof response>[]) {
 
 export function expectFetch(
   path: string,
-  { method, params, data }: Parameters<typeof fetchJson>[1] = {},
+  { method, params, data, signal }: Parameters<typeof fetchJson>[1] = {},
   appendUserId = false,
   nthCall = 1
 ) {
@@ -32,6 +32,7 @@ export function expectFetch(
       method,
       params,
       data,
+      signal,
       // Individual clients may add request-specific headers (for example the
       // LL client adds its app id and sensor header). This shared helper owns
       // the authentication contract, while endpoint tests assert their own

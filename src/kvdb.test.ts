@@ -2,6 +2,7 @@ import { modifyDate, parkDate } from '@/datetime';
 import { setTime } from '@/testing';
 
 import kvdb from './kvdb';
+import { storageKey } from './storageNamespace';
 
 jest.spyOn(self, 'setTimeout');
 
@@ -18,6 +19,10 @@ function setItem(key: string, value: any) {
 }
 
 describe('kvdb', () => {
+  const K = storageKey('test.k');
+  const AB = storageKey('test.a.b');
+  const Z = storageKey('test.z');
+
   beforeEach(() => {
     localStorage.clear();
     setTime('12:00');
@@ -25,28 +30,28 @@ describe('kvdb', () => {
 
   describe('get()', () => {
     it('gets value from localStorage', () => {
-      setItem('k', 'v');
-      expect(kvdb.get<string>('k')).toBe('v');
-      setItem('a.b', { v: 1 });
-      expect(kvdb.get<{ v: number }>('a.b')).toEqual({ v: 1 });
-      expect(kvdb.get('z')).toBe(undefined);
+      setItem(K, 'v');
+      expect(kvdb.get<string>(K)).toBe('v');
+      setItem(AB, { v: 1 });
+      expect(kvdb.get<{ v: number }>(AB)).toEqual({ v: 1 });
+      expect(kvdb.get(Z)).toBe(undefined);
     });
   });
 
   describe('set()', () => {
     it('stores value in localStorage', () => {
-      kvdb.set<string>('k', 'v');
-      expect(getItem('k')).toBe('v');
-      kvdb.set<{ v: number }>('a.b', { v: 1 });
-      expect(getItem('a.b')).toEqual({ v: 1 });
+      kvdb.set<string>(K, 'v');
+      expect(getItem(K)).toBe('v');
+      kvdb.set<{ v: number }>(AB, { v: 1 });
+      expect(getItem(AB)).toEqual({ v: 1 });
     });
   });
 
   describe('delete', () => {
     it('deletes key from storage', () => {
-      setItem('k', 'v');
-      kvdb.delete('k');
-      expect(getItem('k')).toBe(undefined);
+      setItem(K, 'v');
+      kvdb.delete(K);
+      expect(getItem(K)).toBe(undefined);
     });
   });
 
@@ -61,23 +66,23 @@ describe('kvdb', () => {
 
   describe('getDaily()', () => {
     it('gets daily value from localStorage', () => {
-      setItem('a.b', { date: parkDate(), value: { v: 1 } });
-      expect(kvdb.getDaily<{ v: number }>('a.b')).toEqual({ v: 1 });
+      setItem(AB, { date: parkDate(), value: { v: 1 } });
+      expect(kvdb.getDaily<{ v: number }>(AB)).toEqual({ v: 1 });
     });
 
     it('returns undefined if value nonexistent or set before today', () => {
-      expect(kvdb.getDaily('a.b')).toBe(undefined);
-      setItem('a.b', { date: modifyDate(parkDate(), -1), value: { v: 1 } });
-      expect(kvdb.getDaily<{ v: number }>('a.b')).toBe(undefined);
+      expect(kvdb.getDaily(AB)).toBe(undefined);
+      setItem(AB, { date: modifyDate(parkDate(), -1), value: { v: 1 } });
+      expect(kvdb.getDaily<{ v: number }>(AB)).toBe(undefined);
     });
   });
 
   describe('setDaily()', () => {
     it('stores daily value', () => {
-      kvdb.setDaily<{ v: number }>('a.b', { v: 1 });
-      expect(kvdb.getDaily('a.b')).toEqual({ v: 1 });
+      kvdb.setDaily<{ v: number }>(AB, { v: 1 });
+      expect(kvdb.getDaily(AB)).toEqual({ v: 1 });
       setTime('12:00', 24 * 60);
-      expect(kvdb.getDaily('a.b')).toBe(undefined);
+      expect(kvdb.getDaily(AB)).toBe(undefined);
     });
   });
 });

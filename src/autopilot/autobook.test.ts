@@ -485,6 +485,37 @@ describe('attemptAutoBook()', () => {
     expect(ledger.hasAttempted(BZ, 'book')).toBe(false);
   });
 
+  it('does not mark dispatch when attempt persistence fails first', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const ledger = new AutoBookLedger(() => {
+      throw new Error('storage unavailable');
+    });
+    const markDispatched = jest.fn();
+    const fetchStarted = jest.fn();
+    const d = deps({
+      ledger,
+      requestControl: () => ({
+        signal: new AbortController().signal,
+        start: send => send(),
+        onDispatch: markDispatched,
+      }),
+      book: jest.fn(async (_offer, control) =>
+        control!.start!(async () => {
+          control!.onDispatch?.();
+          fetchStarted();
+          return booking;
+        })
+      ),
+    });
+
+    const result = await attemptAutoBook(target(), experience, d);
+
+    expect(result).toMatchObject({ status: 'failed' });
+    expect(markDispatched).not.toHaveBeenCalled();
+    expect(fetchStarted).not.toHaveBeenCalled();
+    expect(ledger.hasAttempted(BZ)).toBe(false);
+  });
+
   // The other half: Disney answered, and the answer was no. Nothing was
   // booked, so the caller is free to try again later.
   it('reports a rejection as one, so it can be tried again', async () => {

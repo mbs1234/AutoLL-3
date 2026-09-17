@@ -20,6 +20,7 @@ import {
   quarantinedMutations,
   reconcile,
   release as releaseLease,
+  resolveDoubt,
 } from '@/autopilot/lease';
 import { MAX_MUTATION_MS } from '@/autopilot/mutation';
 import {
@@ -318,6 +319,9 @@ function setupBooking({
   // The same for `book`, which is the other side of the commit boundary: a
   // request held open here has already left the device.
   bookDelay = undefined as Promise<void> | undefined,
+  // Holds the client's pre-dispatch work open, as first-use sensor generation
+  // can. The operation signal must reach this side of RequestControl.
+  preDispatchDelay = undefined as Promise<void> | undefined,
   // Holds the availability request open, for scope/cancellation tests before
   // any alerting or booking decision has been made.
   experiencesDelay = undefined as Promise<void> | undefined,
@@ -359,6 +363,7 @@ function setupBooking({
   let bookCalls = 0;
   const book = jest.fn(
     async (_offer: unknown, _guests: unknown, control?: RequestControl) => {
+      if (preDispatchDelay) await preDispatchDelay;
       const send = async () => {
         control?.onDispatch?.();
         if (bookDelay) await bookDelay;
@@ -2634,7 +2639,7 @@ describe('AutopilotProvider unresolved reservations', () => {
     expect(await claim()).toBe('false');
   });
 
-  it('keeps renewing the lease when unresolved protection cannot be saved', async () => {
+  it('uses visible page-local quarantine when durable storage fails', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const realSet = kvdb.set.bind(kvdb);
     const set = jest.spyOn(kvdb, 'set').mockImplementation((key, value) => {
@@ -2650,19 +2655,24 @@ describe('AutopilotProvider unresolved reservations', () => {
       });
       await enable();
       await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
-      const owner = leaseHolder(leaseKey(BZ, TODAY));
+      const key = leaseKey(BZ, TODAY);
+      const owner = leaseHolder(key);
       expect(owner).toBeDefined();
+      expect(quarantinedAt(key)).toBeDefined();
 
-      // More than one complete TTL later, the fallback is still live. Before
-      // this guard the code merely skipped release, so the record expired and
-      // another engine could act on the unresolved reservation.
+      // The block is a doubt, not a timer. It remains after a lease TTL without
+      // leaving a hidden interval renewing after the operation is over.
       await act(async () => {
         await jest.advanceTimersByTimeAsync(LEASE_TTL_MS + RENEW_INTERVAL_MS);
       });
-      expect(leaseHolder(leaseKey(BZ, TODAY))).toBe(owner);
+      expect(leaseHolder(key)).toBeUndefined();
+      expect(quarantinedAt(key)).toBeDefined();
       expect(await claim()).toBe('false');
     } finally {
       set.mockRestore();
+      for (const doubt of quarantinedMutations()) {
+        await resolveDoubt(doubt.key, doubt.id);
+      }
       jest.clearAllTimers();
     }
   });
@@ -2863,6 +2873,94 @@ describe('AutopilotProvider overlapping ticks', () => {
  */
 describe('AutopilotProvider abandoned operations', () => {
   const hang = () => new Promise<void>(() => {});
+
+  it('passes the operation signal into work waiting before dispatch', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    let releasePreDispatch: () => void = () => undefined;
+    const preDispatchDelay = new Promise<void>(resolve => {
+      releasePreDispatch = resolve;
+    });
+    const { book } = setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      preDispatchDelay,
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    const control = book.mock.calls[0]![2];
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(MAX_MUTATION_MS + 1);
+    });
+    const wasAborted = control?.signal.aborted;
+    await act(async () => releasePreDispatch());
+
+    expect(wasAborted).toBe(true);
+  });
+
+  it('keeps a dispatched request alive long enough to clear its own doubt', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    let releaseBook: () => void = () => undefined;
+    const bookDelay = new Promise<void>(resolve => {
+      releaseBook = resolve;
+    });
+    const key = leaseKey(BZ, TODAY);
+    const { book } = setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      bookDelay,
+      bookErrors: [410],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    const control = book.mock.calls[0]![2];
+    await quarantine(
+      key,
+      { id: 'other-operation', kind: 'modify', to: '12:00:00' },
+      Date.now()
+    );
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(RENEW_INTERVAL_MS);
+    });
+    await waitFor(() => expect(quarantinedMutations()).toHaveLength(2));
+    expect(control?.signal.aborted).toBe(false);
+
+    await act(async () => releaseBook());
+    await waitFor(() =>
+      expect(quarantinedMutations().map(doubt => doubt.id)).toEqual([
+        'other-operation',
+      ])
+    );
+    await resolveDoubt(key, 'other-operation');
+  });
+
+  it('measures abandonment from the tick that authorised the action', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    let releaseExperiences: () => void = () => undefined;
+    const experiencesDelay = new Promise<void>(resolve => {
+      releaseExperiences = resolve;
+    });
+    const { book } = setupBooking({
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(11))],
+      experiencesDelay,
+      bookDelay: hang(),
+    });
+    await enable();
+
+    // Most of the authorising tick is spent before the mutation object exists.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000);
+      releaseExperiences();
+    });
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(MAX_MUTATION_MS - 60_000 + 1);
+    });
+    expect(quarantinedAt(leaseKey(BZ, TODAY))).toBeDefined();
+  });
 
   it('gives the reservation back when nothing was ever committed', async () => {
     saveWatchList([{ experienceId: BZ, autoModify: true }]);

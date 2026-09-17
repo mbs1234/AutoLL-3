@@ -180,10 +180,14 @@ describe('chime()', () => {
 describe('fireAlert()', () => {
   it('posts a notification when permitted', () => {
     const { ctor } = stubNotification('granted');
-    fireAlert({ title: 'Slinky Dog', body: '11:05 AM', tag: 'sdd' });
+    fireAlert({
+      title: 'Slinky Dog',
+      body: '11:05 AM',
+      tag: 'autoll3-test-sdd',
+    });
     expect(ctor).toHaveBeenCalledWith('Slinky Dog', {
       body: '11:05 AM',
-      tag: 'sdd',
+      tag: 'autoll3-test-sdd',
     });
   });
 

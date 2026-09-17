@@ -1,4 +1,5 @@
 import { parkDate } from './datetime';
+import type { StorageKey } from './storageNamespace';
 
 interface DailyValue<T> {
   value: T;
@@ -6,7 +7,7 @@ interface DailyValue<T> {
 }
 
 export default {
-  get<T = unknown>(key: string) {
+  get<T = unknown>(key: StorageKey) {
     const json = localStorage.getItem(key);
     try {
       return JSON.parse(json ?? '') as T;
@@ -15,11 +16,11 @@ export default {
     }
   },
 
-  set<T = unknown>(key: string, value: T) {
+  set<T = unknown>(key: StorageKey, value: T) {
     localStorage.setItem(key, JSON.stringify(value));
   },
 
-  delete(key: string) {
+  delete(key: StorageKey) {
     localStorage.removeItem(key);
   },
 
@@ -27,12 +28,12 @@ export default {
     localStorage.clear();
   },
 
-  getDaily<T = unknown>(key: string) {
+  getDaily<T = unknown>(key: StorageKey) {
     const { date, value } = this.get<DailyValue<T>>(key) ?? {};
     return date === parkDate() ? value : undefined;
   },
 
-  setDaily<T = unknown>(key: string, value: T) {
+  setDaily<T = unknown>(key: StorageKey, value: T) {
     this.set<DailyValue<T>>(key, { date: parkDate(), value });
   },
 };

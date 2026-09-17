@@ -100,6 +100,13 @@ export class MutationOperation {
     ) {
       return false;
     }
+    // Timers can be throttled while a tab is backgrounded. Re-check the same
+    // absolute deadline synchronously at the transport boundary so a delayed
+    // callback cannot send merely because its timeout has not run yet.
+    if (at >= this.abandonAt) {
+      this.abandon('deadline');
+      return false;
+    }
     this.#dispatched = true;
     this.#dispatchedAt = at;
     this.evidence = evidence;
@@ -112,7 +119,12 @@ export class MutationOperation {
     this.#abandoned = true;
     this.#abandonReason = reason;
     clearTimeout(this.#timer);
-    this.controller.abort(reason);
+    // Before dispatch, aborting prevents the request from ever leaving the
+    // device. After dispatch it cannot recall the request from Disney; it only
+    // destroys the definite response that may already be on its way back. The
+    // abandonment callback records that second case as a doubt while the
+    // transport remains alive long enough to settle it with a late response.
+    if (!this.#dispatched) this.controller.abort(reason);
     const work = Promise.resolve().then(() => this.#onAbandon?.(this, reason));
     // A request can remain hung forever after abandonment, so there may be no
     // caller left to await this. Mark the rejection observed here while keeping

@@ -93,8 +93,9 @@ describe('PlansProvider reconciles unresolved reservations', () => {
   // so a fixture date in the past would make every test here pass vacuously.
   const DATE = parkDate();
   const key = leaseKey(BZ, DATE);
-  // A Multi Pass, and typed as one: evidence goes through `findExistingLL`, so
-  // a booking that is not a Lightning Lane must not answer for one.
+  // A Multi Pass, and typed as one. Evidence accepts its exact requested time
+  // even after redemption, but another booking kind or a Multiple Experiences
+  // replacement must not answer a mutation's question.
   const held = (facilityId: string, time: string) =>
     ({
       type: 'LL',
@@ -197,10 +198,23 @@ describe('PlansProvider reconciles unresolved reservations', () => {
     expect(quarantinedAt(key)).toBe(1000);
   });
 
-  it('does not let a redeemed Multi Pass answer as a live reservation', async () => {
+  it('settles from the exact time even after the pass was redeemed', async () => {
     await quarantine(key, modifyDoubt, 1000);
     const redeemed = { ...held(BZ, '11:00:00'), guests: [] } as Booking;
     const plans = jest.fn(async () => [redeemed]);
+    mount(plans);
+    await waitFor(() => expect(plans).toHaveBeenCalled());
+    await waitFor(() => expect(quarantinedAt(key)).toBeUndefined());
+  });
+
+  it('does not let a non-cancellable historical pass answer the doubt', async () => {
+    await quarantine(key, modifyDoubt, 1000);
+    const historical = {
+      ...held(BZ, '11:00:00'),
+      cancellable: false,
+      guests: [],
+    } as Booking;
+    const plans = jest.fn(async () => [historical]);
     mount(plans);
     await waitFor(() => expect(plans).toHaveBeenCalled());
     expect(quarantinedAt(key)).toBe(1000);

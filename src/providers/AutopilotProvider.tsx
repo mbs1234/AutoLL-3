@@ -110,6 +110,7 @@ import usePoller from '@/autopilot/usePoller';
 import { holdScreenAwake, releaseScreenAwake } from '@/autopilot/wakelock';
 import {
   WATCHLIST_KEY,
+  WatchListKey,
   WatchTarget,
   inWindow,
   loadWatchList,
@@ -193,7 +194,7 @@ export default function AutopilotProvider({
    * origin and share one `localStorage`, so a build with a different purpose
    * needs a different key or it overwrites the other's list.
    */
-  watchListKey?: string;
+  watchListKey?: WatchListKey;
   /** Poll flat-out rather than pacing to the drop schedule. */
   rapid?: boolean;
   /** Allow the same reservation to be moved more than once. */
@@ -1038,6 +1039,7 @@ export default function AutopilotProvider({
         let acting:
           | { key: string; owner: string; stopRenewal: () => void }
           | undefined;
+        let pageOnlyProtection = false;
         try {
           const guests = await guestsFor(experience.id, date);
           // A success clears this call's run. `observeAction` does the clearing,
@@ -1173,7 +1175,7 @@ export default function AutopilotProvider({
               const lease = acting;
               if (lease && abandoned.dispatched) {
                 try {
-                  await quarantine(
+                  const protection = await quarantine(
                     lease.key,
                     {
                       id: abandoned.id,
@@ -1181,24 +1183,34 @@ export default function AutopilotProvider({
                     },
                     abandoned.dispatchedAt
                   );
+                  pageOnlyProtection = !protection.durable;
+                  if (!protection.durable) {
+                    console.error(
+                      protection.error ??
+                        new Error(
+                          'Unresolved change is protected only in this page'
+                        )
+                    );
+                  }
                 } catch (error) {
-                  // Keep renewing the lease as the only protection still
-                  // available. Merely declining to release was not enough:
-                  // the last renewal still expired after LEASE_TTL_MS, turning
-                  // a durable-storage failure into an unguarded duplicate
-                  // mutation two minutes later.
+                  // `quarantine` normally converts persistence failures into a
+                  // page-local fail-closed entry. Keep this guard for a future
+                  // implementation error, but never leave an invisible
+                  // renewal interval alive after the operation is abandoned.
+                  pageOnlyProtection = true;
                   console.error(error);
-                  return;
                 }
               }
               if (lease) {
                 lease.stopRenewal();
-                try {
-                  await releaseLease(lease.key, lease.owner);
-                } catch (error) {
-                  // A quarantine, when one was needed, is already durable.
-                  // Otherwise the lease remaining until expiry is conservative.
-                  console.error(error);
+                if (!pageOnlyProtection) {
+                  try {
+                    await releaseLease(lease.key, lease.owner);
+                  } catch (error) {
+                    // A quarantine, when one was needed, is already durable.
+                    // Otherwise expiry remains a conservative fallback.
+                    console.error(error);
+                  }
                 }
               }
             },
@@ -1377,26 +1389,32 @@ export default function AutopilotProvider({
                 current.dispatched &&
                 outcome?.status === 'failed' &&
                 !outcome.rejected;
-              let mayRelease = true;
               try {
                 if (unknown) {
-                  await quarantine(
+                  const protection = await quarantine(
                     lease.key,
                     { id: current.id, ...(current.evidence ?? {}) },
                     current.dispatchedAt
                   );
+                  pageOnlyProtection = !protection.durable;
+                  if (!protection.durable && outcome?.status === 'failed') {
+                    outcome = {
+                      ...outcome,
+                      error: `${outcome.error}; unresolved-change protection is available only while this page remains open`,
+                    };
+                  }
                 } else if (current.dispatched) {
+                  pageOnlyProtection = false;
                   // Success and a definite rejection both answer this exact
                   // request, including when they arrive after abandonment.
                   await resolveDoubt(lease.key, current.id);
                 }
               } catch (error) {
                 console.error(error);
-                // For an unknown outcome the live lease is the last remaining
-                // cover. Keep it until expiry if persistence could not replace
-                // it with quarantine. A known response is already classified;
-                // any old quarantine remains fail-closed on its own.
-                mayRelease = !unknown;
+                // A future unexpected failure must not create an immortal,
+                // invisible renewal loop. The lease record remains until its
+                // TTL, and the failure is made visible in the activity log.
+                if (unknown) pageOnlyProtection = true;
                 if (outcome?.status === 'failed') {
                   outcome = {
                     ...outcome,
@@ -1404,8 +1422,8 @@ export default function AutopilotProvider({
                   };
                 }
               }
-              if (mayRelease) {
-                lease.stopRenewal();
+              lease.stopRenewal();
+              if (!pageOnlyProtection) {
                 try {
                   await releaseLease(lease.key, lease.owner);
                 } catch (error) {

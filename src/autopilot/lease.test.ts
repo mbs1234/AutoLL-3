@@ -170,6 +170,38 @@ describe('the operation lease', () => {
       expect(await acquire(KEY, B)).toBe(false);
     });
 
+    it('fails closed in this page when durable quarantine storage fails', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const realSet = kvdb.set.bind(kvdb);
+      const set = jest.spyOn(kvdb, 'set').mockImplementation((key, value) => {
+        if (key === QUARANTINE_KEY) throw new Error('storage unavailable');
+        realSet(key, value);
+      });
+
+      const result = await quarantine(KEY, modifyDoubt, RAISED);
+
+      expect(result.durable).toBe(false);
+      expect(quarantinedAt(KEY)).toBe(RAISED);
+      expect(quarantinedMutations()).toEqual([
+        expect.objectContaining({ id: modifyDoubt.id, durable: false }),
+      ]);
+      expect(await acquire(KEY, A)).toBe(false);
+
+      set.mockRestore();
+      await resolveDoubt(KEY, modifyDoubt.id);
+    });
+
+    it('does not infer that quarantine is empty when storage cannot be read', async () => {
+      const get = jest.spyOn(kvdb, 'get').mockImplementation(key => {
+        if (key === QUARANTINE_KEY) throw new Error('storage unavailable');
+        return undefined;
+      });
+
+      await expect(acquire(KEY, A)).rejects.toThrow('storage unavailable');
+
+      get.mockRestore();
+    });
+
     it('evicts a pre-existing lease so clearing doubt cannot revive it', async () => {
       await acquire(KEY, A);
       await quarantine(KEY, modifyDoubt, RAISED);
@@ -509,6 +541,29 @@ describe('the operation lease', () => {
       expect(
         await startWhileHeld(KEY, A, () => true, send, 1000 + LEASE_TTL_MS)
       ).toEqual({ started: false });
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('refuses when commit-time authorization changed its answer', async () => {
+      await acquire(KEY, A);
+      const authorize = jest.fn(() => false);
+      const send = jest.fn(async () => 'sent');
+
+      expect(await startWhileHeld(KEY, A, authorize, send)).toEqual({
+        started: false,
+      });
+      expect(authorize).toHaveBeenCalledTimes(1);
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('refuses dispatch when the reservation became quarantined', async () => {
+      await acquire(KEY, A);
+      await quarantine(KEY, { id: 'new-doubt', kind: 'modify' });
+      const send = jest.fn(async () => 'sent');
+
+      expect(await startWhileHeld(KEY, A, () => true, send)).toEqual({
+        started: false,
+      });
       expect(send).not.toHaveBeenCalled();
     });
 

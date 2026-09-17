@@ -1,10 +1,11 @@
 import { use, useCallback, useEffect, useRef, useState } from 'react';
 
 import { Booking } from '@/api/itinerary';
-import { isHeldMP } from '@/autopilot/autoswap';
+import { isLLMP, isMultipleExperiences } from '@/api/itinerary';
 import { leaseParts, reconcile } from '@/autopilot/lease';
 import ClientsContext from '@/contexts/ClientsContext';
 import PlansContext from '@/contexts/PlansContext';
+import { parkDate } from '@/datetime';
 import useDataLoader from '@/hooks/useDataLoader';
 import useThrottleable from '@/hooks/useThrottleable';
 
@@ -65,12 +66,19 @@ export default function PlansProvider({
       reconciledSequence.current = request;
       void reconcile(key => {
         const { date, facilityId } = leaseParts(key);
-        // The same definition of "held" as the swap engine: an active,
-        // cancellable Multi Pass with guests remaining. A redeemed pass, a
-        // Multiple Experiences Pass, dining or DAS cannot answer a mutation's
-        // question merely because it shares a facility id.
+        // Evidence asks a different question from swap eligibility. A fully
+        // redeemed pass no longer occupies a slot, but its exact requested
+        // time still proves that the mutation landed before it was redeemed.
+        // A historical/non-cancellable entry, another booking kind, or a
+        // Multiple Experiences replacement cannot answer merely because it
+        // shares a facility id.
         const booking = fetched.find(
-          plan => isHeldMP(plan, date) && plan.facilityId === facilityId
+          plan =>
+            isLLMP(plan) &&
+            parkDate(plan.start) === date &&
+            !!plan.cancellable &&
+            !isMultipleExperiences(plan) &&
+            plan.facilityId === facilityId
         );
         return booking
           ? { time: String(booking.start.time), id: booking.id }

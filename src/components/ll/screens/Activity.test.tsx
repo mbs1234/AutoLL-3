@@ -1,8 +1,15 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 
+import { sdd } from '@/__fixtures__/ll';
 import { wdw } from '@/__fixtures__/resort';
-import { leaseKey, quarantine, quarantinedAt } from '@/autopilot/lease';
+import {
+  QUARANTINE_KEY,
+  leaseKey,
+  quarantine,
+  quarantinedAt,
+} from '@/autopilot/lease';
 import { ParkTime, parkDate } from '@/datetime';
+import kvdb from '@/kvdb';
 
 import Activity from './Activity';
 import { BZ, renderScreen } from './screenTestSetup';
@@ -138,6 +145,89 @@ describe('Activity diagnostics', () => {
     expect(
       screen.queryByText(/unresolved Lightning Lane change/)
     ).not.toBeInTheDocument();
+  });
+
+  it('names a reservation outside the currently loaded tipboard', async () => {
+    await quarantine(leaseKey(sdd.id, parkDate()), {
+      id: 'future-park-move',
+      kind: 'modify',
+      to: '11:00:00',
+    });
+
+    setup({ experiences: [] });
+
+    expect(screen.getByText(new RegExp(sdd.name))).toBeVisible();
+    expect(screen.queryByText(new RegExp(sdd.id))).not.toBeInTheDocument();
+  });
+
+  it('labels protection that lasts only for the open page', async () => {
+    const key = leaseKey(BZ, parkDate());
+    const realSet = kvdb.set.bind(kvdb);
+    const set = jest.spyOn(kvdb, 'set').mockImplementation((storage, value) => {
+      if (storage === QUARANTINE_KEY) throw new Error('storage unavailable');
+      realSet(storage, value);
+    });
+    const result = await quarantine(key, {
+      id: 'volatile-move',
+      kind: 'modify',
+      to: '11:00:00',
+    });
+    set.mockRestore();
+
+    setup();
+
+    expect(result.durable).toBe(false);
+    expect(screen.getByText(/only while this page remains open/)).toBeVisible();
+    // Leave no module-local doubt for the next test.
+    fireEvent.click(screen.getByText('I checked Disney — resolve this'));
+    fireEvent.click(screen.getByText('Clear this protection'));
+    await waitFor(() => expect(quarantinedAt(key)).toBeUndefined());
+  });
+
+  it('focuses confirmation and attributes a clear failure to its doubt', async () => {
+    const first = leaseKey(BZ, parkDate());
+    const secondId = sdd.id;
+    const second = leaseKey(secondId, parkDate());
+    await quarantine(first, {
+      id: 'move-1',
+      kind: 'modify',
+      to: '11:00:00',
+    });
+    await quarantine(second, {
+      id: 'move-2',
+      kind: 'modify',
+      to: '12:00:00',
+    });
+    setup({ experiences: [] });
+    const item = screen
+      .getAllByRole('listitem')
+      .find(li => li.textContent?.includes(sdd.name))!;
+
+    fireEvent.click(
+      within(item).getByRole('button', {
+        name: 'I checked Disney — resolve this',
+      })
+    );
+    const clear = within(item).getByRole('button', {
+      name: 'Clear this protection',
+    });
+    await waitFor(() => expect(clear).toHaveFocus());
+
+    const realSet = kvdb.set.bind(kvdb);
+    const set = jest.spyOn(kvdb, 'set').mockImplementation((key, value) => {
+      if (key === QUARANTINE_KEY) throw new Error('storage unavailable');
+      realSet(key, value);
+    });
+    fireEvent.click(clear);
+
+    const alert = await within(item).findByRole('alert');
+    expect(alert).toHaveTextContent('storage unavailable');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    fireEvent.click(
+      within(item).getByRole('button', { name: 'Keep protection' })
+    );
+    expect(within(item).queryByRole('alert')).not.toBeInTheDocument();
+    set.mockRestore();
   });
 
   // Skips stay out of the log; this is where they become visible.

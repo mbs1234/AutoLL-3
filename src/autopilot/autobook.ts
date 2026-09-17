@@ -94,6 +94,50 @@ export function actionWasRejected(error: unknown): boolean {
 }
 
 /**
+ * Put fallible local attempt persistence before the irreversible transport
+ * marker, and roll it back if final dispatch authorization refuses the send.
+ */
+export function withAttemptDispatch(
+  control: RequestControl | undefined,
+  markAttempt: () => () => void,
+  afterDispatch?: () => void
+): RequestControl | undefined {
+  if (!control) {
+    markAttempt();
+    afterDispatch?.();
+    return undefined;
+  }
+  return {
+    ...control,
+    onDispatch: () => {
+      const rollback = markAttempt();
+      try {
+        // The operation's dispatched marker is deliberately last among work
+        // that may prevent fetch. A synchronous persistence failure above
+        // therefore proves that no HTTP request started and cannot manufacture
+        // a doubt.
+        control.onDispatch?.();
+      } catch (error) {
+        try {
+          rollback();
+        } catch (rollbackError) {
+          console.error(rollbackError);
+        }
+        throw error;
+      }
+      // Compatibility observer only; no production caller uses it. Once the
+      // operation is marked sent, an observer failure cannot cancel the fetch
+      // and turn a known local error into an unknown mutation outcome.
+      try {
+        afterDispatch?.();
+      } catch (error) {
+        console.error(error);
+      }
+    },
+  };
+}
+
+/**
  * Whether a return time collides with plans already made.
  *
  * Passed in rather than computed here so the helpers stay pure and the
@@ -331,8 +375,28 @@ export class AutoBookLedger {
     experienceId: string,
     kind: LockKind = 'book',
     rehearsal = false
-  ): void {
+  ): () => void {
     const key = `${kind}:${experienceId}`;
+    const before = {
+      attempted: this.attempted.has(key),
+      owned: this.owned.has(key),
+      released: this.released.has(key),
+      unshared: this.unshared.has(key),
+      unresolved: this.unresolved.has(experienceId),
+      rehearsed: this.rehearsed.has(experienceId),
+    };
+    const restore = () => {
+      const set = (values: Set<string>, value: string, present: boolean) => {
+        if (present) values.add(value);
+        else values.delete(value);
+      };
+      set(this.attempted, key, before.attempted);
+      set(this.owned, key, before.owned);
+      set(this.released, key, before.released);
+      set(this.unshared, key, before.unshared);
+      set(this.unresolved, experienceId, before.unresolved);
+      set(this.rehearsed, experienceId, before.rehearsed);
+    };
     // A key locked again after being released is no longer released: leaving it
     // in the set would have `adoptAttempted` refuse to re-adopt this very lock,
     // and would have the next write subtract it again.
@@ -341,12 +405,27 @@ export class AutoBookLedger {
     this.unshared.delete(key);
     this.attempted.add(key);
     this.owned.add(key);
-    this.onAttemptChange();
-    if (kind !== 'book') return;
-    // A dry run issues no request, so there is nothing to doubt and nothing to
-    // settle -- it marks only so the rehearsal logs once.
-    if (rehearsal) this.rehearsed.add(experienceId);
-    else this.unresolved.add(experienceId);
+    if (kind === 'book') {
+      // A dry run issues no request, so there is nothing to doubt and nothing
+      // to settle -- it marks only so the rehearsal logs once.
+      if (rehearsal) this.rehearsed.add(experienceId);
+      else this.unresolved.add(experienceId);
+    }
+    try {
+      this.onAttemptChange();
+    } catch (error) {
+      restore();
+      throw error;
+    }
+
+    let active = true;
+    return () => {
+      if (!active) return;
+      active = false;
+      const wasPublishable = before.owned && !before.unshared;
+      restore();
+      this.onAttemptChange(wasPublishable ? undefined : [key]);
+    };
   }
 
   /**
@@ -679,18 +758,10 @@ export async function attemptAutoBook(
     if (stillWanted && !stillWanted(offer.start.time)) {
       return { status: 'skipped', reason: 'no-longer-wanted' };
     }
-    const onDispatch = () => ledger.markAttempted(target.experienceId);
     const built = requestControl?.(offer.start.time);
-    const control = built
-      ? {
-          ...built,
-          onDispatch: () => {
-            built.onDispatch?.();
-            onDispatch();
-          },
-        }
-      : undefined;
-    if (!built) onDispatch();
+    const control = withAttemptDispatch(built, () =>
+      ledger.markAttempted(target.experienceId)
+    );
     const booking = await book(offer, control);
     ledger.markBooked(target.experienceId);
     return { status: 'booked', booking, returnTime: offer.start.time };

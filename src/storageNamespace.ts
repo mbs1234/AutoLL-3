@@ -1,10 +1,15 @@
 /** Shared origin namespace for every durable or session-scoped AutoLL-3 key. */
 export const STORAGE_NAMESPACE = 'autoll3.' as const;
+export type StorageKey = `${typeof STORAGE_NAMESPACE}${string}`;
+
+/** Shared-origin notification tags use a separate browser namespace. */
+export const NOTIFICATION_TAG_NAMESPACE = 'autoll3-' as const;
+export type NotificationTag = `${typeof NOTIFICATION_TAG_NAMESPACE}${string}`;
 
 export function storageKey<const Suffix extends string>(
   suffix: Suffix
 ): `${typeof STORAGE_NAMESPACE}${Suffix}` {
-  return `${STORAGE_NAMESPACE}${suffix}`;
+  return `${STORAGE_NAMESPACE}${suffix}` as `${typeof STORAGE_NAMESPACE}${Suffix}`;
 }
 
 // Keys shared with tests or the harness live here rather than in React module
