@@ -1,3 +1,4 @@
+import { MutationOperation } from '@/autopilot/mutation';
 import { fetchJson } from '@/fetch';
 import { RateLimit, RateLimitExceeded } from '@/ratelimit';
 
@@ -135,5 +136,37 @@ describe('controlled mutation requests', () => {
     ).rejects.toBeInstanceOf(RateLimitExceeded);
     expect(dispatched).not.toHaveBeenCalled();
     expect(fetchJson).not.toHaveBeenCalled();
+  });
+
+  it('keeps the transport alive when an operation is abandoned after dispatch', async () => {
+    jest.mocked(getSensorData).mockReturnValue('sensor');
+    const response = deferred<{
+      ok: true;
+      status: 200;
+      data: { ok: boolean };
+    }>();
+    jest.mocked(fetchJson).mockReturnValue(response.promise);
+    const operation = new MutationOperation({
+      id: 'in-flight',
+      kind: 'modify',
+      abandonAt: Date.now() + 60_000,
+    });
+    const client = new TestClient({ id: 'WDW' } as Resort);
+    const request = client.mutate({
+      signal: operation.signal,
+      onDispatch: () => operation.markDispatched(),
+    });
+    await Promise.resolve();
+    expect(fetchJson).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ signal: operation.signal })
+    );
+
+    operation.abandon('stopped');
+
+    expect(operation.signal.aborted).toBe(false);
+    response.resolve({ ok: true, status: 200, data: { ok: true } });
+    await expect(request).resolves.toMatchObject({ data: { ok: true } });
+    operation.settle();
   });
 });

@@ -103,7 +103,12 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
     // The hook supplies the reservation's time as it last saw it, so a later
     // plans read can settle the doubt by seeing it move rather than by a clock.
     quarantineCommit: async (id, change, dispatchedAt) => {
-      await quarantineReservation(reservation, { id, ...change }, dispatchedAt);
+      const result = await quarantineReservation(
+        reservation,
+        { id, ...change },
+        dispatchedAt
+      );
+      return result.durable;
     },
     resolveCommit: id => resolveDoubt(reservation, id),
     retainCommit: id => resolveDoubtAndAcquire(reservation, id, searchOwner),

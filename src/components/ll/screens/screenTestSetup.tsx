@@ -11,6 +11,7 @@ import ClientsContext, { Clients } from '@/contexts/ClientsContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
+import ResortContext from '@/contexts/ResortContext';
 import { ParkTime } from '@/datetime';
 import { TODAY, nav } from '@/testing';
 
@@ -105,69 +106,71 @@ export function renderScreen(
     },
   } as unknown as Clients;
   render(
-    <nav.Provider>
-      <ClientsContext value={clients}>
-        <BookingDateContext value={{ bookingDate, setBookingDate: () => {} }}>
-          <ParkContext value={{ park: mk, setPark: () => {} }}>
-            <PlansContext
-              value={{
-                plans,
-                refreshPlans: () => {},
-                pollPlans: async () => plans,
-                loaderElem: null,
-                plansLoaded: true,
-                lastUpdated: plansUpdated,
-              }}
-            >
-              <ExperiencesContext
+    <ResortContext value={wdw}>
+      <nav.Provider>
+        <ClientsContext value={clients}>
+          <BookingDateContext value={{ bookingDate, setBookingDate: () => {} }}>
+            <ParkContext value={{ park: mk, setPark: () => {} }}>
+              <PlansContext
                 value={{
-                  experiences,
-                  refreshExperiences: () => {},
-                  pollExperiences: async () => [],
-                  unknownExperienceIds,
-                  lastUpdated: experiencesUpdated,
+                  plans,
+                  refreshPlans: () => {},
+                  pollPlans: async () => plans,
                   loaderElem: null,
+                  plansLoaded: true,
+                  lastUpdated: plansUpdated,
                 }}
               >
-                <AutopilotContext
+                <ExperiencesContext
                   value={{
-                    enabled,
-                    status,
-                    targets: effectiveTargets,
-                    // Derived from the same list the test supplied, exactly
-                    // as the provider derives it -- otherwise a test that sets
-                    // flags on `targets` gets a `targetsHere` with none of
-                    // them, and every assertion about what is armed reads
-                    // false.
-                    targetsHere: effectiveTargets.filter(
-                      t =>
-                        experiences.length === 0 ||
-                        experiences.some(e => e.id === t.experienceId)
-                    ),
-                    isWatched: (id: string) => watched.includes(id),
-                    replaceTargets: () => {},
-                    passkeyStatus: 'off',
-                    notifications,
-                    requireWholeParty: false,
-                    dryRun: false,
-                    avoidOverlaps: true,
-                    skipCounts: {},
-                    dropSummaries: [],
-                    bookingLog: [],
-                    sessionLog: [],
-                    bookedCount: 0,
-                    ...mocks,
-                    ...rest,
+                    experiences,
+                    refreshExperiences: () => {},
+                    pollExperiences: async () => [],
+                    unknownExperienceIds,
+                    lastUpdated: experiencesUpdated,
+                    loaderElem: null,
                   }}
                 >
-                  {screen}
-                </AutopilotContext>
-              </ExperiencesContext>
-            </PlansContext>
-          </ParkContext>
-        </BookingDateContext>
-      </ClientsContext>
-    </nav.Provider>
+                  <AutopilotContext
+                    value={{
+                      enabled,
+                      status,
+                      targets: effectiveTargets,
+                      // Derived from the same list the test supplied, exactly
+                      // as the provider derives it -- otherwise a test that sets
+                      // flags on `targets` gets a `targetsHere` with none of
+                      // them, and every assertion about what is armed reads
+                      // false.
+                      targetsHere: effectiveTargets.filter(
+                        t =>
+                          experiences.length === 0 ||
+                          experiences.some(e => e.id === t.experienceId)
+                      ),
+                      isWatched: (id: string) => watched.includes(id),
+                      replaceTargets: () => {},
+                      passkeyStatus: 'off',
+                      notifications,
+                      requireWholeParty: false,
+                      dryRun: false,
+                      avoidOverlaps: true,
+                      skipCounts: {},
+                      dropSummaries: [],
+                      bookingLog: [],
+                      sessionLog: [],
+                      bookedCount: 0,
+                      ...mocks,
+                      ...rest,
+                    }}
+                  >
+                    {screen}
+                  </AutopilotContext>
+                </ExperiencesContext>
+              </PlansContext>
+            </ParkContext>
+          </BookingDateContext>
+        </ClientsContext>
+      </nav.Provider>
+    </ResortContext>
   );
   return mocks;
 }

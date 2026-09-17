@@ -81,6 +81,7 @@ function setup({
   retainCommit,
   keepCommitAlive,
   startCommit,
+  beforeCommitStart,
   getTimes,
 }: {
   goal?: SearchGoal;
@@ -99,20 +100,23 @@ function setup({
   retainCommit?: jest.Mock;
   keepCommitAlive?: TimeSearchDeps['keepCommitAlive'];
   startCommit?: TimeSearchDeps['startCommit'];
+  beforeCommitStart?: (control?: RequestControl) => Promise<void>;
   getTimes?: TimeSearchDeps['getTimes'];
 } = {}) {
   let current = held;
   const rawCommit =
     commit ??
-    jest.fn(async (o: Offer<LLMP>) => {
+    jest.fn(async (o: Offer<LLMP>, _control?: RequestControl) => {
+      void _control;
       current = o.start.time;
       return booking(current);
     });
   const controlledCommit = jest.fn(
     async (o: Offer<LLMP>, control?: RequestControl) => {
+      await beforeCommitStart?.(control);
       const send = async () => {
         control?.onDispatch?.();
-        const moved = await rawCommit(o);
+        const moved = await rawCommit(o, control);
         current = moved.start.time;
         return moved;
       };
@@ -249,6 +253,27 @@ describe('useTimeSearch', () => {
     expect(result.current.running).toBe(false);
   });
 
+  it('passes the operation signal to work waiting before dispatch', async () => {
+    const waiting = deferred<void>();
+    let signal: AbortSignal | undefined;
+    const commit = jest.fn(async () => booking(at(11)));
+    const beforeCommitStart = jest.fn(async (control?: RequestControl) => {
+      signal = control?.signal;
+      await waiting.promise;
+    });
+    const { result } = setup({ commit, beforeCommitStart });
+    act(() => result.current.start());
+    await waitFor(() => expect(beforeCommitStart).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.cancel());
+    const wasAborted = signal?.aborted;
+    await act(async () => waiting.resolve());
+
+    expect(wasAborted).toBe(true);
+    expect(commit).not.toHaveBeenCalled();
+    expect(result.current.guard.phase).toBe('idle');
+  });
+
   it('releases an unaccepted move on Stop so a search can restart', async () => {
     const { result } = setup({ confirmEveryMove: true });
     act(() => result.current.start());
@@ -281,21 +306,62 @@ describe('useTimeSearch', () => {
     expect(result.current.stop).toBe('unconfirmed');
   });
 
-  it('releases the visible guard when a stopped commit is rejected', async () => {
+  it('lets a stopped in-flight commit return a definitive rejection', async () => {
     const committed = deferred<LLMP>();
-    const commit = jest.fn(() => committed.promise);
-    const { result } = setup({ commit });
+    let signal: AbortSignal | undefined;
+    const commit = jest.fn((_offer: Offer<LLMP>, control?: RequestControl) => {
+      signal = control?.signal;
+      return committed.promise;
+    });
+    const quarantineCommit = jest.fn<
+      Promise<boolean>,
+      [string, unknown, number]
+    >(async () => true);
+    const resolveCommit = jest.fn(async () => undefined);
+    const { result } = setup({ commit, quarantineCommit, resolveCommit });
     act(() => result.current.start());
     await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
 
     act(() => result.current.cancel());
+    await waitFor(() => expect(quarantineCommit).toHaveBeenCalledTimes(1));
+    expect(signal?.aborted).toBe(false);
     await act(async () =>
       committed.reject(new RequestError({ ok: false, status: 410, data: {} }))
     );
 
     await waitFor(() => expect(result.current.phase).toBe('idle'));
+    expect(resolveCommit).toHaveBeenCalledWith(
+      quarantineCommit.mock.calls[0]![0]
+    );
     expect(result.current.guard.phase).toBe('idle');
     expect(result.current.running).toBe(false);
+  });
+
+  it('lets an unmounted in-flight commit settle instead of aborting it', async () => {
+    const committed = deferred<LLMP>();
+    let signal: AbortSignal | undefined;
+    const commit = jest.fn((_offer: Offer<LLMP>, control?: RequestControl) => {
+      signal = control?.signal;
+      return committed.promise;
+    });
+    const quarantineCommit = jest.fn(async () => true);
+    const resolveCommit = jest.fn(async () => undefined);
+    const { result, unmount } = setup({
+      commit,
+      quarantineCommit,
+      resolveCommit,
+    });
+    act(() => result.current.start());
+    await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
+
+    unmount();
+    await waitFor(() => expect(quarantineCommit).toHaveBeenCalledTimes(1));
+    expect(signal?.aborted).toBe(false);
+    await act(async () =>
+      committed.reject(new RequestError({ ok: false, status: 410, data: {} }))
+    );
+
+    await waitFor(() => expect(resolveCommit).toHaveBeenCalledTimes(1));
   });
 
   // Disney answers with the nearest slot it can rather than refusing, so a
@@ -312,9 +378,9 @@ describe('useTimeSearch', () => {
     expect(deps.commit).not.toHaveBeenCalled();
   });
 
-  // The whole safety story: a commit whose outcome cannot be established is
-  // absorbing. Nothing that arrives later can settle it, and a second attempt
-  // is how a party ends up at a time nobody chose.
+  // A commit whose outcome cannot be established is absorbing until exact
+  // Plans evidence, a definitive late response, or a person settles it. A
+  // second attempt before then is how a party ends up at a time nobody chose.
   it('stops for good when a commit outcome is unknown', async () => {
     const commit = jest.fn(async () => {
       throw new RequestError({ ok: false, status: 0, data: {} });
@@ -452,6 +518,31 @@ describe('useTimeSearch', () => {
       expect(releaseCommit).not.toHaveBeenCalled();
     });
 
+    it('keeps the lease after a definite rejection while the run continues', async () => {
+      const releaseCommit = jest.fn();
+      const stopRenewal = jest.fn();
+      let cycle = 0;
+      const { result } = setup({
+        claimCommit: jest.fn(async () => true),
+        releaseCommit,
+        keepCommitAlive: () => stopRenewal,
+        getTimes: async () => (cycle++ === 0 ? [[at(11)]] : []),
+        commit: jest
+          .fn()
+          .mockRejectedValue(
+            new RequestError({ ok: false, status: 410, data: {} })
+          ),
+      });
+
+      act(() => result.current.start());
+      await waitFor(() => expect(cycle).toBe(1));
+      await runCycles(1);
+
+      expect(result.current.running).toBe(true);
+      expect(releaseCommit).not.toHaveBeenCalled();
+      expect(stopRenewal).not.toHaveBeenCalled();
+    });
+
     // The `releaseAttempt` escape. Without it the search's own lock would
     // retire the attraction for the rest of the engine's session.
     it('gives the lock back when a settled search stops', async () => {
@@ -542,7 +633,7 @@ describe('useTimeSearch', () => {
       expect(releaseCommit).toHaveBeenCalled();
     });
 
-    it('keeps the live lease when unresolved protection cannot be persisted', async () => {
+    it('uses page-local protection when quarantine cannot be persisted', async () => {
       const releaseCommit = jest.fn();
       const stopRenewal = jest.fn();
       const commit = jest.fn().mockRejectedValue(new Error('no response'));
@@ -550,6 +641,7 @@ describe('useTimeSearch', () => {
         claimCommit: jest.fn(async () => true),
         releaseCommit,
         keepCommitAlive: () => stopRenewal,
+        quarantineCommit: jest.fn(async () => false),
         commit,
       });
 
@@ -559,7 +651,28 @@ describe('useTimeSearch', () => {
       expect(result.current.guard.phase).toBe('unknown');
       expect(result.current.lastError).toMatch(/could not be saved/i);
       expect(releaseCommit).not.toHaveBeenCalled();
-      expect(stopRenewal).not.toHaveBeenCalled();
+      expect(stopRenewal).toHaveBeenCalled();
+    });
+
+    it('does not leak renewal when a custom quarantine callback rejects', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const stopRenewal = jest.fn();
+      const quarantineCommit = jest.fn(async () => {
+        throw new Error('storage unavailable');
+      });
+      const { result, unmount } = setup({
+        claimCommit: jest.fn(async () => true),
+        keepCommitAlive: () => stopRenewal,
+        quarantineCommit,
+        commit: jest.fn().mockRejectedValue(new Error('no response')),
+      });
+
+      act(() => result.current.start());
+      await waitFor(() => expect(result.current.stop).toBe('failed'));
+      unmount();
+
+      expect(quarantineCommit).toHaveBeenCalled();
+      expect(stopRenewal).toHaveBeenCalledTimes(1);
     });
 
     /*
@@ -666,12 +779,14 @@ describe('useTimeSearch', () => {
     it('stops safely when a known success cannot retain its protection', async () => {
       jest.spyOn(console, 'error').mockImplementation(() => undefined);
       const commit = jest.fn(async () => booking(at(11)));
+      const stopRenewal = jest.fn();
       const retainCommit = jest.fn(async () => {
         throw new Error('storage unavailable');
       });
       const { result } = setup({
         claimCommit: jest.fn(async () => true),
         commit,
+        keepCommitAlive: () => stopRenewal,
         retainCommit,
       });
 
@@ -682,6 +797,7 @@ describe('useTimeSearch', () => {
       expect(result.current.stop).toBe('unconfirmed');
       expect(result.current.guard.phase).toBe('awaiting');
       expect(result.current.lastError).toMatch(/could not retain/i);
+      expect(stopRenewal).toHaveBeenCalledTimes(1);
       await runCycles(2);
       expect(commit).toHaveBeenCalledTimes(1);
     });
@@ -754,7 +870,7 @@ describe('useTimeSearch', () => {
      * could take the reservation while the original operation is still live.
      * Asking again *is* renewing: acquisition is re-entrant for the holder.
      */
-    it('keeps the claim alive while a commit is in the air', async () => {
+    it('keeps one renewal alive through the request and the run', async () => {
       const claimCommit = jest.fn(async () => true);
       const stopRenewal = jest.fn();
       const keepCommitAlive = jest.fn(() => stopRenewal);
@@ -768,7 +884,9 @@ describe('useTimeSearch', () => {
         inFlight.resolve(booking(at(11)));
         await inFlight.promise;
       });
-      expect(stopRenewal).toHaveBeenCalled();
+      expect(stopRenewal).not.toHaveBeenCalled();
+      act(() => result.current.cancel());
+      expect(stopRenewal).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -1,7 +1,10 @@
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 
 import { createBooking, hm } from '@/__fixtures__/ll';
+import { RequestControl, RequestNotSent } from '@/api/client';
+import { LLMP, Offer } from '@/api/ll';
 import useTimeSearch from '@/autopilot/useTimeSearch';
+import type { TimeSearchDeps } from '@/autopilot/useTimeSearch';
 import { ParkTime } from '@/datetime';
 
 import TimeSearch from './TimeSearch';
@@ -10,6 +13,7 @@ import { renderScreen } from './screenTestSetup';
 jest.mock('@/autopilot/useTimeSearch');
 
 const mockedUseTimeSearch = jest.mocked(useTimeSearch);
+let capturedDeps: TimeSearchDeps;
 
 function fakeSearch(
   held: ParkTime,
@@ -32,9 +36,11 @@ function fakeSearch(
 }
 
 beforeEach(() => {
-  mockedUseTimeSearch.mockImplementation(deps =>
-    fakeSearch(deps.booking.start.time)
-  );
+  localStorage.clear();
+  mockedUseTimeSearch.mockImplementation(deps => {
+    capturedDeps = deps;
+    return fakeSearch(deps.booking.start.time);
+  });
 });
 
 describe('TimeSearch', () => {
@@ -60,6 +66,34 @@ describe('TimeSearch', () => {
           !!element.textContent?.includes('A move to a later time is offered')
       )
     ).toBeVisible();
+  });
+
+  it('forwards the mutation control to the real LL client seam', async () => {
+    const booking = createBooking(hm);
+    const book = jest.fn(async () => booking);
+    renderScreen(<TimeSearch booking={booking} />, { ll: { book } });
+    const control: RequestControl = {
+      signal: new AbortController().signal,
+      onDispatch: jest.fn(),
+    };
+
+    await act(async () => {
+      await capturedDeps.commit({} as Offer<LLMP>, control);
+    });
+
+    expect(book).toHaveBeenCalledWith(expect.anything(), undefined, control);
+  });
+
+  it('keeps commit-time authorization in the screen wiring', async () => {
+    const booking = createBooking(hm);
+    renderScreen(<TimeSearch booking={booking} />);
+    expect(await capturedDeps.claimCommit?.()).toBe(true);
+    const send = jest.fn(async () => 'sent');
+
+    await expect(
+      capturedDeps.startCommit?.(() => false, send)
+    ).rejects.toBeInstanceOf(RequestNotSent);
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('shows a protection error alongside an unresolved move', () => {

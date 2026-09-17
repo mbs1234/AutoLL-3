@@ -1,3 +1,5 @@
+import type { NotificationTag } from '@/storageNamespace';
+
 export type AlertPermission = 'granted' | 'denied' | 'default' | 'unsupported';
 
 /** Two-note chime. A single tone is easy to miss in a noisy park. */
@@ -111,7 +113,7 @@ export interface AlertOptions {
    * Dedupe key. Notifications sharing a tag replace one another instead of
    * stacking, so a re-alert for the same ride does not pile up.
    */
-  tag?: string;
+  tag?: NotificationTag;
   sound?: boolean;
   vibrate?: boolean;
 }

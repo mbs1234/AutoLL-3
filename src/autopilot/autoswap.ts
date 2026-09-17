@@ -3,7 +3,12 @@ import { Booking, LLMP, isLLMP, isMultipleExperiences } from '@/api/itinerary';
 import { Guest, Guests, Offer, OfferError, OfferExperience } from '@/api/ll';
 import { ParkTime, parkDate } from '@/datetime';
 
-import { AutoBookLedger, ClashCheck, actionWasRejected } from './autobook';
+import {
+  AutoBookLedger,
+  ClashCheck,
+  actionWasRejected,
+  withAttemptDispatch,
+} from './autobook';
 import { offerBaseline } from './automodify';
 import { comparePriority, isTier1 } from './priority';
 import { WatchTarget, inWindow } from './watchlist';
@@ -270,21 +275,12 @@ export async function attemptAutoSwap(
       from: offerBaseline(offer, victim),
       to: offer.start.time,
     };
-    const onDispatch = () => {
-      ledger.markAttempted(target.experienceId, 'swap');
-      onCommitting?.(change);
-    };
     const built = requestControl?.(change);
-    const control = built
-      ? {
-          ...built,
-          onDispatch: () => {
-            built.onDispatch?.();
-            onDispatch();
-          },
-        }
-      : undefined;
-    if (!built) onDispatch();
+    const control = withAttemptDispatch(
+      built,
+      () => ledger.markAttempted(target.experienceId, 'swap'),
+      () => onCommitting?.(change)
+    );
     const booking = await book(offer, control);
     ledger.markBooked();
     return {

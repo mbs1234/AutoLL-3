@@ -19,10 +19,11 @@ import {
   wdw,
 } from '@/__fixtures__/ll';
 import { DateTime, ParkTime, modifyDate } from '@/datetime';
+import { fetchJson } from '@/fetch';
 import kvdb from '@/kvdb';
 import { TODAY, TOMORROW, setTime } from '@/testing';
 
-import { RequestError } from './client';
+import { RequestControl, RequestError } from './client';
 import {
   Experience,
   Guest,
@@ -32,6 +33,7 @@ import {
   OfferError,
 } from './ll';
 import { LLClientWDW } from './ll/wdw';
+import { getSensorData } from './sensor-data';
 
 jest.mock('@/ratelimit');
 const onUnauthorized = jest.fn();
@@ -54,6 +56,7 @@ const tracker = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(getSensorData).mockReturnValue('sensor-data');
   setTime('10:00');
 });
 
@@ -574,6 +577,17 @@ describe('LLClientWDW', () => {
 
   describe('book()', () => {
     it('books Lightning Lanes', async () => {
+      const controller = new AbortController();
+      const startCalled = jest.fn();
+      const onDispatch = jest.fn();
+      const control: RequestControl = {
+        signal: controller.signal,
+        start: async send => {
+          startCalled();
+          return send();
+        },
+        onDispatch,
+      };
       respond(
         response({
           entitlementExperiences: [
@@ -593,11 +607,18 @@ describe('LLClientWDW', () => {
           },
         })
       );
-      expect(await client.book(offer)).toEqual({
+      expect(await client.book(offer, undefined, control)).toEqual({
         ...booking,
         experience: offer.experience,
       });
+      expect(startCalled).toHaveBeenCalledTimes(1);
+      expect(onDispatch).toHaveBeenCalledTimes(1);
+      expect(fetchJson).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ signal: controller.signal })
+      );
       expectFetch('/ea-vas/planning/api/v1/experiences/entitlements/book', {
+        signal: controller.signal,
         data: {
           offerSetId: offer.offerSetId,
           orderGuestDetails: guests.map(g => ({
@@ -615,6 +636,17 @@ describe('LLClientWDW', () => {
     });
 
     it('modifies an existing LL', async () => {
+      const controller = new AbortController();
+      const startCalled = jest.fn();
+      const onDispatch = jest.fn();
+      const control: RequestControl = {
+        signal: controller.signal,
+        start: async send => {
+          startCalled();
+          return send();
+        },
+        onDispatch,
+      };
       const orderDetailsById = new Map(guests.map(g => [g.id, g.orderDetails]));
       const modGuests = booking.guests.slice(0, 2);
       respond(
@@ -634,12 +666,19 @@ describe('LLClientWDW', () => {
           },
         })
       );
-      expect(await client.book(modOffer, modGuests)).toEqual({
+      expect(await client.book(modOffer, modGuests, control)).toEqual({
         ...booking,
         experience: modOffer.experience,
         guests: modGuests,
       });
+      expect(startCalled).toHaveBeenCalledTimes(1);
+      expect(onDispatch).toHaveBeenCalledTimes(1);
+      expect(fetchJson).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ signal: controller.signal })
+      );
       expectFetch('/ea-vas/planning/api/v1/experiences/mod/entitlements/book', {
+        signal: controller.signal,
         data: {
           offerSetId: modOffer.offerSetId,
           eligibleGuestsEntitlements: modGuests.map(g => ({

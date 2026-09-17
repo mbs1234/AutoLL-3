@@ -49,8 +49,24 @@ describe('MutationOperation', () => {
       abandonAt: 10_000,
     });
     operation.abandon('stopped');
+    expect(operation.signal.aborted).toBe(true);
     expect(operation.markDispatched()).toBe(false);
     expect(operation.dispatched).toBe(false);
+  });
+
+  it('does not abort a request after it was dispatched', () => {
+    jest.useFakeTimers({ now: 0, advanceTimers: false });
+    const operation = new MutationOperation({
+      id: 'answer-still-coming',
+      kind: 'modify',
+      abandonAt: 10_000,
+    });
+    operation.markDispatched(undefined, 100);
+
+    operation.abandon('stopped');
+
+    expect(operation.abandoned).toBe(true);
+    expect(operation.signal.aborted).toBe(false);
   });
 
   it('cannot be dispatched twice under one mutation identity', () => {
@@ -63,6 +79,22 @@ describe('MutationOperation', () => {
     expect(operation.markDispatched(undefined, 100)).toBe(true);
     expect(operation.markDispatched(undefined, 200)).toBe(false);
     expect(operation.dispatchedAt).toBe(100);
+  });
+
+  it('refuses dispatch past the deadline even when the timer was throttled', async () => {
+    jest.useFakeTimers({ now: 20_000, advanceTimers: false });
+    const abandoned = jest.fn();
+    const operation = new MutationOperation({
+      id: 'late-boundary',
+      kind: 'book',
+      abandonAt: 10_000,
+      onAbandon: abandoned,
+    });
+
+    expect(operation.markDispatched(undefined, 20_000)).toBe(false);
+    expect(operation.signal.aborted).toBe(true);
+    await operation.waitForAbandonment();
+    expect(abandoned).toHaveBeenCalledWith(operation, 'deadline');
   });
 
   it('settling cancels the deadline', () => {

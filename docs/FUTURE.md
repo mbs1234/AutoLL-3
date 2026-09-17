@@ -427,12 +427,19 @@ _Size:_ small, and it must be log lines rather than behaviour changes.
 reservations are visible in Activity and Plan Check, carry operation-specific
 details, and have a two-step manual resolution after the user checks Disney's
 Plans. Plan Check also warns when the browser lacks Web Locks rather than
-silently degrading cross-tab exclusion.
+silently degrading cross-tab exclusion. If durable quarantine storage fails,
+the open page still blocks the reservation and says that the protection will
+not survive a reload or coordinate another tab; the live renewal loop stops,
+while its last lease record is left to expire normally rather than being kept
+alive invisibly.
 
 The named regression gaps are closed as well: `TimeSearch.tsx` has component
-coverage, `daytimeline.test.ts` asserts the pure protected span, and every
-durable/session storage key is built through `storageNamespace.ts` with a
-source-scanning test that catches single-, double-, and backtick literals.
+coverage for its mutation wiring, the real WDW client is tested forwarding that
+control to both book endpoints, `daytimeline.test.ts` asserts the pure protected
+span, and every durable/session storage key passes through a typed
+`storageNamespace.ts` boundary. A source scan catches direct storage access and
+handwritten namespaced literals, while notification tags have their own typed
+`autoll3-*` namespace.
 
 **One thing that pass established, worth keeping:** jsdom does no hit-testing,
 so a test that "clicks through" an overlay passes with the overlay bug present.

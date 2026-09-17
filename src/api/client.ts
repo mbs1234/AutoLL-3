@@ -38,7 +38,10 @@ export interface RequestControl {
   /** Required so every controlled mutation has unique cancellation/identity. */
   signal: AbortSignal;
   start?: <T>(send: () => Promise<T>) => Promise<T>;
-  /** The last instruction immediately before `fetchJson` is invoked. */
+  /**
+   * The final dispatch callback immediately before `fetchJson` is invoked.
+   * Preparatory local writes belong before the lifecycle marks itself sent.
+   */
   onDispatch?: () => void;
 }
 

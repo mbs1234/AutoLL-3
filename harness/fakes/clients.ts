@@ -1,4 +1,4 @@
-import { RequestError } from '@/api/client';
+import { RequestControl, RequestError } from '@/api/client';
 import { DasClient, DasParty } from '@/api/das';
 import { Booking, ItineraryClient, LLMP } from '@/api/itinerary';
 import { LiveDataClient } from '@/api/livedata';
@@ -163,43 +163,48 @@ export class FakeLLClient extends LLClient {
 
   async book<B extends Offer['booking']>(
     offer: Offer<B>,
-    guestsToModify?: Pick<Guest, 'id'>[]
+    guestsToModify?: Pick<Guest, 'id'>[],
+    control?: RequestControl
   ): Promise<LLMP> {
     void guestsToModify;
     await sleep(LATENCY_MS * 2);
-    const { book, plansFollow } = this.world.script;
-    if (book === 'timeout') {
-      throw new RequestError(
-        { ok: false, status: 0, data: undefined },
-        'Request failed',
-        BOOK_PATH
-      );
-    }
-    if (book === 'refused') {
-      throw new RequestError(
-        { ok: false, status: 403, data: {} },
-        'Request failed',
-        BOOK_PATH
-      );
-    }
-    const held = offer.booking;
-    if (held) {
-      const moved: LLMP = { ...held, start: offer.start, end: offer.end };
-      if (plansFollow) {
-        this.world.plans = sortPlans(
-          this.world.plans.map(b => (b.id === held.id ? moved : b))
+    const send = async () => {
+      control?.onDispatch?.();
+      const { book, plansFollow } = this.world.script;
+      if (book === 'timeout') {
+        throw new RequestError(
+          { ok: false, status: 0, data: undefined },
+          'Request failed',
+          BOOK_PATH
         );
       }
-      return moved;
-    }
-    const booked = llmp(
-      offer.experience.id,
-      offer.start.time,
-      offer.start.date,
-      offer.guests.eligible
-    );
-    this.world.plans = sortPlans([...this.world.plans, booked]);
-    return booked;
+      if (book === 'refused') {
+        throw new RequestError(
+          { ok: false, status: 403, data: {} },
+          'Request failed',
+          BOOK_PATH
+        );
+      }
+      const held = offer.booking;
+      if (held) {
+        const moved: LLMP = { ...held, start: offer.start, end: offer.end };
+        if (plansFollow) {
+          this.world.plans = sortPlans(
+            this.world.plans.map(b => (b.id === held.id ? moved : b))
+          );
+        }
+        return moved;
+      }
+      const booked = llmp(
+        offer.experience.id,
+        offer.start.time,
+        offer.start.date,
+        offer.guests.eligible
+      );
+      this.world.plans = sortPlans([...this.world.plans, booked]);
+      return booked;
+    };
+    return control?.start ? control.start(send) : send();
   }
 
   override async cancelBooking(guests: LLMP['guests']): Promise<void> {

@@ -91,12 +91,27 @@ const tapCheck = async () => {
   });
 };
 
-beforeEach(() => localStorage.clear());
+function installWebLocks() {
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: {
+      request: async (_name: string, body: () => unknown) => body(),
+    },
+  });
+}
+
+beforeEach(() => {
+  localStorage.clear();
+  installWebLocks();
+});
 
 describe('PlanCheck', () => {
   it('reviews the plan already on screen', () => {
     setup();
     expect(screen.getByText(/no configuration conflicts/)).toBeVisible();
+    expect(
+      screen.getByText('Ready to run within the current safeguards.')
+    ).toBeVisible();
   });
 
   // The screen's central safety claim, and the one thing no unit test of the
@@ -107,7 +122,7 @@ describe('PlanCheck', () => {
   });
 
   it('warns when this browser cannot coordinate reservation locks', () => {
-    delete (navigator as { locks?: unknown }).locks;
+    Reflect.deleteProperty(navigator, 'locks');
     setup();
     expect(
       screen.getByText(/cannot coordinate reservation locks across tabs/)
@@ -127,7 +142,7 @@ describe('PlanCheck', () => {
     expect(
       screen.getByText(/1 unresolved Lightning Lane change/)
     ).toBeVisible();
-    expect(screen.getByText(/items? to review/)).toBeVisible();
+    expect(screen.getByText('1 item to review.')).toBeVisible();
     expect(
       screen.queryByText(/blockers? need attention/)
     ).not.toBeInTheDocument();

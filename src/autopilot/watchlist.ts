@@ -2,6 +2,7 @@ import { Experience, FlexExperience } from '@/api/ll';
 import { ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
 import { storageKey } from '@/storageNamespace';
+import type { StorageKey } from '@/storageNamespace';
 
 export const WATCHLIST_KEY = storageKey('autopilot.watchlist');
 
@@ -13,7 +14,7 @@ export const WATCHLIST_KEY = storageKey('autopilot.watchlist');
  * single goal; without its own key it would silently overwrite the list
  * Autopilot had been carrying all day.
  */
-export type WatchListKey = string;
+export type WatchListKey = StorageKey;
 
 export interface WatchTarget {
   experienceId: string;

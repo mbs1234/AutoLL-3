@@ -1,9 +1,10 @@
-import { use, useState } from 'react';
+import { use, useEffect, useId, useRef, useState } from 'react';
 
 import { resolveDoubt } from '@/autopilot/lease';
 import type { QuarantinedMutation } from '@/autopilot/lease';
 import Button from '@/components/Button';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
+import ResortContext from '@/contexts/ResortContext';
 import { ParkTime, formatDate, formatTime } from '@/datetime';
 
 function shownTime(value: string | undefined): string | undefined {
@@ -41,23 +42,48 @@ export default function QuarantinePanel({
   doubts: QuarantinedMutation[];
 }) {
   const { experiences } = use(ExperiencesContext);
+  const resort = use(ResortContext);
   const [confirming, setConfirming] = useState<string>();
   const [clearing, setClearing] = useState<string>();
-  const [error, setError] = useState<string>();
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const headingId = useId();
+  const warningId = useId();
+  useEffect(() => {
+    if (confirming) confirmButtonRef.current?.focus();
+  }, [confirming]);
   if (!doubts.length) return null;
 
-  const nameOf = (id: string) =>
-    experiences.find(experience => experience.id === id)?.name ?? id;
+  const nameOf = (id: string) => {
+    const current = experiences.find(experience => experience.id === id)?.name;
+    if (current) return current;
+    if (resort.knows(id)) {
+      try {
+        return resort.experience(id).name;
+      } catch {
+        // An explicitly ignored catalogue entry has no usable display name.
+      }
+    }
+    return id;
+  };
   const identity = (doubt: QuarantinedMutation) => `${doubt.key}:${doubt.id}`;
 
   async function clear(doubt: QuarantinedMutation) {
-    setClearing(identity(doubt));
-    setError(undefined);
+    const item = identity(doubt);
+    setClearing(item);
+    setErrors(current => {
+      const next = { ...current };
+      delete next[item];
+      return next;
+    });
     try {
       await resolveDoubt(doubt.key, doubt.id);
       setConfirming(undefined);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      setErrors(current => ({
+        ...current,
+        [item]: caught instanceof Error ? caught.message : String(caught),
+      }));
     } finally {
       setClearing(undefined);
     }
@@ -65,13 +91,13 @@ export default function QuarantinePanel({
 
   return (
     <section
-      aria-label="Unresolved Lightning Lane changes"
+      aria-labelledby={headingId}
       className="mt-3 rounded-sm bg-red-100 p-2 text-sm text-red-900"
     >
-      <p className="font-semibold">
+      <h3 id={headingId} className="font-semibold">
         {doubts.length} unresolved Lightning Lane change
         {doubts.length === 1 ? '' : 's'} protected
-      </p>
+      </h3>
       <p className="mt-1">
         Disney did not return a definite answer. AutoLL-3 will not automatically
         move or swap these reservations until Plans shows the exact requested
@@ -81,14 +107,25 @@ export default function QuarantinePanel({
         {doubts.map(doubt => (
           <li className="rounded-sm bg-white/60 p-2" key={identity(doubt)}>
             <p>{description(doubt, nameOf)}</p>
+            {!doubt.durable && (
+              <p className="mt-1 font-semibold" role="status">
+                This protection is available only while this page remains open.
+                Keep other AutoLL-3 tabs closed and check Disney Plans now.
+              </p>
+            )}
             {confirming === identity(doubt) ? (
-              <div className="mt-2">
-                <p>
+              <div
+                aria-labelledby={warningId}
+                className="mt-2"
+                role="alertdialog"
+              >
+                <p id={warningId}>
                   Clear this only after checking Disney's Plans. Clearing it
                   allows another automatic change to this reservation.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Button
+                    ref={confirmButtonRef}
                     type="small"
                     disabled={clearing === identity(doubt)}
                     onClick={() => void clear(doubt)}
@@ -100,7 +137,15 @@ export default function QuarantinePanel({
                   <Button
                     type="small"
                     disabled={clearing === identity(doubt)}
-                    onClick={() => setConfirming(undefined)}
+                    onClick={() => {
+                      const item = identity(doubt);
+                      setConfirming(undefined);
+                      setErrors(current => {
+                        const next = { ...current };
+                        delete next[item];
+                        return next;
+                      });
+                    }}
                   >
                     Keep protection
                   </Button>
@@ -115,10 +160,14 @@ export default function QuarantinePanel({
                 I checked Disney — resolve this
               </Button>
             )}
+            {errors[identity(doubt)] && (
+              <p className="mt-2" role="alert">
+                Could not clear protection: {errors[identity(doubt)]}
+              </p>
+            )}
           </li>
         ))}
       </ul>
-      {error && <p className="mt-2">Could not clear protection: {error}</p>}
     </section>
   );
 }

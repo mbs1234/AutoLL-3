@@ -150,6 +150,18 @@ export interface Doubt {
  */
 type Quarantine = Record<string, Doubt[]>;
 
+/**
+ * Same-page fail-closed protection when the durable store cannot be written.
+ *
+ * It deliberately does not pretend to survive a reload or coordinate another
+ * tab. Callers surface that limitation, while every actor in this page still
+ * consults the same merged quarantine and therefore refuses a duplicate
+ * mutation. This replaces the old fallback that kept a renewal interval alive
+ * forever even though the same storage failure could permanently stop that
+ * interval on its next tick.
+ */
+let volatileQuarantine: Quarantine = {};
+
 export interface PlanEvidence {
   /** The active reservation's return time. */
   time: string;
@@ -161,6 +173,15 @@ export interface QuarantinedMutation extends Doubt {
   key: string;
   date: string;
   facilityId: string;
+  /** False when this page is the only place the doubt could be recorded. */
+  durable: boolean;
+}
+
+export interface QuarantineResult {
+  id: string;
+  /** False means protected in this page only, not across reloads or tabs. */
+  durable: boolean;
+  error?: unknown;
 }
 
 const QUARANTINE_EVENT = 'autoll3:quarantine-change';
@@ -185,7 +206,7 @@ export function mutationId(prefix = 'mutation'): string {
  * Pruned on read rather than rewritten here: the next write persists it, and a
  * dead entry that is filtered on every read costs nothing until then.
  */
-function loadQuarantine(): Quarantine {
+function loadPersistedQuarantine(): Quarantine {
   const today = parkDate();
   const stored = unwrapDaily(kvdb.get<unknown>(QUARANTINE_KEY));
   if (!stored) return {};
@@ -205,6 +226,85 @@ function loadQuarantine(): Quarantine {
     if (doubts.length) out[key] = doubts;
   }
   return out;
+}
+
+function mergeQuarantines(...stores: Quarantine[]): Quarantine {
+  const merged: Quarantine = {};
+  for (const store of stores) {
+    for (const [key, doubts] of Object.entries(store)) {
+      const byId = new Map((merged[key] ?? []).map(doubt => [doubt.id, doubt]));
+      for (const doubt of doubts) byId.set(doubt.id, doubt);
+      if (byId.size) merged[key] = [...byId.values()];
+    }
+  }
+  return merged;
+}
+
+function activeVolatileQuarantine(): Quarantine {
+  const today = parkDate();
+  const active: Quarantine = {};
+  for (const [key, doubts] of Object.entries(volatileQuarantine)) {
+    const { date, facilityId } = leaseParts(key);
+    if (
+      facilityId &&
+      /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+      !Number.isNaN(Date.parse(`${date}T00:00:00`)) &&
+      date >= today &&
+      doubts.length
+    ) {
+      active[key] = doubts;
+    }
+  }
+  volatileQuarantine = active;
+  return active;
+}
+
+/** Read-only callers must still see page-local protection if storage is down. */
+function loadQuarantine(): Quarantine {
+  let persisted: Quarantine = {};
+  try {
+    persisted = loadPersistedQuarantine();
+  } catch {
+    // A storage read failure is itself a reason not to discard the only
+    // protection this page can still establish.
+  }
+  return mergeQuarantines(persisted, activeVolatileQuarantine());
+}
+
+/** Safety gates must refuse rather than infer "no doubt" from a failed read. */
+function loadBlockingQuarantine(): Quarantine {
+  return mergeQuarantines(
+    loadPersistedQuarantine(),
+    activeVolatileQuarantine()
+  );
+}
+
+function rememberVolatile(key: string, doubt: Doubt): void {
+  volatileQuarantine = mergeQuarantines(volatileQuarantine, {
+    [key]: [doubt],
+  });
+}
+
+function forgetVolatile(key: string, id: string): boolean {
+  const doubts = volatileQuarantine[key];
+  if (!doubts?.some(doubt => doubt.id === id)) return false;
+  const rest = doubts.filter(doubt => doubt.id !== id);
+  const next = { ...volatileQuarantine };
+  if (rest.length) next[key] = rest;
+  else delete next[key];
+  volatileQuarantine = next;
+  return true;
+}
+
+/** Drop page-local copies that were included in a successful durable write. */
+function forgetPersistedVolatile(persisted: Quarantine): boolean {
+  let changed = false;
+  for (const [key, doubts] of Object.entries(persisted)) {
+    for (const doubt of doubts) {
+      changed = forgetVolatile(key, doubt.id) || changed;
+    }
+  }
+  return changed;
 }
 
 /** One stored entry, which is a list but may be a single doubt from an older build. */
@@ -289,29 +389,36 @@ export async function quarantine(
     gaining?: string;
   } = {},
   now = Date.now()
-): Promise<string> {
+): Promise<QuarantineResult> {
   const id = was.id ?? mutationId('doubt');
+  const raised: Doubt = {
+    id,
+    at: now,
+    ...(was.kind ? { kind: was.kind } : {}),
+    ...(was.from ? { from: was.from } : {}),
+    ...(was.to ? { to: was.to } : {}),
+    ...(was.gaining ? { gaining: was.gaining } : {}),
+  };
   let persisted = false;
+  let written: Quarantine | undefined;
   try {
     await exclusive(() => {
-      const current = loadQuarantine();
-      const raised: Doubt = {
-        id,
-        at: now,
-        ...(was.kind ? { kind: was.kind } : {}),
-        ...(was.from ? { from: was.from } : {}),
-        ...(was.to ? { to: was.to } : {}),
-        ...(was.gaining ? { gaining: was.gaining } : {}),
-      };
+      // Include any earlier page-local doubts. If storage has recovered, this
+      // write promotes all of them to durable protection at once.
+      const current = mergeQuarantines(
+        loadPersistedQuarantine(),
+        activeVolatileQuarantine()
+      );
       // The same operation may reach this path twice -- first its deadline,
       // then a late status-0. Identity, not similar evidence, says those are
       // one question. Two distinct requests for the same move remain two
       // questions.
       const rest = (current[key] ?? []).filter(d => d.id !== id);
-      kvdb.set<Quarantine>(QUARANTINE_KEY, {
+      written = {
         ...current,
         [key]: [...rest, raised],
-      });
+      };
+      kvdb.set<Quarantine>(QUARANTINE_KEY, written);
       persisted = true;
       // Quarantine outranks work already holding the lease as well as new
       // acquisition. Evicting it here means clearing this doubt later cannot
@@ -325,21 +432,29 @@ export async function quarantine(
         kvdb.set<Leases>(LEASE_KEY, next);
       }
     });
+  } catch (error) {
+    if (!persisted) rememberVolatile(key, raised);
+    if (persisted && written) forgetPersistedVolatile(written);
+    if (!persisted) publishQuarantineChange();
+    return { id, durable: persisted, error };
   } finally {
     // The quarantine write intentionally precedes lease eviction. If the
     // second write fails, the durable protection still changed and every
-    // mounted screen must hear about it even though the caller also receives
-    // the error and keeps its lease as fallback.
-    if (persisted) publishQuarantineChange();
+    // mounted screen must hear about it even though the result also reports
+    // the lease-cleanup error.
+    if (persisted) {
+      if (written) forgetPersistedVolatile(written);
+      publishQuarantineChange();
+    }
   }
-  return id;
+  return { id, durable: true };
 }
 
 /** Remove only the question whose outcome is now known. */
 export async function resolveDoubt(key: string, id: string): Promise<void> {
   let changed = false;
   await exclusive(() => {
-    const current = loadQuarantine();
+    const current = loadPersistedQuarantine();
     const doubts = current[key];
     if (!doubts?.some(d => d.id === id)) return;
     const rest = doubts.filter(d => d.id !== id);
@@ -349,15 +464,24 @@ export async function resolveDoubt(key: string, id: string): Promise<void> {
     kvdb.set<Quarantine>(QUARANTINE_KEY, next);
     changed = true;
   });
-  if (changed) publishQuarantineChange();
+  const volatileChanged = forgetVolatile(key, id);
+  if (changed || volatileChanged) publishQuarantineChange();
 }
 
 /** Every unresolved mutation, for Plan Check and Activity. */
 export function quarantinedMutations(): QuarantinedMutation[] {
+  const local = activeVolatileQuarantine();
   return Object.entries(loadQuarantine())
     .flatMap(([key, doubts]) => {
       const { date, facilityId } = leaseParts(key);
-      return doubts.map(doubt => ({ ...doubt, key, date, facilityId }));
+      const localIds = new Set((local[key] ?? []).map(doubt => doubt.id));
+      return doubts.map(doubt => ({
+        ...doubt,
+        key,
+        date,
+        facilityId,
+        durable: !localIds.has(doubt.id),
+      }));
     })
     .sort((a, b) => a.at - b.at);
 }
@@ -429,24 +553,39 @@ export async function reconcile(
   seen: (key: string) => PlanEvidence | undefined,
   polledAt = Date.now()
 ): Promise<void> {
+  let volatileChanged = false;
+  const nextVolatile: Quarantine = {};
+  for (const [key, doubts] of Object.entries(volatileQuarantine)) {
+    const kept = doubts.filter(doubt => {
+      const resolved = polledAt > doubt.at && landed(key, doubt, seen);
+      volatileChanged ||= resolved;
+      return !resolved;
+    });
+    if (kept.length) nextVolatile[key] = kept;
+  }
+  volatileQuarantine = nextVolatile;
+
   let changed = false;
-  await exclusive(() => {
-    const current = loadQuarantine();
-    const next: Quarantine = {};
-    for (const [key, doubts] of Object.entries(current)) {
-      const kept: Doubt[] = [];
-      for (const doubt of doubts) {
-        // A response already in flight when the mutation was dispatched cannot
-        // speak about it. After that, only the exact requested state clears;
-        // absence and elapsed time are deliberately not treated as proof.
-        if (polledAt > doubt.at && landed(key, doubt, seen)) changed = true;
-        else kept.push(doubt);
+  try {
+    await exclusive(() => {
+      const current = loadPersistedQuarantine();
+      const next: Quarantine = {};
+      for (const [key, doubts] of Object.entries(current)) {
+        const kept: Doubt[] = [];
+        for (const doubt of doubts) {
+          // A response already in flight when the mutation was dispatched
+          // cannot speak about it. After that, only the exact requested state
+          // clears; absence and elapsed time are deliberately not proof.
+          if (polledAt > doubt.at && landed(key, doubt, seen)) changed = true;
+          else kept.push(doubt);
+        }
+        if (kept.length) next[key] = kept;
       }
-      if (kept.length) next[key] = kept;
-    }
-    if (changed) kvdb.set<Quarantine>(QUARANTINE_KEY, next);
-  });
-  if (changed) publishQuarantineChange();
+      if (changed) kvdb.set<Quarantine>(QUARANTINE_KEY, next);
+    });
+  } finally {
+    if (changed || volatileChanged) publishQuarantineChange();
+  }
 }
 
 /** Keyed by reservation and the day it belongs to, not by action. */
@@ -511,7 +650,7 @@ export async function acquire(
     // Doubt outranks everything, including the instance that raised it: until
     // plans settle what happened, a second request is exactly what must not
     // occur.
-    if (loadQuarantine()[key]?.length) return false;
+    if (loadBlockingQuarantine()[key]?.length) return false;
     const leases = load(at);
     const held = leases[key];
     if (held && held.owner !== owner) return false;
@@ -528,7 +667,7 @@ async function renew(
 ): Promise<boolean> {
   return exclusive(() => {
     const at = now ?? Date.now();
-    if (loadQuarantine()[key]?.length) return false;
+    if (loadBlockingQuarantine()[key]?.length) return false;
     const leases = load(at);
     if (leases[key]?.owner !== owner) return false;
     kvdb.set<Leases>(LEASE_KEY, { ...leases, [key]: { owner, at } });
@@ -556,7 +695,9 @@ export async function startWhileHeld<T>(
 ): Promise<LeaseStart<T>> {
   const begun = await exclusive(() => {
     const at = now ?? Date.now();
-    if (loadQuarantine()[key]?.length) return { started: false } as const;
+    if (loadBlockingQuarantine()[key]?.length) {
+      return { started: false } as const;
+    }
     const leases = load(at);
     if (leases[key]?.owner !== owner || !authorize()) {
       return { started: false } as const;
@@ -583,9 +724,13 @@ export async function resolveDoubtAndAcquire(
   now?: number
 ): Promise<boolean> {
   let changed = false;
+  let written: Quarantine | undefined;
   const acquired = await exclusive(() => {
     const at = now ?? Date.now();
-    const current = loadQuarantine();
+    const current = mergeQuarantines(
+      loadPersistedQuarantine(),
+      activeVolatileQuarantine()
+    );
     const doubts = current[key] ?? [];
     const rest = doubts.filter(doubt => doubt.id !== id);
     const found = rest.length !== doubts.length;
@@ -595,6 +740,7 @@ export async function resolveDoubtAndAcquire(
       if (found) {
         const next = { ...current, [key]: rest };
         kvdb.set<Quarantine>(QUARANTINE_KEY, next);
+        written = next;
         changed = true;
       }
       return false;
@@ -610,23 +756,31 @@ export async function resolveDoubtAndAcquire(
       const next = { ...current };
       delete next[key];
       kvdb.set<Quarantine>(QUARANTINE_KEY, next);
+      written = next;
       changed = true;
     }
     return true;
   });
+  if (written) {
+    forgetPersistedVolatile(written);
+    forgetVolatile(key, id);
+  } else if (changed) {
+    forgetVolatile(key, id);
+  }
   if (changed) publishQuarantineChange();
   return acquired;
 }
 
 /**
- * Hold a lease for as long as the request that took it is actually outstanding.
+ * Hold a lease for as long as its owner is actively working.
  *
  * Acquiring once and trusting the TTL was a hole: the poller can abandon a tick
  * while sensor generation or a request is still outstanding, and the mutation
  * lifecycle deliberately extends one renewal interval beyond that handoff.
  * An operation can therefore still be live when its original 120-second lease
  * expires -- at which point another actor could take the reservation it is
- * about to change.
+ * about to change. A foreground search also uses one loop for its whole run so
+ * definite rejections do not reopen a between-cycles window.
  *
  * Renewal rather than a Web Lock held for the operation's lifetime, which was
  * the other way to close it: a Web Lock is released when the tab dies, and a
