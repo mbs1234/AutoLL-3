@@ -328,11 +328,6 @@ export default function Today({ ref }: HomeTabProps) {
                   {' '}
                   &mdash; <Time time={lane.start.time} /> to{' '}
                   <Time time={lane.end.time} />
-                  <span className="text-gray-600">
-                    {' '}
-                    (grace scan until{' '}
-                    <Time time={lane.end.time.add({ minutes: 119 })} />)
-                  </span>
                 </>
               ) : (
                 <span className="text-gray-600"> &mdash; no return time</span>

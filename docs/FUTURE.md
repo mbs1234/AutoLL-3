@@ -441,6 +441,32 @@ span, and every durable/session storage key passes through a typed
 handwritten namespaced literals, while notification tags have their own typed
 `autoll3-*` namespace.
 
+**The volatile quarantine is under-tested, as of 2026-09-17.** A review of
+`787cff3` raised seventeen surviving findings and only two were defects; the
+other fifteen were paths that can be deleted with the whole suite green. Four of
+the most load-bearing were closed the same day — `renew()`'s quarantine gate,
+`reconcile()`'s volatile pass, `resolveDoubt`'s volatile clear, and the shared
+attraction-name rule. These remain open, all in the mechanism added that week:
+
+- `activeVolatileQuarantine()` prunes the page-local store destructively on
+  every read and nothing tests the predicate that decides what it drops.
+- Promotion of a page-local doubt to durable protection, once storage recovers,
+  is untested.
+- `subscribeQuarantine`'s cross-tab `storage` listener has no test.
+- `loadQuarantine()`'s deliberate swallow of a read failure has none either; its
+  removal crashes Activity rather than failing a test.
+- `settle()` in the provider's `finally` is the only thing stopping a deadline
+  timer quarantining an already-successful mutation, and nothing covers it.
+- The `return result.durable` both foreground search screens added is
+  unverified: deleting it from both leaves the suite green.
+- `TimeSearch.test.tsx` never pins *which* reservation the screen locks, so a
+  wrong lease key would pass.
+- `volatileQuarantine` is module state `beforeEach` cannot reset, so tests that
+  touch it must clean up in a `finally` — three now do, by hand.
+
+None is a known defect. They are places where a future change would break
+something silently, which in this subsystem is the shape that has cost the most.
+
 **One thing that pass established, worth keeping:** jsdom does no hit-testing,
 so a test that "clicks through" an overlay passes with the overlay bug present.
 Where the fix is a CSS property, assert the property; a behavioural test there

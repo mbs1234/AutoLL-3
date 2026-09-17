@@ -22,6 +22,15 @@ export const SKIP_TEXT: Record<string, string> = {
   'overlaps-plans': 'it clashed with something already booked',
   'not-modifiable': 'Disney marked the reservation unmodifiable',
   'no-longer-wanted': 'you changed the plan while the request was in flight',
+  'not-enabled': 'that action is not switched on for this attraction',
+  'no-existing-booking': 'there was no reservation to move',
+  'already-held': 'you already hold a pass for it',
+  // Raised by the provider, not by a helper, which is how it was missed: a
+  // rejected action waits out a cooldown before it is tried again, and during
+  // that wait the log said "waiting-to-retry" -- a raw identifier, shown at
+  // exactly the moment the user is asking why nothing is booking.
+  'waiting-to-retry':
+    'it failed a moment ago and is waiting before trying again',
 };
 
 export const skipText = (reason: string) => SKIP_TEXT[reason] ?? reason;
