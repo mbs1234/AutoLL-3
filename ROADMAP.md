@@ -36,10 +36,19 @@ would make it better, ordered by what it is worth on a park day.
 is the more important of the two for this file, because it is the only chance
 before December to replace guesses with observations. Several things this
 project has been reasoning about for six rounds are simply unmeasurable from a
-desk: how long Disney's itinerary takes to show a change that landed
-(`DOUBT_SETTLE_MS` is still 120 seconds, reasoned rather than measured), whether
-an expired unredeemed pass frees its slot, whether the Tier 1 limit lifts
-per-guest, and what `bookWindows` returns for a date whose window has not opened.
+desk: how long Disney's itinerary takes to show a change that landed, whether an
+expired unredeemed pass frees its slot, whether the Tier 1 limit lifts per-guest,
+and what `bookWindows` returns for a date whose window has not opened.
+
+A correction, because the first of those was written here badly. This file
+originally named `DOUBT_SETTLE_MS`, "still 120 seconds, reasoned rather than
+measured". That constant does not exist: PR #33 deleted it, and the whole
+clock-based settling path with it, the day before the sentence was written. A
+doubt now clears on evidence or not at all, and `lease.ts` calls clearing one on
+elapsed time "the second mistake". The measurement is still wanted -- `FUTURE.md`
+§5.5 asks for it -- but it is a distribution to look at, **not a timer to
+restore**. Anyone reading this as licence to put the 120 seconds back has read
+the opposite of what happened.
 
 The consequence for ordering: **instrumentation earns its place before features
 do.** A park day with no logging is a park day spent. Anything that turns an
@@ -51,7 +60,11 @@ app wants to be in a known-good state on October 18 — not frozen, but not
 mid-surgery either.
 
 **December 22–28, 2026 — the trip the deadlines are set by.** A two-week freeze
-puts the last change around December 8.
+puts the last change on **December 8**, and that is the figure to schedule from.
+`PLAN.md` and `FUTURE.md` carried December 6 in three places, written before
+these dates were known; they now say December 8 too. The two are not
+interchangeable -- see the arithmetic below, where December 28 first appears in
+the picker on December 7, a day before one freeze and a day after the other.
 
 One piece of arithmetic worth having written down, because an item below turns
 on it. The booking-date picker offers today plus twenty-one days
@@ -88,7 +101,7 @@ facts in the shipped data are unverified and checkable without a park.
 
 **The gap.** `dropTimes`, `refillWindows` and `nextBookTimes` are all passed to
 the poller as `undefined` unless the booking date is today
-(`AutopilotProvider.tsx:1738-1743`), and the only other fast path is `tomorrow`
+(`AutopilotProvider.tsx:1795-1799`), and the only other fast path is `tomorrow`
 at a flat fifteen seconds. For a date three or seven days out, `cadence()`
 therefore returns `idle` at `IDLE_INTERVAL_MS` = 45,000 — through the exact
 instant that date's inventory opens. `BookingDateProvider`'s own comment already
@@ -288,7 +301,15 @@ hard half. `Doubt.at` is the instant the mutating
 request left the device, written from `MutationOperation.dispatchedAt` at the
 transport boundary; `reconcile()` already receives `polledAt` and already
 computes `landed()`. The start, the end and the contrary reads all pass through
-one function. Write one capped log row the first time a doubt settles.
+one function. Write one capped row the first time a doubt settles.
+
+**Not into the activity log**, which is where it would naturally go and where it
+would not survive the trip: `LOG_LIMIT` is 20 and it is written through
+`kvdb.setDaily`, so a park day's real bookings would push the measurement out and
+the 4am rollover would drop whatever was left -- `storage.test.ts` asserts
+exactly that. `observe.ts`'s stores are the right home: plain `kvdb.set`, not
+day-scoped, already holding a thousand events and thirty days of coverage. Decide
+this before writing the row, not after reading an empty log on October 21.
 
 This is the measurement `FUTURE.md` §5.5 asks for, and §5 is explicit that it
 must never become an automatic fail-open rule again. Write that into the

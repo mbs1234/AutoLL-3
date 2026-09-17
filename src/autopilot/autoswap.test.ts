@@ -184,7 +184,7 @@ describe('chooseSwapVictim()', () => {
     expect(chooseSwapVictim(heldList, incoming('new', 2.0))).toBeUndefined();
   });
 
-  // The case the `priority !== undefined` guard swept up with it. Twenty-six
+  // The case the `priority !== undefined` guard swept up with it. A great many
   // attractions the data knows carry no priority on purpose -- PhilharMagic,
   // the Laugh Floor, the Tiki Room -- and they are precisely what a swap
   // should give up. Protecting them made a Big Thunder swap surrender Haunted
