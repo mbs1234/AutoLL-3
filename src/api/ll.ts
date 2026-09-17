@@ -1,9 +1,10 @@
 import { DateTime, ParkTime, parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
+import { storageKey } from '@/storageNamespace';
 
 import { authStore } from './auth';
 import { avatarUrl } from './avatar';
-import { ApiClient } from './client';
+import { ApiClient, RequestControl } from './client';
 import { Booking, LLMP, isLLMP } from './itinerary';
 import { Experience as ExpData, InvalidId, Park, Resort } from './resort';
 
@@ -408,7 +409,8 @@ export abstract class LLClient extends ApiClient {
 
   abstract book<B extends Offer['booking']>(
     offer: Offer<B>,
-    guestsToModify?: Pick<Guest, 'id'>[]
+    guestsToModify?: Pick<Guest, 'id'>[],
+    control?: RequestControl
   ): Promise<LLMP>;
 
   async cancelBooking(guests: LLMP['guests']) {
@@ -503,7 +505,7 @@ export abstract class LLClient extends ApiClient {
   }
 }
 
-export const BOOKINGS_KEY = 'autoll3.ll.bookings';
+export const BOOKINGS_KEY = storageKey('ll.bookings');
 
 interface LLTrackerData {
   booked: Experience['id'][];

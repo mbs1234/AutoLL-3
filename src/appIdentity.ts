@@ -8,8 +8,8 @@
  * one and looked at what was on screen.
  *
  * The tab strip is where that question is actually asked, so this is where it
- * is answered. It is the human half of the `autoll3.*` storage namespace: that
- * one stops two builds overwriting each other's data, this one stops you
+ * is answered. It is the human half of the shared storage namespace: that one
+ * stops two builds overwriting each other's data, this one stops you
  * mistaking which is which.
  */
 export const APP_NAME = 'AutoLL-3';

@@ -1,3 +1,4 @@
+import { RequestNotSent } from '@/api/client';
 import { Booking, LLMP } from '@/api/itinerary';
 import { Guest, Guests, Offer, OfferError } from '@/api/ll';
 import { DateTime, ParkTime } from '@/datetime';
@@ -476,11 +477,9 @@ describe('attemptAutoSwap() clash guard', () => {
 
 /*
  * The same boundary `attemptAutoModify` reports, for the same reason: the
- * caller's plans snapshot can be one move stale, and a doubt settled against a
- * stale baseline clears itself on its own staleness.
- *
- * For a swap this is the *contrary* test rather than the positive one -- the
- * victim still sitting at this time is what says nothing happened.
+ * caller's plans snapshot can be one move stale, so the warning must not claim
+ * it was the offer's own view. Automatic proof of a swap is the incoming
+ * attraction appearing at the requested time.
  */
 describe('attemptAutoSwap() commit boundary', () => {
   const offerWithVictim = (time: ParkTime, victimAt: ParkTime, id = 'a') =>
@@ -488,6 +487,66 @@ describe('attemptAutoSwap() commit boundary', () => {
       ...offerAt(time),
       itinerary: [{ facilityId: id, startTime: victimAt, overlap: 'NONE' }],
     }) as unknown as Offer<LLMP>;
+
+  it('publishes neither a lock nor evidence when transport refuses before dispatch', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const ledger = new AutoBookLedger();
+    const onCommitting = jest.fn();
+    const outcome = await attemptAutoSwap(
+      target(),
+      incoming('new', 1.0),
+      full(),
+      deps({
+        ledger,
+        onCommitting,
+        requestControl: () => ({
+          signal: new AbortController().signal,
+          start: async () => {
+            throw new RequestNotSent('lease refused before send');
+          },
+        }),
+        book: jest.fn(async (_offer, control) =>
+          control!.start!(() => Promise.resolve(held('new', 1.0)))
+        ),
+      })
+    );
+
+    expect(outcome).toMatchObject({ status: 'failed', rejected: true });
+    expect(ledger.hasAttempted('new', 'swap')).toBe(false);
+    expect(onCommitting).not.toHaveBeenCalled();
+  });
+
+  it('publishes neither a lock nor evidence when the lifecycle refuses dispatch', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const ledger = new AutoBookLedger();
+    const onCommitting = jest.fn();
+    const outcome = await attemptAutoSwap(
+      target(),
+      incoming('new', 1.0),
+      full(),
+      deps({
+        ledger,
+        onCommitting,
+        requestControl: () => ({
+          signal: new AbortController().signal,
+          start: send => send(),
+          onDispatch: () => {
+            throw new RequestNotSent('operation already abandoned');
+          },
+        }),
+        book: jest.fn(async (_offer, control) =>
+          control!.start!(async () => {
+            control!.onDispatch?.();
+            return held('new', 1.0);
+          })
+        ),
+      })
+    );
+
+    expect(outcome).toMatchObject({ status: 'failed', rejected: true });
+    expect(ledger.hasAttempted('new', 'swap')).toBe(false);
+    expect(onCommitting).not.toHaveBeenCalled();
+  });
 
   it("reports the victim's time from the offer itinerary", async () => {
     const onCommitting = jest.fn();
@@ -508,8 +567,8 @@ describe('attemptAutoSwap() commit boundary', () => {
     expect(String(change.to)).toBe(String(at(11)));
   });
 
-  // The snapshot is not evidence. A doubt settled against a time the offer
-  // never vouched for clears itself on its own staleness.
+  // The snapshot is not the offer's own observation and must not be displayed
+  // as though it were.
   it('reports no baseline when the itinerary omits the victim', async () => {
     const onCommitting = jest.fn();
     const outcome = await attemptAutoSwap(

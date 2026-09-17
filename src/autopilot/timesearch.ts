@@ -150,12 +150,11 @@ export type CommitPhase = 'idle' | 'committing' | 'awaiting' | 'unknown';
  * returns early for non-book kinds, so there is no doubt-hold for a modify
  * anywhere in this codebase.
  *
- * So this holds the lock instead, and the rule is `AutoBookLedger`'s: taken
- * *before* the request goes out, released only on proof that nothing
- * happened. Anything else -- a timeout, a 5xx, a dropped connection -- is
- * absorbing. The run stops and the user is told to check Plans, because from
- * here the question cannot be answered and guessing at it is what moves a
- * reservation twice.
+ * So this holds the lock instead. A request with no answer becomes an explicit
+ * quarantine, which survives the expiring live-work lease and is visible to
+ * the user. A definitive late response can still resolve that exact mutation;
+ * otherwise the run stops and the user checks Plans rather than guessing and
+ * moving a reservation twice.
  *
  * Deliberately a plain class rather than component state: it must be held in
  * a ref that survives StrictMode's mount / unmount / mount, or the app ships
@@ -215,15 +214,33 @@ export class CommitGuard {
    * refuses to be the place that decides it.
    */
   release(): void {
-    if (this.#phase === 'unknown') return;
+    if (this.#phase !== 'committing') return;
     this.#phase = 'idle';
     this.#requested = undefined;
   }
 
   /** The move was accepted. Now wait for plans to agree before deciding again. */
-  markCommitted(): void {
+  markCommitted(): boolean {
+    if (this.#phase !== 'committing') return false;
     this.#phase = 'awaiting';
     ++this.#commits;
+    return true;
+  }
+
+  /** A definitive success arrived after this request had become unknown. */
+  resolveUnknownSuccess(): boolean {
+    if (this.#phase !== 'unknown') return false;
+    this.#phase = 'awaiting';
+    ++this.#commits;
+    return true;
+  }
+
+  /** A definitive rejection arrived after this request had become unknown. */
+  resolveUnknownRejection(): boolean {
+    if (this.#phase !== 'unknown') return false;
+    this.#phase = 'idle';
+    this.#requested = undefined;
+    return true;
   }
 
   /** Plans agree the reservation moved; the loop may decide again. */
@@ -246,9 +263,9 @@ export class CommitGuard {
    * Returns false, and changes nothing, from every phase but `idle` -- each
    * for a reason a restart must not override:
    *
-   * - `unknown`, because no evidence that could settle it ever arrives. Only
-   *   leaving the screen clears that, by which point the user has been told
-   *   to check Plans.
+   * - `unknown`, because a new run must not outrun either a definitive late
+   *   response or the persisted quarantine. The explicit late-result methods,
+   *   Plans evidence, or a person's confirmation settle it.
    * - `awaiting`, because a move that succeeded but is not yet visible in
    *   Plans is exactly the state where deciding again is dangerous. Clearing
    *   it let Stop-then-Start hand a fresh run the *old* reservation time --
@@ -273,12 +290,11 @@ export class CommitGuard {
   }
 
   /**
-   * The outcome is unknown, and stays unknown.
-   *
-   * Absorbing on purpose: there is no evidence that could arrive later to
-   * settle it, so the only safe posture is to stop and hand back.
+   * The outcome is unknown. Ordinary transitions cannot escape it; only a
+   * definitive late result uses the explicit resolution methods above.
    */
   markUnknown(): void {
+    if (this.#phase !== 'committing') return;
     this.#phase = 'unknown';
   }
 }

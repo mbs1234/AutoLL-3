@@ -21,9 +21,10 @@ import PlansContext from '@/contexts/PlansContext';
 import TabsContext from '@/contexts/TabContext';
 import { DateTime, ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
+import { NEXTLL_WATCHLIST_KEY } from '@/storageNamespace';
 import { TODAY, TOMORROW } from '@/testing';
 
-import { NEXTLL, NEXTLL_WATCHLIST_KEY, NextLL, NextLLChooser } from './NextLL';
+import { NEXTLL, NextLL, NextLLChooser } from './NextLL';
 
 const BZ = '80010114';
 const OFF: PollerStatus = { mode: 'off', consecutiveFailures: 0, polls: 0 };

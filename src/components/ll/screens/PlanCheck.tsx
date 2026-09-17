@@ -1,10 +1,13 @@
 import { use, useEffect, useMemo, useState } from 'react';
 
 import { Guests } from '@/api/ll';
+import { available as leaseCoordinationAvailable } from '@/autopilot/lease';
 import { PlanCheckLevel, checkPlan } from '@/autopilot/plancheck';
+import useQuarantine from '@/autopilot/useQuarantine';
 import Button from '@/components/Button';
 import Screen from '@/components/Screen';
 import { Time } from '@/components/Time';
+import QuarantinePanel from '@/components/ll/QuarantinePanel';
 import AutopilotContext from '@/contexts/AutopilotContext';
 import BookingDateContext from '@/contexts/BookingDateContext';
 import ClientsContext from '@/contexts/ClientsContext';
@@ -52,6 +55,9 @@ export default function PlanCheck() {
   const { loadData, loaderElem } = useDataLoader();
   const { targets, requireWholeParty, avoidOverlaps, dryRun, passkeyStatus } =
     use(AutopilotContext);
+  const doubts = useQuarantine();
+  const relevantDoubts = doubts.filter(doubt => doubt.date === bookingDate);
+  const coordinated = leaseCoordinationAvailable();
   // Recomputed only when a fact it reads changes, rather than on every render
   // -- this screen stays mounted while Autopilot polls behind it.
   const items = useMemo(
@@ -84,7 +90,10 @@ export default function PlanCheck() {
     ]
   );
   const blockers = items.filter(item => item.level === 'blocker').length;
-  const reviews = items.filter(item => item.level === 'review').length;
+  const reviews =
+    items.filter(item => item.level === 'review').length +
+    relevantDoubts.length +
+    (coordinated ? 0 : 1);
 
   function actOn(item: (typeof items)[number]) {
     if (!item.subject) return;
@@ -193,7 +202,16 @@ export default function PlanCheck() {
             ? `${reviews} item${reviews === 1 ? '' : 's'} to review.`
             : 'Ready to run within the current safeguards.'}
       </p>
+      <QuarantinePanel doubts={relevantDoubts} />
       <ul className="space-y-2">
+        {!coordinated && (
+          <li className={`rounded-sm p-2 text-sm ${STYLE.review}`}>
+            <span className="font-semibold">Review:</span> This browser cannot
+            coordinate reservation locks across tabs. Keep only one AutoLL-3 tab
+            open, and do not run a foreground Time Search while Autopilot is
+            acting.
+          </li>
+        )}
         {items.map(item => (
           <li
             className={`rounded-sm p-2 text-sm ${STYLE[item.level]}`}

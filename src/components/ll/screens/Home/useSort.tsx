@@ -9,8 +9,9 @@ import ParkContext from '@/contexts/ParkContext';
 import { parkDate } from '@/datetime';
 import useCoords, { Coords } from '@/hooks/useCoords';
 import kvdb from '@/kvdb';
+import { storageKey } from '@/storageNamespace';
 
-export const SORT_KEY = 'autoll3.genie.sort';
+export const SORT_KEY = storageKey('genie.sort');
 
 export type Sorter = (
   a: FlexExperience,

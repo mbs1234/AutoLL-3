@@ -1,12 +1,17 @@
 import { use, useMemo, useRef, useState } from 'react';
 
+import { RequestNotSent } from '@/api/client';
 import { LLMP } from '@/api/itinerary';
 import { Experience } from '@/api/ll';
 import {
   acquire as acquireLease,
+  keepAlive as keepLeaseAlive,
   leaseKey,
   quarantine as quarantineReservation,
   release as releaseLease,
+  resolveDoubt,
+  resolveDoubtAndAcquire,
+  startWhileHeld,
 } from '@/autopilot/lease';
 import { saveCommit } from '@/autopilot/storage';
 import { findHeldByEntitlement } from '@/autopilot/swap';
@@ -91,25 +96,39 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
     },
     getTimes: offer => ll.times(offer),
     changeTime: (offer, time) => ll.changeOfferTime(offer, time),
-    commit: offer => ll.book(offer),
+    commit: (offer, control) => ll.book(offer, undefined, control),
     pollPlans,
     // The operation lease on the reservation this screen was opened for,
     // taken through the *top-level* engine rather than the nearest provider:
     // this screen is reachable from inside NextLL, whose nested provider is a
     // short-lived search of its own.
     claimCommit: () => acquireLease(reservation, searchOwner),
+    keepCommitAlive: onLost => keepLeaseAlive(reservation, searchOwner, onLost),
+    startCommit: async (authorize, send) => {
+      const begun = await startWhileHeld(
+        reservation,
+        searchOwner,
+        authorize,
+        send
+      );
+      if (!begun.started) {
+        throw new RequestNotSent('Reservation lease was lost before send');
+      }
+      return begun.value;
+    },
     releaseCommit: () => releaseLease(reservation, searchOwner),
     // The hook supplies the reservation's time at the commit boundary, and the
     // attraction being swapped in is what a later plans read must find to
     // settle the doubt. The victim merely being gone is not proof: a swap that
     // never happened looks exactly like one plans response leaving out a
     // reservation that is still there.
-    quarantineCommit: change =>
-      void quarantineReservation(reservation, {
-        kind: 'swap',
-        ...change,
-        ...(target ? { gaining: target.id } : {}),
-      }),
+    quarantineCommit: async (id, change, dispatchedAt) => {
+      await quarantineReservation(reservation, { id, ...change }, dispatchedAt);
+    },
+    resolveCommit: id => resolveDoubt(reservation, id),
+    retainCommit: id => resolveDoubtAndAcquire(reservation, id, searchOwner),
+    mutationKind: 'swap',
+    gainingFacility: () => target?.id,
     onCommitted: moved =>
       saveCommit({
         facilityId: moved.facilityId,
@@ -230,14 +249,29 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
             risk replacing the Lightning Lane twice. Check Plans before trying
             again.
           </p>
+          {search.lastError && (
+            <p role="alert" className="mt-2 font-semibold">
+              {search.lastError}
+            </p>
+          )}
         </div>
       )}
-      {search.stop && !search.unresolved && (
-        <p className="mt-3 text-sm text-gray-600">
-          {search.stop === 'failed'
-            ? `Stopped after repeated errors${search.lastError ? `: ${search.lastError}` : ''}.`
-            : STOPPED[search.stop]}
+      {search.running && search.lastError && (
+        <p role="alert" className="mt-3 text-sm font-semibold text-red-700">
+          {search.lastError}
         </p>
+      )}
+      {search.stop && !search.unresolved && (
+        <div className="mt-3 text-sm text-gray-600">
+          <p>
+            {search.stop === 'failed'
+              ? `Stopped because of an error${search.lastError ? `: ${search.lastError}` : ''}.`
+              : STOPPED[search.stop]}
+          </p>
+          {search.stop !== 'failed' && search.lastError && (
+            <p className="mt-1 text-red-700">{search.lastError}</p>
+          )}
+        </div>
       )}
       <NextLLTimeSearchActivity
         search={search}

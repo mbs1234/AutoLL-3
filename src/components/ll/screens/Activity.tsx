@@ -5,9 +5,11 @@ import {
   DEMOTION_MIN_COVERED_DAYS,
   LEARNED_MIN_DAYS,
 } from '@/autopilot/learned';
+import useQuarantine from '@/autopilot/useQuarantine';
 import Screen from '@/components/Screen';
 import { Time } from '@/components/Time';
 import ContextStrip from '@/components/ll/ContextStrip';
+import QuarantinePanel from '@/components/ll/QuarantinePanel';
 import AutopilotContext from '@/contexts/AutopilotContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import ParkContext from '@/contexts/ParkContext';
@@ -38,6 +40,7 @@ export default function Activity() {
   const { bookingLog, skipCounts, dropSummaries } = use(AutopilotContext);
   const { experiences } = use(ExperiencesContext);
   const { park } = use(ParkContext);
+  const doubts = useQuarantine();
 
   const nameOf = (experienceId: string) =>
     experiences.find(e => e.id === experienceId)?.name ?? experienceId;
@@ -53,6 +56,7 @@ export default function Activity() {
 
   return (
     <Screen title={ACTIVITY} theme={park.theme} subhead={<ContextStrip />}>
+      <QuarantinePanel doubts={doubts} />
       <h3>Booking activity ({bookingLog.length})</h3>
       {bookingLog.length === 0 ? (
         <p className="text-sm text-gray-600">

@@ -1,4 +1,5 @@
 import kvdb from './kvdb';
+import { storageKey } from './storageNamespace';
 
 /**
  * The party the user picked in the LL tab, as facility guest ids.
@@ -8,7 +9,7 @@ import kvdb from './kvdb';
  * `ClientsContext` -- reading the key from there would make the two modules
  * import each other.
  */
-export const PARTY_IDS_KEY = 'autoll3.genie.partyIds';
+export const PARTY_IDS_KEY = storageKey('genie.partyIds');
 
 /** Whatever is saved, or an empty list. Never throws on a mangled value. */
 export function loadSavedPartyIds(): string[] {

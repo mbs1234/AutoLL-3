@@ -1,12 +1,15 @@
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 
 import { wdw } from '@/__fixtures__/resort';
-import { ParkTime } from '@/datetime';
+import { leaseKey, quarantine, quarantinedAt } from '@/autopilot/lease';
+import { ParkTime, parkDate } from '@/datetime';
 
 import Activity from './Activity';
 import { BZ, renderScreen } from './screenTestSetup';
 
 const setup = (options = {}) => renderScreen(<Activity />, options);
+
+beforeEach(() => localStorage.clear());
 
 describe('Activity log', () => {
   it('lists a successful booking', () => {
@@ -115,6 +118,28 @@ describe('Activity log', () => {
 });
 
 describe('Activity diagnostics', () => {
+  it('shows unresolved changes and clears only after explicit confirmation', async () => {
+    const key = leaseKey(BZ, parkDate());
+    await quarantine(key, {
+      id: 'move-1',
+      kind: 'modify',
+      from: '15:00:00',
+      to: '11:00:00',
+    });
+    setup();
+    expect(
+      screen.getByText(/1 unresolved Lightning Lane change/)
+    ).toBeVisible();
+    fireEvent.click(screen.getByText('I checked Disney — resolve this'));
+    expect(screen.getByText(/Clear this only after checking/)).toBeVisible();
+    expect(quarantinedAt(key)).toBeDefined();
+    fireEvent.click(screen.getByText('Clear this protection'));
+    await waitFor(() => expect(quarantinedAt(key)).toBeUndefined());
+    expect(
+      screen.queryByText(/unresolved Lightning Lane change/)
+    ).not.toBeInTheDocument();
+  });
+
   // Skips stay out of the log; this is where they become visible.
   it('explains why nothing was booked, most frequent first', () => {
     setup({ skipCounts: { 'offer-outside-window': 2, 'partial-party': 7 } });

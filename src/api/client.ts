@@ -21,6 +21,44 @@ export class RequestError extends Error {
   }
 }
 
+/** A controlled mutation was cancelled before any HTTP request was started. */
+export class RequestNotSent extends Error {
+  readonly name = 'RequestNotSent';
+}
+
+/**
+ * Control supplied only for a mutating request.
+ *
+ * `start` is called after sensor generation, with a closure that starts the
+ * actual fetch synchronously. A lease owner can therefore revalidate and invoke
+ * that closure inside one Web Locks critical section; checking before `book()`
+ * is too early because sensor generation is itself asynchronous.
+ */
+export interface RequestControl {
+  /** Required so every controlled mutation has unique cancellation/identity. */
+  signal: AbortSignal;
+  start?: <T>(send: () => Promise<T>) => Promise<T>;
+  /** The last instruction immediately before `fetchJson` is invoked. */
+  onDispatch?: () => void;
+}
+
+/** Await work that cannot itself be cancelled without letting it delay us. */
+async function abortable<T>(
+  body: Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  if (!signal) return body;
+  if (signal.aborted) throw new RequestNotSent('Request cancelled before send');
+  return new Promise<T>((resolve, reject) => {
+    const abort = () =>
+      reject(new RequestNotSent('Request cancelled before send'));
+    signal.addEventListener('abort', abort, { once: true });
+    void body.then(resolve, reject).finally(() => {
+      signal.removeEventListener('abort', abort);
+    });
+  });
+}
+
 export abstract class ApiClient {
   protected resort: Resort;
   protected origin: string;
@@ -57,29 +95,48 @@ export abstract class ApiClient {
      */
     ignoreUnauth?: 'itinerary-refresh';
     sensorData?: boolean;
+    control?: RequestControl;
   }): Promise<JsonOK<T>> {
-    this.rateLimit.enforce();
     const { swid, accessToken } = authStore.getData();
     let sensorHeaders: Record<string, string> = {};
     if (request.sensorData) {
       const sd = getSensorData();
       sensorHeaders = {
-        'x-acf-sensor-data': typeof sd === 'string' ? sd : await sd,
+        'x-acf-sensor-data':
+          typeof sd === 'string'
+            ? sd
+            : await abortable(sd, request.control?.signal),
         'x-app-id': 'ANDROID',
       };
     }
     const url = this.origin + request.path;
-    const res = await fetchJson(url, {
-      method: request.method,
-      params: request.params,
-      data: request.data,
-      headers: {
-        'Accept-Language': 'en-US',
-        Authorization: `BEARER ${accessToken}`,
-        'x-user-id': swid,
-        ...sensorHeaders,
-      },
-    });
+    const send = () => {
+      if (request.control?.signal?.aborted) {
+        throw new RequestNotSent('Request cancelled before send');
+      }
+      // Admission belongs to the same boundary as the request itself. Sensor
+      // generation can wait on a first-use module download, so charging the
+      // limiter before it let cancelled work consume capacity and let calls
+      // admitted in different seconds bunch into one burst when the sensor
+      // finally became ready.
+      this.rateLimit.enforce();
+      request.control?.onDispatch?.();
+      return fetchJson(url, {
+        method: request.method,
+        params: request.params,
+        data: request.data,
+        signal: request.control?.signal,
+        headers: {
+          'Accept-Language': 'en-US',
+          Authorization: `BEARER ${accessToken}`,
+          'x-user-id': swid,
+          ...sensorHeaders,
+        },
+      });
+    };
+    const res = request.control?.start
+      ? await request.control.start(send)
+      : await send();
     if (request.sensorData && res.status === 403) {
       resetSensorData();
     } else if (res.status === 401 && !request.ignoreUnauth) {

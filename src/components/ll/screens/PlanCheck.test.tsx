@@ -4,6 +4,7 @@ import { act } from 'react';
 import { hm, jc } from '@/__fixtures__/ll';
 import { mk } from '@/__fixtures__/resort';
 import { Guest, Guests } from '@/api/ll';
+import { leaseKey, quarantine } from '@/autopilot/lease';
 import { WatchTarget } from '@/autopilot/watchlist';
 import AutopilotContext, { AutopilotState } from '@/contexts/AutopilotContext';
 import BookingDateContext from '@/contexts/BookingDateContext';
@@ -12,7 +13,7 @@ import ExperiencesContext from '@/contexts/ExperiencesContext';
 import NavContext from '@/contexts/NavContext';
 import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
-import { ParkTime } from '@/datetime';
+import { ParkTime, modifyDate, parkDate } from '@/datetime';
 import { RateLimitExceeded } from '@/ratelimit';
 import { TODAY } from '@/testing';
 
@@ -28,21 +29,21 @@ function setup({
     async (): Promise<Guests> => ({ eligible: [], ineligible: [] })
   ),
   pollExperiences = jest.fn(async () => []),
+  bookingDate = TODAY,
   ...state
 }: Partial<AutopilotState> & {
   targets?: WatchTarget[];
   experiences?: (typeof hm)[];
   guests?: jest.Mock;
   pollExperiences?: jest.Mock;
+  bookingDate?: string;
 } = {}) {
   render(
     <NavContext
       value={{ goTo: () => {}, goBack: async () => {} } as unknown as never}
     >
       <ParkContext value={{ park: mk, setPark: () => {} }}>
-        <BookingDateContext
-          value={{ bookingDate: TODAY, setBookingDate: () => {} }}
-        >
+        <BookingDateContext value={{ bookingDate, setBookingDate: () => {} }}>
           <ClientsContext value={{ ll: { guests } } as unknown as Clients}>
             <ExperiencesContext
               value={{
@@ -90,6 +91,8 @@ const tapCheck = async () => {
   });
 };
 
+beforeEach(() => localStorage.clear());
+
 describe('PlanCheck', () => {
   it('reviews the plan already on screen', () => {
     setup();
@@ -101,6 +104,48 @@ describe('PlanCheck', () => {
   it('makes no request when it opens', () => {
     const { guests } = setup();
     expect(guests).not.toHaveBeenCalled();
+  });
+
+  it('warns when this browser cannot coordinate reservation locks', () => {
+    delete (navigator as { locks?: unknown }).locks;
+    setup();
+    expect(
+      screen.getByText(/cannot coordinate reservation locks across tabs/)
+    ).toBeVisible();
+  });
+
+  it('shows current-date unresolved changes as protected review items', async () => {
+    const date = parkDate();
+    await quarantine(leaseKey(hm.id, date), {
+      id: 'move-1',
+      kind: 'modify',
+      to: '11:00:00',
+    });
+
+    setup({ bookingDate: date });
+
+    expect(
+      screen.getByText(/1 unresolved Lightning Lane change/)
+    ).toBeVisible();
+    expect(screen.getByText(/items? to review/)).toBeVisible();
+    expect(
+      screen.queryByText(/blockers? need attention/)
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not count another date's protection against this plan", async () => {
+    const date = parkDate();
+    await quarantine(leaseKey(hm.id, modifyDate(date, 1)), {
+      id: 'future-move',
+      kind: 'modify',
+      to: '11:00:00',
+    });
+
+    setup({ bookingDate: date });
+
+    expect(
+      screen.queryByText(/unresolved Lightning Lane change/)
+    ).not.toBeInTheDocument();
   });
 
   it('reports dry run rather than calling the plan ready', () => {

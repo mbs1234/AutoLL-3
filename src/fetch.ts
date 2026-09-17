@@ -42,6 +42,13 @@ export async function fetchJson<T = any>(
 
   return checkCache(url, init, async () => {
     const controller = new AbortController();
+    const externalSignal = init.signal;
+    const externalAbort = () => controller.abort(externalSignal?.reason);
+    if (externalSignal?.aborted) {
+      externalAbort();
+    } else {
+      externalSignal?.addEventListener('abort', externalAbort, { once: true });
+    }
     init.signal = controller.signal;
     const abort = () => controller.abort();
     // Covers reading the body as well as getting the headers. It used to be
@@ -73,6 +80,7 @@ export async function fetchJson<T = any>(
       return { ok: false, status: 0, data: null };
     } finally {
       clearTimeout(timeoutId);
+      externalSignal?.removeEventListener('abort', externalAbort);
     }
   });
 }
@@ -85,6 +93,11 @@ function checkCache(
   init: RequestInit,
   requester: () => Promise<JsonResponse>
 ) {
+  // A controlled mutation owns its cancellation and dispatch identity. Sharing
+  // another caller's promise would let one operation abort another and would
+  // report two dispatches for one HTTP request, so those requests never use the
+  // StrictMode read cache.
+  if (init.signal) return requester();
   // StrictMode can issue the same data request twice in immediate succession.
   // The old key was just method + URL, so two POSTs to one endpoint with
   // different bodies could receive each other's response.  Only cache bodies

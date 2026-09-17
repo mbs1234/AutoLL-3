@@ -18,6 +18,7 @@ import { ParkTime, formatTime } from '@/datetime';
 import kvdb from '@/kvdb';
 import ExperiencesProvider from '@/providers/ExperiencesProvider';
 import NavProvider from '@/providers/NavProvider';
+import { STARRED_KEY } from '@/storageNamespace';
 import {
   TODAY,
   TOMORROW,
@@ -29,7 +30,7 @@ import {
   within,
 } from '@/testing';
 
-import MultiPassList, { STARRED_KEY } from './MultiPassList';
+import MultiPassList from './MultiPassList';
 
 const BOOKED_INFO = 'Booked (more info)';
 const LIGHTNING_PICK_INFO = 'Lightning Pick (more info)';

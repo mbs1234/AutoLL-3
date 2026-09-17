@@ -308,7 +308,25 @@ describe('CommitGuard', () => {
       expect(guard.phase).toBe('unknown');
       guard.confirm();
       expect(guard.phase).toBe('unknown');
+      guard.markCommitted();
+      expect(guard.phase).toBe('unknown');
       expect(guard.begin(at(12))).toBe(false);
+    });
+
+    it('has explicit transitions for a definitive late result', () => {
+      const success = new CommitGuard();
+      success.begin(at(11));
+      success.markUnknown();
+      expect(success.resolveUnknownSuccess()).toBe(true);
+      expect(success.phase).toBe('awaiting');
+      expect(success.commits).toBe(1);
+
+      const rejection = new CommitGuard();
+      rejection.begin(at(11));
+      rejection.markUnknown();
+      expect(rejection.resolveUnknownRejection()).toBe(true);
+      expect(rejection.phase).toBe('idle');
+      expect(rejection.commits).toBe(0);
     });
 
     it('cannot be escaped by declining either', () => {
@@ -400,8 +418,10 @@ describe('CommitGuard phases that survive a restart', () => {
     expect(guard.startable).toBe(false);
     guard.markCommitted();
     expect(guard.startable).toBe(true);
-    guard.markUnknown();
-    expect(guard.startable).toBe(false);
+    const unknown = new CommitGuard();
+    unknown.begin(at(12));
+    unknown.markUnknown();
+    expect(unknown.startable).toBe(false);
   });
 
   it('becomes resettable once Plans confirms', () => {

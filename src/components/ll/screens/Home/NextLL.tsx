@@ -26,6 +26,7 @@ import PlansContext from '@/contexts/PlansContext';
 import { parkDate } from '@/datetime';
 import useSavedParty from '@/hooks/useSavedParty';
 import AutopilotProvider from '@/providers/AutopilotProvider';
+import { NEXTLL_WATCHLIST_KEY } from '@/storageNamespace';
 
 import { HomeTabProps } from '../Home';
 import { NextLLBookingActivity } from '../NextLLActivity';
@@ -44,8 +45,6 @@ export const NEXTLL = 'NextLL';
  * have Stop switch it all off. What it does inherit, by being nested, is the
  * park, the booking date, the plans, the tipboard and the login.
  */
-export const NEXTLL_WATCHLIST_KEY = 'autoll3.nextll.watchlist';
-
 /**
  * The window the search is aiming at, in words.
  *

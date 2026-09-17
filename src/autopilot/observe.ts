@@ -1,6 +1,7 @@
 import { Experience } from '@/api/ll';
 import { ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
+import { storageKey } from '@/storageNamespace';
 
 /**
  * Learning the real drop schedule from what the poller sees.
@@ -23,9 +24,9 @@ import kvdb from '@/kvdb';
  * only ever claimed for days on which the poller was actually running at 15:47.
  */
 
-export const EVENTS_KEY = 'autoll3.autopilot.dropEvents';
-export const COVERAGE_KEY = 'autoll3.autopilot.coverage';
-export const WATCHED_KEY = 'autoll3.autopilot.watched-days';
+export const EVENTS_KEY = storageKey('autopilot.dropEvents');
+export const COVERAGE_KEY = storageKey('autopilot.coverage');
+export const WATCHED_KEY = storageKey('autopilot.watched-days');
 
 /** How much earlier the next available time must move to count as a drop. */
 export const EARLIER_THRESHOLD_MIN = 15;

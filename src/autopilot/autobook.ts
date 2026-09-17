@@ -1,3 +1,4 @@
+import { RequestControl, RequestNotSent } from '@/api/client';
 import { LLMP } from '@/api/itinerary';
 import {
   Guest,
@@ -65,8 +66,10 @@ export type AutoBookOutcome =
  *
  * Three cases say nothing happened:
  *
- * - `RateLimitExceeded`, which our own limiter throws as the first statement
- *   of `ApiClient.request`, before anything is sent.
+ * - `RequestNotSent`, which the mutation lifecycle throws when its final
+ *   dispatch revalidation refuses the call.
+ * - `RateLimitExceeded`, which our own limiter throws at the actual send
+ *   boundary, before anything is sent.
  * - A client error the server returned, other than the two that mean stop
  *   asking. `REFUSAL_STATUS` is the bot filter, which `refusal.ts` watches and
  *   which is made worse by hammering; `THROTTLE_STATUS` is being throttled,
@@ -81,6 +84,7 @@ export type AutoBookOutcome =
  * same evidence. Pacing is the caller's problem; see `RETRY_AFTER_MS`.
  */
 export function actionWasRejected(error: unknown): boolean {
+  if (error instanceof RequestNotSent) return true;
   if (error instanceof RateLimitExceeded) return true;
   const status = (error as { response?: { status?: number } })?.response
     ?.status;
@@ -597,7 +601,9 @@ export interface AutoBookDeps {
    * Optional: callers that have nothing to re-check may omit it.
    */
   stillWanted?: (returnTime: ParkTime) => boolean;
-  book: (offer: Offer<undefined>) => Promise<LLMP>;
+  book: (offer: Offer<undefined>, control?: RequestControl) => Promise<LLMP>;
+  /** Built only after every offer guard passes, at the real dispatch boundary. */
+  requestControl?: (returnTime: ParkTime) => RequestControl;
   /** Cached or freshly fetched eligibility for this experience. */
   guests: Guests;
   ledger: AutoBookLedger;
@@ -638,6 +644,7 @@ export async function attemptAutoBook(
     clashes,
     stillWanted,
     partyIsAcceptable,
+    requestControl,
   }: AutoBookDeps
 ): Promise<AutoBookOutcome> {
   const allowed = shouldAttempt(target, ledger);
@@ -672,8 +679,19 @@ export async function attemptAutoBook(
     if (stillWanted && !stillWanted(offer.start.time)) {
       return { status: 'skipped', reason: 'no-longer-wanted' };
     }
-    ledger.markAttempted(target.experienceId);
-    const booking = await book(offer);
+    const onDispatch = () => ledger.markAttempted(target.experienceId);
+    const built = requestControl?.(offer.start.time);
+    const control = built
+      ? {
+          ...built,
+          onDispatch: () => {
+            built.onDispatch?.();
+            onDispatch();
+          },
+        }
+      : undefined;
+    if (!built) onDispatch();
+    const booking = await book(offer, control);
     ledger.markBooked(target.experienceId);
     return { status: 'booked', booking, returnTime: offer.start.time };
   } catch (error) {

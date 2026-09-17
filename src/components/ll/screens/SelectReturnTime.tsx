@@ -13,6 +13,7 @@ import ThemeContext from '@/contexts/ThemeContext';
 import { DateTime, ParkTime, parkDate } from '@/datetime';
 import useDataLoader from '@/hooks/useDataLoader';
 import kvdb from '@/kvdb';
+import { FULL_AVAILABILITY_KEY } from '@/storageNamespace';
 
 import BookingDate from '../BookingDate';
 import RebookingHeader from '../RebookingHeader';
@@ -22,8 +23,6 @@ import Home from './Home';
 import Legend from './Home/Legend';
 import RefreshButton from './RefreshButton';
 import TimeSearch from './TimeSearch';
-
-export const FULL_AVAILABILITY_KEY = 'autoll3.ll.fullAvailability';
 
 export default function SelectReturnTime<B extends Offer['booking']>({
   offer,
