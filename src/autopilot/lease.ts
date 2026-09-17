@@ -135,6 +135,16 @@ export interface Doubt {
    * same park day as the one given up.
    */
   gaining?: string;
+  /**
+   * Booking/entitlement identities for the reservation the request changed.
+   *
+   * Attraction and return time are not an identity: split parties can hold
+   * two reservations for the same ride on the same day. Without this, one
+   * already at the requested time could falsely clear the other reservation's
+   * unknown mutation. Optional only for stores written by an older build;
+   * legacy doubts require a person to resolve them.
+   */
+  reservationIds?: string[];
 }
 
 /**
@@ -165,8 +175,8 @@ let volatileQuarantine: Quarantine = {};
 export interface PlanEvidence {
   /** The active reservation's return time. */
   time: string;
-  /** Its entitlement/booking identity, for diagnostics and future matching. */
-  id: string;
+  /** Every booking/entitlement identity that can name this reservation. */
+  reservationIds: string[];
 }
 
 export interface QuarantinedMutation extends Doubt {
@@ -307,6 +317,17 @@ function forgetPersistedVolatile(persisted: Quarantine): boolean {
   return changed;
 }
 
+function reservationIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(
+      value.filter(
+        (id): id is string => typeof id === 'string' && id.length > 0
+      )
+    ),
+  ];
+}
+
 /** One stored entry, which is a list but may be a single doubt from an older build. */
 function parseDoubts(value: unknown): Doubt[] {
   const out: Doubt[] = [];
@@ -316,6 +337,7 @@ function parseDoubts(value: unknown): Doubt[] {
   ).entries()) {
     const doubt = entry as Partial<Doubt>;
     if (typeof doubt?.at !== 'number') continue;
+    const ids = reservationIds(doubt.reservationIds);
     out.push({
       id:
         typeof doubt.id === 'string' ? doubt.id : `legacy-${doubt.at}-${index}`,
@@ -326,6 +348,7 @@ function parseDoubts(value: unknown): Doubt[] {
       ...(typeof doubt.from === 'string' ? { from: doubt.from } : {}),
       ...(typeof doubt.to === 'string' ? { to: doubt.to } : {}),
       ...(typeof doubt.gaining === 'string' ? { gaining: doubt.gaining } : {}),
+      ...(ids.length ? { reservationIds: ids } : {}),
     });
   }
   return out;
@@ -387,10 +410,12 @@ export async function quarantine(
     from?: string;
     to?: string;
     gaining?: string;
+    reservationIds?: string[];
   } = {},
   now = Date.now()
 ): Promise<QuarantineResult> {
   const id = was.id ?? mutationId('doubt');
+  const ids = reservationIds(was.reservationIds);
   const raised: Doubt = {
     id,
     at: now,
@@ -398,6 +423,7 @@ export async function quarantine(
     ...(was.from ? { from: was.from } : {}),
     ...(was.to ? { to: was.to } : {}),
     ...(was.gaining ? { gaining: was.gaining } : {}),
+    ...(ids.length ? { reservationIds: ids } : {}),
   };
   let persisted = false;
   let written: Quarantine | undefined;
@@ -526,22 +552,37 @@ export function quarantinedAt(key: string): number | undefined {
 function landed(
   key: string,
   doubt: Doubt,
-  seen: (key: string) => PlanEvidence | undefined
+  seen: (
+    key: string,
+    reservationIds: readonly string[],
+    requestedTime: string
+  ) => PlanEvidence | undefined
 ): boolean {
+  const expected = doubt.reservationIds;
+  // A legacy record names a ride and a time, not a reservation. That is not
+  // enough to distinguish split-party bookings, so it needs manual review.
+  if (!expected?.length) return false;
+  const matchesReservation = (evidence: PlanEvidence | undefined) =>
+    !!evidence && evidence.reservationIds.some(id => expected.includes(id));
   if (doubt.kind === 'swap') {
     // The attraction the swap was for, in the slot the victim used to hold.
     // The victim's own absence is not proof: a swap that never happened looks
     // exactly the same as one plans response leaving the reservation out.
     if (!doubt.gaining || !doubt.to) return false;
-    return (
-      seen(leaseKey(doubt.gaining, leaseParts(key).date))?.time === doubt.to
+    const evidence = seen(
+      leaseKey(doubt.gaining, leaseParts(key).date),
+      expected,
+      doubt.to
     );
+    return matchesReservation(evidence) && evidence?.time === doubt.to;
   }
   if (doubt.kind === 'modify') {
     // `to` is the actual offer time sent to `/book`, not the earlier tipboard
     // candidate. Anything else may be a manual move or another generation and
     // cannot answer this operation's question.
-    return doubt.to !== undefined && seen(key)?.time === doubt.to;
+    if (doubt.to === undefined) return false;
+    const evidence = seen(key, expected, doubt.to);
+    return matchesReservation(evidence) && evidence?.time === doubt.to;
   }
   return false;
 }
@@ -560,7 +601,11 @@ function landed(
  * of a photograph taken before the event.
  */
 export async function reconcile(
-  seen: (key: string) => PlanEvidence | undefined,
+  seen: (
+    key: string,
+    reservationIds: readonly string[],
+    requestedTime: string
+  ) => PlanEvidence | undefined,
   polledAt = Date.now()
 ): Promise<void> {
   let volatileChanged = false;

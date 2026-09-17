@@ -1,6 +1,6 @@
 import '@/autopilot/autobook';
 import { BookingLogEntry } from '@/contexts/AutopilotContext';
-import { ParkTime } from '@/datetime';
+import { ParkTime, parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
 import { setTime } from '@/testing';
 
@@ -423,12 +423,79 @@ describe("the day's committed return times", () => {
     ).toEqual(['a', 'b']);
   });
 
-  // One reservation per attraction, so a move replaces rather than adds.
-  it('replaces an earlier commit for the same attraction', () => {
+  // Legacy records have no reservation identity, so facility/date is the only
+  // replacement key available for them.
+  it('replaces an earlier legacy commit for the same attraction', () => {
     saveCommit({ facilityId: 'a', time: '16:10:00' });
     saveCommit({ facilityId: 'a', time: '13:15:00' });
     expect(loadCommits()).toEqual([
       { facilityId: 'a', time: '13:15:00', at: expect.any(Number) },
+    ]);
+  });
+
+  it('keeps split-party commits for the same attraction separate', () => {
+    saveCommit({
+      facilityId: 'a',
+      time: '16:10:00',
+      reservationIds: ['ent-1'],
+    });
+    saveCommit({
+      facilityId: 'a',
+      time: '13:15:00',
+      reservationIds: ['ent-2'],
+    });
+    expect(loadCommits()).toHaveLength(2);
+  });
+
+  it('replaces only the matching split-party commit', () => {
+    saveCommit({
+      facilityId: 'a',
+      time: '16:10:00',
+      reservationIds: ['ent-1'],
+    });
+    saveCommit({
+      facilityId: 'a',
+      time: '13:15:00',
+      reservationIds: ['ent-2'],
+    });
+    saveCommit({
+      facilityId: 'a',
+      time: '12:05:00',
+      reservationIds: ['ent-1'],
+    });
+    expect(loadCommits()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          time: '13:15:00',
+          reservationIds: ['ent-2'],
+        }),
+        expect.objectContaining({
+          time: '12:05:00',
+          reservationIds: ['ent-1'],
+        }),
+      ])
+    );
+    expect(loadCommits()).toHaveLength(2);
+  });
+
+  it('clears only the matching split-party commit', () => {
+    saveCommit({
+      facilityId: 'a',
+      time: '16:10:00',
+      reservationIds: ['ent-1'],
+    });
+    saveCommit({
+      facilityId: 'a',
+      time: '13:15:00',
+      reservationIds: ['ent-2'],
+    });
+    clearCommit('a', parkDate(), ['ent-1']);
+    expect(loadCommits()).toEqual([
+      expect.objectContaining({
+        facilityId: 'a',
+        time: '13:15:00',
+        reservationIds: ['ent-2'],
+      }),
     ]);
   });
 

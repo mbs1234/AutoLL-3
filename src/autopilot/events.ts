@@ -25,6 +25,7 @@ export const SKIP_TEXT: Record<string, string> = {
   'not-enabled': 'that action is not switched on for this attraction',
   'no-existing-booking': 'there was no reservation to move',
   'already-held': 'you already hold a pass for it',
+  'slots-full': 'all three Multi Pass selections are already held',
   // Raised by the provider, not by a helper, which is how it was missed: a
   // rejected action waits out a cooldown before it is tried again, and during
   // that wait the log said "waiting-to-retry" -- a raw identifier, shown at

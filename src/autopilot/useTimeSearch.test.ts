@@ -709,6 +709,7 @@ describe('useTimeSearch', () => {
           kind: 'modify',
           from: String(at(13)),
           to: String(at(11)),
+          reservationIds: ['ent-1'],
         },
         expect.any(Number)
       );

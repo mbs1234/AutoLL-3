@@ -214,6 +214,7 @@ describe('SKIP_TEXT', () => {
       // union declares them.
       'outside-window',
       'tier-hold',
+      'slots-full',
     ];
     expect(declared.length).toBeGreaterThan(10);
     expect(declared.filter(reason => !(reason in SKIP_TEXT))).toEqual([]);

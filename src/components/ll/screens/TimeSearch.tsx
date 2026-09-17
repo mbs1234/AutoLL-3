@@ -118,6 +118,13 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
         facilityId: moved.facilityId,
         time: String(moved.start.time),
         date: bookingDate,
+        kind: 'modify',
+        reservationIds: [
+          ...new Set([
+            moved.id,
+            ...moved.guests.map(guest => guest.entitlementId),
+          ]),
+        ],
       }),
   });
 

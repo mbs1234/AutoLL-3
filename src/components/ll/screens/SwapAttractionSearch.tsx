@@ -139,6 +139,13 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
         facilityId: moved.facilityId,
         time: String(moved.start.time),
         date: bookingDate,
+        kind: 'swap',
+        reservationIds: [
+          ...new Set([
+            moved.id,
+            ...moved.guests.map(guest => guest.entitlementId),
+          ]),
+        ],
       }),
     findHeld: findHeldByEntitlement,
     confirmEveryMove: true,

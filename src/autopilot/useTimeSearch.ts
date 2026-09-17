@@ -394,6 +394,12 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         ...(baselineRef.current ? { from: String(baselineRef.current) } : {}),
         to: String(quoted.start.time),
         ...(kind === 'swap' && gaining ? { gaining } : {}),
+        reservationIds: [
+          ...new Set([
+            quoted.booking.id,
+            ...quoted.booking.guests.map(guest => guest.entitlementId),
+          ]),
+        ],
       };
       const operation = new MutationOperation({
         id: mutationId(`search-${kind}`),

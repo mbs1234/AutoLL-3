@@ -96,21 +96,26 @@ describe('PlansProvider reconciles unresolved reservations', () => {
   // A Multi Pass, and typed as one. Evidence accepts its exact requested time
   // even after redemption, but another booking kind or a Multiple Experiences
   // replacement must not answer a mutation's question.
-  const held = (facilityId: string, time: string) =>
+  const held = (
+    facilityId: string,
+    time: string,
+    reservationId = `ent-${facilityId}`
+  ) =>
     ({
       type: 'LL',
       subtype: 'MP',
-      id: `ent-${facilityId}`,
+      id: reservationId,
       facilityId,
       name: 'Ride',
       start: new DateTime(DATE, ParkTime.from(time)),
       cancellable: true,
-      guests: [{ id: 'g1', name: 'Guest' }],
+      guests: [{ id: 'g1', name: 'Guest', entitlementId: reservationId }],
     }) as unknown as Booking;
   const modifyDoubt = {
     kind: 'modify' as const,
     from: '19:00:00',
     to: '11:00:00',
+    reservationIds: [`ent-${BZ}`],
   };
 
   let now = 0;
@@ -173,10 +178,13 @@ describe('PlansProvider reconciles unresolved reservations', () => {
         from: '19:00:00',
         to: '13:00:00',
         gaining: INCOMING,
+        reservationIds: [`ent-${BZ}`],
       },
       1000
     );
-    const plans = jest.fn(async () => [held(INCOMING, '13:00:00')]);
+    const plans = jest.fn(async () => [
+      held(INCOMING, '13:00:00', `ent-${BZ}`),
+    ]);
     mount(plans);
     await waitFor(() => expect(plans).toHaveBeenCalled());
     await waitFor(() => expect(quarantinedAt(key)).toBeUndefined());
@@ -196,6 +204,45 @@ describe('PlansProvider reconciles unresolved reservations', () => {
     mount(plans);
     await waitFor(() => expect(plans).toHaveBeenCalled());
     expect(quarantinedAt(key)).toBe(1000);
+  });
+
+  it('does not let another same-ride reservation answer the doubt', async () => {
+    await quarantine(key, modifyDoubt, 1000);
+    const plans = jest.fn(async () => [
+      held(BZ, '11:00:00', 'another-reservation'),
+    ]);
+    mount(plans);
+    await waitFor(() => expect(plans).toHaveBeenCalled());
+    expect(quarantinedAt(key)).toBe(1000);
+  });
+
+  it('finds the matching reservation after an unrelated same-ride entry', async () => {
+    await quarantine(key, modifyDoubt, 1000);
+    const plans = jest.fn(async () => [
+      held(BZ, '11:00:00', 'another-reservation'),
+      held(BZ, '11:00:00'),
+    ]);
+    mount(plans);
+    await waitFor(() => expect(plans).toHaveBeenCalled());
+    await waitFor(() => expect(quarantinedAt(key)).toBeUndefined());
+  });
+
+  it('finds the moved half after a split-party reservation', async () => {
+    await quarantine(
+      key,
+      {
+        ...modifyDoubt,
+        reservationIds: ['ent-stayed', 'ent-moved'],
+      },
+      1000
+    );
+    const plans = jest.fn(async () => [
+      held(BZ, '19:00:00', 'ent-stayed'),
+      held(BZ, '11:00:00', 'ent-moved'),
+    ]);
+    mount(plans);
+    await waitFor(() => expect(plans).toHaveBeenCalled());
+    await waitFor(() => expect(quarantinedAt(key)).toBeUndefined());
   });
 
   it('settles from the exact time even after the pass was redeemed', async () => {
