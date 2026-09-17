@@ -473,8 +473,19 @@ Where the fix is a CSS property, assert the property; a behavioural test there
 is a test that cannot fail.
 
 **Nine Dependabot pull requests are open and none should be merged in a
-hurry.** `.github/dependabot.yml` sweeps npm and GitHub Actions weekly, and all
-nine date from 2026-09-09. The plan, decided 2026-09-15:
+hurry.** `.github/dependabot.yml` sweeps npm and GitHub Actions weekly. Seven
+date from 2026-09-09; #30 (vite 7→8) and #31 (`@vitejs/plugin-react` 5→6)
+arrived on 2026-09-16 and are two more majors on the toolchain that builds the
+shipped bundle, so they belong with #9 rather than with the merge-now item. The
+plan, decided 2026-09-15 and re-checked 2026-09-17:
+
+**Also worth knowing, and not recorded when this section was written:**
+Dependabot's *security* half is switched off for this repository — only version
+updates are enabled. So these PRs only ever say "a newer version exists", never
+"this one is vulnerable", and no alert will fire before the trip. The
+compensating control is real (`npm audit --omit=dev` is 0, and only `react` and
+`react-dom` ship), but the signal is absent rather than quiet.
+
 
 - **Merge now:** #7, jest 30.0.5 to 30.5.1. A patch bump on the test runner, and
   the only one where deferring buys nothing.
@@ -572,6 +583,6 @@ expensive things land first and the freeze catches the cheap ones.
 | October | §3.2 planning offline, §2.1 and §2.2 the timeline, §2.5 the checklist |
 | Early November | §4.2 and §4.4 decided and acted on, or explicitly dropped; §3.4 the countdown |
 | Late November | §3.3 the overlay IDs against a live tip board; §5 instrumentation |
-| December 6 → trip | Freeze. Full-day dry runs in the harness and in the park. |
+| December 8 → trip | Freeze. Full-day dry runs in the harness and in the park. |
 
 Cut from the bottom: §3.11 live standby first, then §3.9, then §3.7.

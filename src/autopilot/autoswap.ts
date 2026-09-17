@@ -117,7 +117,7 @@ export function chooseSwapVictim(
         // An attraction the data does know and deliberately leaves unranked is
         // the opposite case, and testing `priority !== undefined` conflated the
         // two: it protected PhilharMagic, the Laugh Floor and the Tiki Room --
-        // twenty-six entries -- so a Big Thunder swap gave up Haunted Mansion
+        // a great many entries -- so a Big Thunder swap gave up Haunted Mansion
         // and kept the five-minute show.
         !b.experience.unlisted &&
         comparePriority(incoming, b.experience) < 0

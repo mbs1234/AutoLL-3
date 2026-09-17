@@ -846,7 +846,7 @@ most consequential:
 
 Instrument these; do not model them from folklore. The instrumentation itself —
 log lines, not behaviour changes — is tracked as `docs/FUTURE.md` §5, and it has
-to land before the December 6 freeze, or the ones that need a timestamped record
+to land before the December 8 freeze, or the ones that need a timestamped record
 cannot be answered on the trip at all.
 
 1. **Does an expired, never-tapped first LL free its slot?** One well-cited
@@ -901,7 +901,7 @@ _Revised 2026-09-13._ The schedule has moved to `docs/FUTURE.md`, under "A
 suggested order", and is kept there alone: two orderings of the same work would
 disagree within a week of each other.
 
-Two constraints belong to this document rather than that one. **December 6 is
+Two constraints belong to this document rather than that one. **December 8 is
 the freeze** — no code changes in the final two weeks, only full-day dry runs in
 the harness and in the park, which is also why §10's instrumentation has to be
 in before that date. And **if the weeks slip, §8's live standby ranking is the
