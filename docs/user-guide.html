@@ -1,0 +1,1992 @@
+<!doctype html>
+<html lang="en-US">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="How to set up, read and troubleshoot AutoLL-3, the Walt Disney World Lightning Lane Multi Pass booker.">
+<title>AutoLL-3 Field Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  :root {
+    --paper:      #f6f6f9;
+    --surface:    #ffffff;
+    --surface-2:  #eeeef3;
+    --ink:        #17171f;
+    --ink-2:      #56566a;
+    --ink-3:      #82829a;
+    --rule:       #dedee8;
+    --rule-2:     #c9c9d8;
+
+    --accent:     #a81a93;
+    --accent-ink: #7d1370;
+
+    --arm:        #2b47cf;
+    --safe:       #10704a;
+    --rehearse:   #8f5c00;
+    --stop:       #b4152f;
+
+    --arm-bg:      #eef1fe;
+    --safe-bg:     #e9f5ef;
+    --rehearse-bg: #fbf3e2;
+    --stop-bg:     #fdeef0;
+    --note-bg:     #f0eef6;
+
+    --font-display: 'Archivo', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-body: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+    --measure: 64ch;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #101016;
+      --surface:    #1a1a23;
+      --surface-2:  #23232f;
+      --ink:        #eaeaf2;
+      --ink-2:      #a9a9be;
+      --ink-3:      #7e7e95;
+      --rule:       #2d2d3b;
+      --rule-2:     #3d3d4f;
+
+      --accent:     #ef7ad8;
+      --accent-ink: #f6a9e5;
+
+      --arm:        #8ea4ff;
+      --safe:       #56c99a;
+      --rehearse:   #e0ab4a;
+      --stop:       #ff8095;
+
+      --arm-bg:      #1b2040;
+      --safe-bg:     #142b23;
+      --rehearse-bg: #302512;
+      --stop-bg:     #331820;
+      --note-bg:     #221f2e;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:      #101016;
+    --surface:    #1a1a23;
+    --surface-2:  #23232f;
+    --ink:        #eaeaf2;
+    --ink-2:      #a9a9be;
+    --ink-3:      #7e7e95;
+    --rule:       #2d2d3b;
+    --rule-2:     #3d3d4f;
+
+    --accent:     #ef7ad8;
+    --accent-ink: #f6a9e5;
+
+    --arm:        #8ea4ff;
+    --safe:       #56c99a;
+    --rehearse:   #e0ab4a;
+    --stop:       #ff8095;
+
+    --arm-bg:      #1b2040;
+    --safe-bg:     #142b23;
+    --rehearse-bg: #302512;
+    --stop-bg:     #331820;
+    --note-bg:     #221f2e;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+  }
+  .masthead-inner {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 56px 24px 40px;
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(34px, 6vw, 56px);
+    line-height: 1.04;
+    letter-spacing: -0.025em;
+    margin: 0 0 18px;
+    text-wrap: balance;
+    max-width: 18ch;
+  }
+  h1 .nb { white-space: nowrap; }
+  .standfirst {
+    max-width: var(--measure);
+    font-size: 19px;
+    color: var(--ink-2);
+    margin: 0;
+  }
+  .masthead-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 22px;
+    margin-top: 28px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--ink-3);
+  }
+  .masthead-meta span { white-space: nowrap; }
+
+  /* ---------- shell ---------- */
+
+  .shell {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    gap: 56px;
+    align-items: start;
+  }
+
+  /* ---------- contents ---------- */
+
+  .toc {
+    position: sticky;
+    top: calc(env(safe-area-inset-top, 0px) + 24px);
+    padding-block: 40px;
+    font-family: var(--font-display);
+    font-size: 13.5px;
+    line-height: 1.45;
+  }
+  .toc h2 {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 14px;
+    font-weight: 600;
+  }
+  .toc ol { list-style: none; margin: 0 0 22px; padding: 0; }
+  .toc li { margin-bottom: 3px; }
+  .toc a {
+    color: var(--ink-2);
+    text-decoration: none;
+    display: block;
+    padding: 3px 0 3px 12px;
+    border-left: 2px solid var(--rule);
+  }
+  .toc a:hover { color: var(--accent); border-left-color: var(--accent); }
+  .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .toc .toc-part {
+    font-weight: 600;
+    color: var(--ink);
+    padding-left: 0;
+    border-left: none;
+    margin-top: 14px;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .toc .toc-part:hover { border-left: none; }
+
+  .toc-mobile { display: none; }
+
+  /* ---------- article ---------- */
+
+  article { padding-block: 40px; min-width: 0; }
+
+  .part {
+    clear: both;
+    margin: 72px 0 40px;
+    padding-top: 28px;
+    border-top: 3px solid var(--ink);
+  }
+  .part:first-of-type { margin-top: 0; }
+  .part-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 8px;
+  }
+  .part h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(26px, 4vw, 36px);
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    margin: 0 0 12px;
+    text-wrap: balance;
+  }
+  .part p { max-width: var(--measure); color: var(--ink-2); margin: 0; }
+
+  section { margin-bottom: 52px; scroll-margin-top: 24px; clear: both; }
+
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 23px;
+    letter-spacing: -0.015em;
+    line-height: 1.22;
+    margin: 0 0 16px;
+    text-wrap: balance;
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+  }
+  h3 .num {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--accent);
+    flex: none;
+    padding-top: 2px;
+  }
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 16px;
+    letter-spacing: 0.01em;
+    margin: 30px 0 10px;
+    color: var(--ink);
+  }
+
+  p, ul, ol { max-width: var(--measure); }
+  p { margin: 0 0 16px; }
+  ul, ol { margin: 0 0 16px; padding-left: 22px; }
+  li { margin-bottom: 7px; }
+  li::marker { color: var(--ink-3); }
+
+  a { color: var(--accent); text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+
+  code, .ui {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+  .ui { white-space: nowrap; }
+
+  /* ---------- figures ---------- */
+
+  figure {
+    margin: 26px 0;
+    max-width: var(--measure);
+  }
+  figure img {
+    display: block;
+    width: 100%;
+    max-width: 320px;
+    height: auto;
+    border-radius: 6px;
+  }
+  figcaption {
+    font-family: var(--font-display);
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--ink-3);
+    margin-top: 10px;
+    max-width: 44ch;
+  }
+
+  @media (min-width: 1000px) {
+    figure.float {
+      float: right;
+      width: 258px;
+      max-width: 258px;
+      margin: 6px 0 22px 34px;
+    }
+    figure.float img { max-width: 258px; }
+    figure.float figcaption { max-width: none; }
+  }
+
+  .figrow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 26px;
+    margin: 26px 0;
+    max-width: none;
+  }
+  .figrow figure { margin: 0; flex: 1 1 240px; max-width: 300px; }
+
+  /* ---------- callouts ---------- */
+
+  .call {
+    border-left: 3px solid var(--rule-2);
+    background: var(--note-bg);
+    padding: 16px 18px;
+    margin: 22px 0;
+    max-width: var(--measure);
+    border-radius: 0 5px 5px 0;
+  }
+  .call > :last-child { margin-bottom: 0; }
+  .call-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 7px;
+    color: var(--ink-2);
+  }
+  .call.arm      { border-left-color: var(--arm);      background: var(--arm-bg); }
+  .call.arm      .call-label { color: var(--arm); }
+  .call.safe     { border-left-color: var(--safe);     background: var(--safe-bg); }
+  .call.safe     .call-label { color: var(--safe); }
+  .call.rehearse { border-left-color: var(--rehearse); background: var(--rehearse-bg); }
+  .call.rehearse .call-label { color: var(--rehearse); }
+  .call.stop     { border-left-color: var(--stop);     background: var(--stop-bg); }
+  .call.stop     .call-label { color: var(--stop); }
+
+  /* ---------- tables ---------- */
+
+  .tablewrap { overflow-x: auto; margin: 22px 0; max-width: var(--measure); }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--font-display);
+    font-size: 14.5px;
+    line-height: 1.45;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px 10px 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  th {
+    font-weight: 600;
+    font-size: 11.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border-bottom-color: var(--rule-2);
+    white-space: nowrap;
+  }
+  td:first-child { font-weight: 600; white-space: nowrap; padding-right: 20px; }
+  table.wide { font-variant-numeric: tabular-nums; }
+  table.free td:first-child { white-space: normal; }
+
+  /* ---------- status legend ---------- */
+
+  .legend {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 24px 0;
+    max-width: var(--measure);
+  }
+  .legend div { background: var(--surface); padding: 14px 16px; }
+  .legend .swatch {
+    width: 26px; height: 5px; border-radius: 3px; display: block; margin-bottom: 9px;
+  }
+  .legend b {
+    font-family: var(--font-display); font-size: 14px; display: block; margin-bottom: 3px;
+  }
+  .legend span.d {
+    font-family: var(--font-display); font-size: 12.5px; color: var(--ink-2); line-height: 1.4;
+  }
+
+  /* ---------- drop rail ---------- */
+
+  .rail-block {
+    margin: 26px 0 30px;
+    max-width: var(--measure);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 7px;
+    padding: 20px 20px 14px;
+  }
+  .rail-scale {
+    position: relative;
+    height: 15px;
+    margin-left: 96px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--ink-3);
+  }
+  .rail-scale i {
+    position: absolute; transform: translateX(-50%); font-style: normal;
+  }
+  .rail-row {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 9px;
+  }
+  .rail-name {
+    width: 84px; flex: none; text-align: right;
+    font-family: var(--font-display); font-size: 12px; font-weight: 600;
+    color: var(--ink-2); line-height: 1.2;
+  }
+  .rail {
+    position: relative; flex: 1; height: 26px;
+    background: var(--surface-2); border-radius: 4px;
+  }
+  .rail b {
+    position: absolute; top: 4px; bottom: 4px; width: 3px;
+    border-radius: 2px; transform: translateX(-1.5px);
+  }
+  .rail b.mk { background: #c026a8; }
+  .rail b.ep { background: #2b5fd9; }
+  .rail b.hs { background: #cf6a12; }
+  .rail b.ak { background: #17864f; }
+  .rail-foot {
+    font-family: var(--font-display); font-size: 12px; color: var(--ink-3);
+    margin: 12px 0 0 96px; line-height: 1.45;
+  }
+
+  /* ---------- key-value strip ---------- */
+
+  .kv {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 24px 0;
+    max-width: var(--measure);
+  }
+  .kv div { background: var(--surface); padding: 15px 16px; }
+  .kv dt {
+    font-family: var(--font-display); font-size: 11px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-3); margin: 0 0 6px;
+  }
+  .kv dd {
+    margin: 0; font-family: var(--font-mono); font-size: 17px;
+    font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums;
+  }
+  .kv dd small {
+    display: block; font-family: var(--font-display); font-size: 12px;
+    font-weight: 400; color: var(--ink-2); margin-top: 4px; letter-spacing: 0;
+  }
+
+  hr {
+    border: 0; border-top: 1px solid var(--rule); margin: 40px 0;
+    max-width: var(--measure);
+  }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    margin-top: 60px; padding-top: 28px;
+    font-family: var(--font-display); font-size: 13.5px; color: var(--ink-3);
+    max-width: var(--measure);
+  }
+  footer a { color: var(--ink-2); }
+
+  /* ---------- narrow ---------- */
+
+  @media (max-width: 860px) {
+    body { font-size: 16.5px; }
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 20px 72px; }
+    .masthead-inner { padding: 40px 20px 32px; }
+    .toc { display: none; }
+    .toc-mobile {
+      display: block;
+      margin: 28px 0 8px;
+      border: 1px solid var(--rule);
+      border-radius: 7px;
+      background: var(--surface);
+      padding: 14px 16px;
+    }
+    .toc-mobile summary {
+      font-family: var(--font-display); font-weight: 600; font-size: 14px;
+      cursor: pointer; list-style: none;
+    }
+    .toc-mobile summary::-webkit-details-marker { display: none; }
+    .toc-mobile summary::before { content: "▸ "; color: var(--accent); }
+    .toc-mobile[open] summary::before { content: "▾ "; }
+    .toc-mobile .toc { display: block; position: static; padding-block: 14px 0; }
+    figure img { max-width: 100%; }
+    .rail-name { width: 62px; font-size: 11px; }
+    .rail-scale, .rail-foot { margin-left: 74px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+<style>
+  html { color-scheme: light dark; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <p class="eyebrow">Walt Disney World · Lightning Lane Multi Pass</p>
+    <h1>The <span class="nb">AutoLL-3</span> Field Guide</h1>
+    <p class="standfirst">
+      AutoLL-3 books Lightning Lane Multi Passes from the phone in your pocket
+      while you are in the park. You tell it which attractions you want, in what
+      order, and between which times; it watches Disney's tip board and takes
+      what appears — including in the two-second window when a scheduled drop
+      lands. This is how to set it up, how to read it, and what to do when it
+      stops working.
+    </p>
+    <div class="masthead-meta">
+      <span>Version 0.5.0</span>
+      <span>Three parts · 21 screens</span>
+      <span>Unofficial · not endorsed by Disney</span>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+
+  <nav class="toc" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a class="toc-part" href="#part-1">I · Before the trip</a></li>
+      <li><a href="#install">1 Install it</a></li>
+      <li><a href="#first-run">2 First run</a></li>
+      <li><a href="#party">3 Pick your party</a></li>
+      <li><a href="#park-day">4 Park and day</a></li>
+      <li><a href="#configure">5 The watch list</a></li>
+      <li><a href="#plan-check">6 Plan Check</a></li>
+      <li><a href="#timeline">7 The timeline</a></li>
+      <li><a href="#checklist">8 Pre-trip checklist</a></li>
+
+      <li><a class="toc-part" href="#part-2">II · On the park day</a></li>
+      <li><a href="#today">9 Reading Today</a></li>
+      <li><a href="#switch-on">10 Turning it on</a></li>
+      <li><a href="#status">11 What it is doing</a></li>
+      <li><a href="#drops">12 Around a drop</a></li>
+      <li><a href="#tipboard">13 The tip board</a></li>
+      <li><a href="#by-hand">14 Booking by hand</a></li>
+      <li><a href="#plans">15 Plans</a></li>
+      <li><a href="#times">16 Times &amp; DAS</a></li>
+      <li><a href="#nextll">17 NextLL</a></li>
+      <li><a href="#time-search">18 Time Search</a></li>
+      <li><a href="#activity">19 Activity</a></li>
+
+      <li><a class="toc-part" href="#part-3">III · When it goes wrong</a></li>
+      <li><a href="#diagnostic">20 The one test</a></li>
+      <li><a href="#silent">21 Healthy but not booking</a></li>
+      <li><a href="#stopped">22 It stopped</a></li>
+      <li><a href="#unresolved">23 A change that vanished</a></li>
+
+      <li><a class="toc-part" href="#reference">Reference</a></li>
+    </ol>
+  </nav>
+
+  <article>
+
+    <details class="toc-mobile">
+      <summary>Contents</summary>
+      <nav class="toc" aria-label="Contents">
+        <ol>
+          <li><a class="toc-part" href="#part-1">I · Before the trip</a></li>
+          <li><a href="#install">1 Install it</a></li>
+          <li><a href="#first-run">2 First run</a></li>
+          <li><a href="#party">3 Pick your party</a></li>
+          <li><a href="#park-day">4 Park and day</a></li>
+          <li><a href="#configure">5 The watch list</a></li>
+          <li><a href="#plan-check">6 Plan Check</a></li>
+          <li><a href="#timeline">7 The timeline</a></li>
+          <li><a href="#checklist">8 Pre-trip checklist</a></li>
+          <li><a class="toc-part" href="#part-2">II · On the park day</a></li>
+          <li><a href="#today">9 Reading Today</a></li>
+          <li><a href="#switch-on">10 Turning it on</a></li>
+          <li><a href="#status">11 What it is doing</a></li>
+          <li><a href="#drops">12 Around a drop</a></li>
+          <li><a href="#tipboard">13 The tip board</a></li>
+          <li><a href="#by-hand">14 Booking by hand</a></li>
+          <li><a href="#plans">15 Plans</a></li>
+          <li><a href="#times">16 Times &amp; DAS</a></li>
+          <li><a href="#nextll">17 NextLL</a></li>
+          <li><a href="#time-search">18 Time Search</a></li>
+          <li><a href="#activity">19 Activity</a></li>
+          <li><a class="toc-part" href="#part-3">III · When it goes wrong</a></li>
+          <li><a href="#diagnostic">20 The one test</a></li>
+          <li><a href="#silent">21 Healthy but not booking</a></li>
+          <li><a href="#stopped">22 It stopped</a></li>
+          <li><a href="#unresolved">23 A change that vanished</a></li>
+          <li><a class="toc-part" href="#reference">Reference</a></li>
+        </ol>
+      </nav>
+    </details>
+
+    <section id="start">
+      <h3>Two things that are true of the whole app</h3>
+      <p>
+        <strong>It cannot get you more than Disney's rules allow.</strong> Three
+        Multi Pass selections at a time, one Tier 1 until somebody taps in, one
+        booking per attraction per day. What it has over you is that it is
+        faster and more attentive than you are at 7:00:02.
+      </p>
+      <p>
+        <strong>Keep Disney's own app as the source of truth.</strong> AutoLL-3
+        is unofficial and experimental, and can stop working the day Disney
+        changes an endpoint. When the two disagree about what you hold, Disney
+        is right.
+      </p>
+      <div class="call">
+        <span class="call-label">About the screenshots</span>
+        <p>
+          Every picture here comes from the preview harness
+          (<code>npm run harness</code>), which runs the real screens against
+          fake Disney clients. The data is invented — the party is Mickey,
+          Minnie and Pluto, and the clock drifts a minute or two between
+          shots — so times do not line up from one figure to the next. Where a
+          screenshot shows text the running app would never produce, the caption
+          says so.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= PART 1 ================= -->
+
+    <div class="part" id="part-1">
+      <p class="part-label">Part one</p>
+      <h2>Before the trip</h2>
+      <p>
+        Do all of this at home, days or weeks ahead. The mistakes that cost you
+        a December morning get made in November.
+      </p>
+    </div>
+
+    <section id="install">
+      <h3><span class="num">01</span> Install it</h3>
+      <p>
+        Open the
+        <a href="https://mbs1234.github.io/AutoLL-3/">setup page</a>
+        <strong>on the phone you will actually carry in the park</strong> — not
+        on a laptop. The whole app is built for a phone-width screen.
+      </p>
+      <div class="tablewrap">
+        <table class="free">
+          <thead>
+            <tr><th></th><th>Bookmarklet</th><th>Userscript</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>What it is</td><td>A bookmark you tap</td><td>A script that injects itself</td></tr>
+            <tr><td>When it runs</td><td>Only when you tap it</td><td>Automatically, on Disney's Lightning Lane pages</td></tr>
+            <tr><td>Needs</td><td>Nothing</td><td>Userscripts (iOS) or Tampermonkey (Android)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Pick the userscript if you want AutoLL-3 to appear by itself; pick the
+        bookmarklet if you would rather decide each time.
+      </p>
+      <div class="call stop">
+        <span class="call-label">Install one userscript, not two</span>
+        <p>
+          AutoLL-3's autoloader and AutoLL v1.0's both match
+          <code>disneyworld.disney.go.com/vas/</code>, so with both installed
+          they fight over the page. Two <em>bookmarklets</em> are fine — each
+          only runs when tapped.
+        </p>
+      </div>
+      <h4>Nothing carries over from v1.0</h4>
+      <p>
+        AutoLL-3 keeps its storage under <code>autoll3.*</code> and never reads
+        v1.0's keys. It starts completely empty: no party, no watch list, not
+        even the accepted warning. Your v1.0 data is untouched and stays exactly
+        where it is — but you rebuild here from scratch. Do it now, not at the
+        gate.
+      </p>
+      <p>
+        To tell the two apart later: AutoLL-3 names its browser tab
+        <span class="ui">AutoLL-3</span> and uses a flask favicon 🧪 where v1.0
+        uses a bolt. The build name is also the last line of the Settings menu.
+      </p>
+    </section>
+
+    <section id="first-run">
+      <h3><span class="num">02</span> First run</h3>
+      <p>
+        Run the bookmarklet on a page whose address begins
+        <code>disneyworld.disney.go.com</code>. On any other Disney page the tab
+        is silently sent to AutoLL-3's start page instead — if your tab suddenly
+        becomes a GitHub Pages page, that is what happened.
+      </p>
+      <p>
+        <strong>The warning screen.</strong> A red screen headed
+        <span class="ui">Warning!</span> says the app is experimental,
+        unofficial and unwarranted. Tap <span class="ui">Accept</span>. It never
+        appears again in that browser.
+      </p>
+      <p>
+        <strong>Signing in.</strong> AutoLL-3 never asks for your Disney
+        password. It loads Disney's own OneID sheet, which opens by itself, and
+        Disney hands back a session token held in your browser only. If the
+        sheet does not load, the card gives up after fifteen seconds and offers
+        a retry button — that is the fix for the blank white screen v1.0 used to
+        leave you on. If you close Disney's sheet on purpose, it stays closed.
+      </p>
+      <p>If it asks you to sign in again, a line under the heading says why:</p>
+      <div class="tablewrap">
+        <table class="free">
+          <tbody>
+            <tr>
+              <td>“Your Disney session has expired.”</td>
+              <td>The token ran out — or you tapped Log Out</td>
+            </tr>
+            <tr>
+              <td>“…ends before 5:00 PM park time.”</td>
+              <td>Still valid now, but it will die this afternoon</td>
+            </tr>
+            <tr>
+              <td>“…could not be read safely.”</td>
+              <td>The stored record failed its shape check</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="call safe">
+        <span class="call-label">Worth acting on</span>
+        <p>
+          The five-o'clock refusal is the one to deal with immediately. Sign in
+          again at breakfast; it costs a minute then and saves you discovering a
+          dead session at 2pm in a queue.
+        </p>
+      </div>
+    </section>
+
+    <section id="party">
+      <h3><span class="num">03</span> Pick your party</h3>
+      <figure class="float">
+        <img src="user-guide/settings.png" alt="The settings menu, showing Party Selection, Log Out and a session-only login switch over a dimmed Today screen." loading="lazy">
+        <figcaption>
+          The gear menu. <span class="ui">Session: missing</span> here only
+          because the harness never signs in; on your phone it reads
+          <span class="ui">Session: valid</span>.
+        </figcaption>
+      </figure>
+      <p>
+        Tap the <strong>gear</strong> at the right-hand end of the bottom tab
+        bar, then <span class="ui">Party Selection</span>. Choose “Only book for
+        selected guests”, tick the people you actually want, and
+        <span class="ui">Save</span>. After that, anyone outside your saved
+        party appears on booking screens under Ineligible Guests marked
+        <span class="ui">NOT IN PARTY</span>.
+      </p>
+      <p>
+        The same menu carries <span class="ui">Log Out</span>, a
+        <strong>Session-only login</strong> switch for a borrowed phone (the
+        token then lives only as long as the tab), a
+        <span class="ui">Session:</span> line telling you whether you are signed
+        in, and the build name.
+      </p>
+      <div class="call">
+        <span class="call-label">Known wrong string</span>
+        <p>
+          The Party Selection screen says the cap is 12 guests. At Walt Disney
+          World it is actually <strong>20</strong> — the 12 is a leftover
+          default in shared code.
+        </p>
+      </div>
+    </section>
+
+    <section id="park-day">
+      <h3><span class="num">04</span> Choose the park and the day</h3>
+      <p>
+        The header of the Today tab carries a <strong>date</strong> control and
+        a <strong>park</strong> control. Everything below them — the watch list,
+        the plan, the timeline, the checks — is scoped to that one park on that
+        one day.
+      </p>
+      <p>
+        This is the single most important idea in the app. A plan you build for
+        Tuesday at Magic Kingdom is inert on Thursday at EPCOT. That is
+        deliberate: on Tuesday, nothing EPCOT-shaped can spend an action. But it
+        also means <strong>a plan can look empty simply because you are looking
+        at the wrong day</strong>.
+      </p>
+      <p>
+        The date picker offers 22 days as an upper bound. Most of those are not
+        bookable for most guests; requests for them simply fail.
+      </p>
+    </section>
+
+    <section id="configure">
+      <h3><span class="num">05</span> Build the watch list</h3>
+      <figure class="float">
+        <img src="user-guide/configure.png" alt="The Configure screen: three safeguard chips, a filter box, and three collapsed target cards for Haunted Mansion, Jungle Cruise and Space Mountain." loading="lazy">
+        <figcaption>Configure. Nothing here starts anything.</figcaption>
+      </figure>
+      <p>
+        Today tab → <span class="ui">Configure</span>. This is where the plan
+        lives. Nothing on this screen starts anything: it stays inert until you
+        turn Autopilot on from Today.
+      </p>
+      <h4>Adding an attraction</h4>
+      <p>
+        Scroll to <span class="ui">Lightning Lane attractions</span> at the
+        bottom and tap the ☆ beside a name. It moves up into
+        <span class="ui">Watching (N)</span> and its card opens so you can set it
+        up. The <span class="ui">Filter attractions</span> box narrows both
+        lists.
+      </p>
+      <p>
+        A newly added target starts with <strong>every action off</strong> — it
+        only watches and alerts. That is on purpose: alerting and booking are
+        separate decisions.
+      </p>
+
+      <h4>The five actions</h4>
+      <figure>
+        <img src="user-guide/configure-card.png" alt="A target card unfolded, showing Auto-book on, four other action chips, a return window of 10:03 AM to 2:33 PM, and a plan rank of 1." loading="lazy">
+        <figcaption>
+          Space Mountain's card unfolded: the action chips, the return window
+          and the plan rank.
+        </figcaption>
+      </figure>
+      <div class="tablewrap">
+        <table class="free">
+          <tbody>
+            <tr>
+              <td>Auto-book</td>
+              <td>Books it without asking, the moment a return time inside its window is offered.</td>
+            </tr>
+            <tr>
+              <td>Auto-move</td>
+              <td>For a pass you already hold, moves it earlier when a better time appears — but only for a gain of <strong>30 minutes or more</strong>, and never later.</td>
+            </tr>
+            <tr>
+              <td>Book then move</td>
+              <td>Takes the first time offered <strong>even outside your window</strong>, so you hold something, then works to move it in.</td>
+            </tr>
+            <tr>
+              <td>Swap in</td>
+              <td>When all three slots are full, gives up a held pass to take this one.</td>
+            </tr>
+            <tr>
+              <td>Pause</td>
+              <td>Keeps it watched and alerting while nothing is booked or moved for it.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li>
+          <strong>Book then move ignores your window for the first booking.</strong>
+          If a bad return time is worse than none, do not arm it. Once something
+          is held, the window governs the move again.
+        </li>
+        <li>
+          <strong>Swap in gives up the reservation the <em>app</em> ranks
+          worst</strong>, preferring a non-Tier-1 — not the one with the highest
+          Plan rank you typed. The swap is a single request, so you can never
+          end up holding neither.
+        </li>
+        <li>
+          <strong>Book then move and Swap in each imply booking</strong>, so an
+          attraction can be booked with Auto-book off.
+        </li>
+        <li>
+          <strong>Pausing keeps everything you armed.</strong> The chips stay on,
+          they just do not fire.
+        </li>
+      </ul>
+      <p>
+        A sixth chip, <strong>Passkey</strong>, appears on non-Tier-1
+        attractions only — see <a href="#drops">Around a drop</a>.
+      </p>
+
+      <h4>Return-time window</h4>
+      <p>
+        <span class="ui">Return between</span> two times. Leave either side blank
+        for no bound. A window <strong>limits what Autopilot will take, not what
+        it tells you about</strong> — an attraction outside its window still
+        alerts, so a window can never hide the fact that something came back.
+      </p>
+      <div class="call">
+        <span class="call-label">Why the field waits</span>
+        <p>
+          Clearing a bound to retype it does not take effect until you leave the
+          field. Backspacing over <code>15:00</code> to type <code>14:00</code>
+          used to hand Autopilot an unbounded window for as long as the field was
+          empty — and during a drop burst the poller ticks about once a second.
+        </p>
+      </div>
+
+      <h4>Plan rank</h4>
+      <p>
+        Your own priority order; lower goes first when two attractions come back
+        in the same moment. Leave it blank to use the app's built-in ranking,
+        which is the same <span class="ui">Priority</span> sort the LL tab
+        shows — so the engine always agrees with the list you are looking at.
+        Rank also decides whether Autopilot passes on a Tier 1 offer to keep the
+        slot for a better-ranked Tier 1. It does <em>not</em> decide which
+        reservation a swap gives up.
+      </p>
+
+      <h4>Stop watching</h4>
+      <p>
+        Inside the card, at the bottom. Removal is inside the card on purpose,
+        so a mis-tap on the list cannot lose a window and a rank. An
+        <span class="ui">Undo</span> strip appears for <strong>8 seconds</strong>
+        and remembers only the most recent removal.
+      </p>
+
+      <h4>The three safeguards</h4>
+      <div class="tablewrap">
+        <table class="free">
+          <thead><tr><th>Chip</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Dry run</td><td>Off</td><td>Rehearsal. Every check runs and the log says what it <em>would</em> have done; nothing is booked.</td></tr>
+            <tr><td>Whole party only</td><td>Off</td><td>Refuses to act unless everyone in your party is eligible.</td></tr>
+            <tr><td>Avoid clashes</td><td><strong>On</strong></td><td>Refuses a return time that lands on top of something you already hold, dining included.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Avoid clashes is the only one that starts on, and only an explicit off
+        turns it off. The other two start off, and only a literal stored
+        <code>true</code> turns them on — the asymmetry follows the cost of
+        guessing wrong. Booking by hand only <em>warns</em> about an overlap and
+        lets you book anyway; here it skips instead, because there is nobody to
+        warn.
+      </p>
+
+      <h4>Colour means something</h4>
+      <div class="legend">
+        <div>
+          <span class="swatch" style="background: var(--arm)"></span>
+          <b>Blue</b><span class="d">An action that can spend an entitlement</span>
+        </div>
+        <div>
+          <span class="swatch" style="background: var(--safe)"></span>
+          <b>Green</b><span class="d">A safeguard narrowing what may happen</span>
+        </div>
+        <div>
+          <span class="swatch" style="background: var(--rehearse)"></span>
+          <b>Yellow / amber</b><span class="d">Rehearsal, or a paused target</span>
+        </div>
+        <div>
+          <span class="swatch" style="background: var(--stop)"></span>
+          <b>Red</b><span class="d">Stop, errors and blockers only</span>
+        </div>
+      </div>
+      <p>
+        Every chip also keeps “on” or “off” in its own text, so colour never
+        carries the state alone. <em>The callouts in this guide use the same
+        four colours for the same four meanings.</em>
+      </p>
+    </section>
+
+    <section id="plan-check">
+      <h3><span class="num">06</span> Check it — Plan Check</h3>
+      <figure class="float">
+        <img src="user-guide/plan-check.png" alt="Plan Check showing three blockers: an impossible return window, a target not on the tip board, and a window swallowed by lunch's protected time." loading="lazy">
+        <figcaption>
+          Three blockers and one review item. “Retired Ride” is the harness's
+          fake data.
+        </figcaption>
+      </figure>
+      <p>
+        Today tab → <span class="ui">Plan check</span>. It reads the plan already
+        on screen and returns blockers first.
+        <strong>Opening it asks Disney for nothing</strong> — it judges only the
+        configuration and data the app already has.
+      </p>
+      <p><strong>Blockers</strong> (“Fix before enabling:”)</p>
+      <ul>
+        <li>No saved targets apply to this park and date</li>
+        <li>A target is not on the loaded tip board — usually a re-themed ride with a new internal ID</li>
+        <li>An impossible return window — earliest after latest</li>
+        <li>A window falling <em>entirely</em> inside the protected time around a plan you already hold</li>
+      </ul>
+      <p><strong>Reviews</strong> (“Review:”)</p>
+      <ul>
+        <li>Part of a window clashes with a held plan</li>
+        <li>The tip board has not loaded</li>
+        <li>Dry run is on</li>
+        <li>Nothing is armed to act</li>
+        <li>An armed attraction is paused</li>
+        <li>More than one Tier 1 target armed to book</li>
+        <li>Whole party only is off, or Avoid clashes is off</li>
+      </ul>
+      <p>
+        Most items carry an <span class="ui">Open Configure</span> button. Items
+        about the tip board carry <span class="ui">Refresh LL list</span>, one of
+        only two things here that go to the network. The other is
+        <span class="ui">Check current party</span>, which asks Disney whether
+        your saved guests are generally eligible — it cannot create an offer and
+        cannot spend an entitlement.
+      </p>
+      <div class="call safe">
+        <span class="call-label">What “Ready” means</span>
+        <p>
+          A green <span class="ui">Ready</span> says the plan is internally
+          <em>consistent</em>, not that a Lightning Lane exists. Eligibility,
+          inventory and the offer's real return time are checked again
+          immediately before every action.
+        </p>
+      </div>
+    </section>
+
+    <section id="timeline">
+      <h3><span class="num">07</span> See it — the timeline</h3>
+      <figure class="float">
+        <img src="user-guide/timeline.png" alt="The day timeline: two blue Held bars on the left column, three Target bars on the right, on a 4am-to-4am rail." loading="lazy">
+        <figcaption>
+          Held passes left, watch windows right, one 4am-to-4am rail. Target
+          names truncate — tap a bar to see which ride it is.
+        </figcaption>
+      </figure>
+      <p>
+        Today tab → <span class="ui">Timeline</span>. Your held passes down the
+        left, the windows Autopilot may use down the right, both on one
+        4am-to-4am rail.
+      </p>
+      <p>
+        The pale band behind each held pass is the <strong>protected
+        time</strong> around it: 40 minutes before the return time, and after it
+        60 minutes when the pass has no known end or 40 when it does. A window
+        drawn over that band is a window Autopilot will mostly refuse.
+      </p>
+      <div class="tablewrap">
+        <table class="free">
+          <tbody>
+            <tr><td>Green</td><td>Both bounds set, clear of every held Multi Pass</td></tr>
+            <tr><td>Amber</td><td>“crosses a held plan” — part of the window is still usable</td></tr>
+            <tr><td>Red</td><td>“window fully blocked”, or “bounds reversed”</td></tr>
+            <tr><td>Grey</td><td>“any time” — no window, so it permits everything</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Three limits worth knowing:</p>
+      <ul>
+        <li>
+          <strong>Lunch is not on the timeline.</strong> Only Multi Passes are
+          drawn, and only they colour the windows. A dining reservation
+          constrains your bookings without appearing here — which is why Plan
+          Check can call a target blocked while the timeline shows it only amber.
+          Treat the timeline as the picture and Plan Check as the verdict.
+        </li>
+        <li>
+          <strong>A half-set window reads as no window.</strong> Set only an
+          earliest time (or only a latest) and the bar is drawn grey across the
+          whole day, uncoloured and unflagged — even though Autopilot does
+          enforce the bound you set.
+        </li>
+        <li>
+          <strong>Names are truncated</strong> to about three characters. Tap a
+          bar to find out which attraction it is.
+        </li>
+      </ul>
+    </section>
+
+    <section id="checklist">
+      <h3><span class="num">08</span> The pre-trip checklist</h3>
+      <figure class="float">
+        <img src="user-guide/pretrip-checklist.png" alt="Today in pre-trip mode: a Before your trip panel with five readiness items, three ticked and two outstanding." loading="lazy">
+        <figcaption>
+          With a future date on screen, Today becomes a readiness list.
+        </figcaption>
+      </figure>
+      <p>
+        When the day on screen is <strong>not today</strong>, the Today tab
+        becomes a readiness list. Five items, each with a button that opens the
+        screen that fixes it: party saved, at least one target, an action
+        actually armed, notifications allowed, Plan Check reviewed.
+      </p>
+      <p>
+        It is a local readiness summary, not a live check of Disney — it makes no
+        requests. The panel disappears the moment the booking date is today, and
+        the “Plan Check reviewed” tick is not saved across a reload.
+      </p>
+      <h4>The night before</h4>
+      <ul>
+        <li>Re-check the park and date in the header.</li>
+        <li>Run Plan Check and clear the blockers.</li>
+        <li>Confirm <strong>Dry run</strong> is off if you want it to act — dry run survives reloads and a new park day.</li>
+        <li>Sign in again if the session line warns it ends before 5pm.</li>
+      </ul>
+    </section>
+
+    <!-- ================= PART 2 ================= -->
+
+    <div class="part" id="part-2">
+      <p class="part-label">Part two</p>
+      <h2>On the park day</h2>
+      <p>
+        You land on the day, not in a menu. Autopilot always starts off — the
+        on/off state is deliberately not remembered, and the 4am park-day
+        rollover switches it off too.
+      </p>
+    </div>
+
+    <section id="today">
+      <h3><span class="num">09</span> Reading the Today tab</h3>
+      <figure class="float">
+        <img src="user-guide/today-off.png" alt="The Today tab with autopilot off: a freshness line, a Turn on autopilot button, Status Off, four shortcut buttons, and Held (2) above Plan (0)." loading="lazy">
+        <figcaption>Today with Autopilot off and nothing yet watched.</figcaption>
+      </figure>
+      <p>
+        Top to bottom, Today answers the questions you actually ask in a queue.
+      </p>
+      <p>
+        <strong>The freshness line</strong> — “Plans and LL availability are
+        current as of just now.” This is the line that tells you whether to
+        believe the rest of the screen. If it is climbing, tap refresh. If there
+        is <strong>no line at all</strong>, neither list has ever loaded — which
+        is not the same as fresh.
+      </p>
+      <p>
+        <strong>Held (N)</strong> is what you are actually holding, at every park
+        on that date. <strong>Plan (N)</strong> is what Autopilot is still after,
+        for the park in the header only. The two lists are scoped differently on
+        purpose — which is why you can see <span class="ui">Held (2)</span> above
+        “Nothing watched at Magic Kingdom on this date.”
+      </p>
+      <p>
+        <strong>The four buttons</strong> — Configure, Plan check, Timeline,
+        Activity — are the screens Today deliberately does not try to be.
+        <strong>Next Lightning Lane / Next drop</strong> are the two times that
+        decide when anything can happen.
+      </p>
+    </section>
+
+    <section id="switch-on">
+      <h3><span class="num">10</span> Turning Autopilot on</h3>
+      <p>
+        The big button in the middle. That one tap does four things: starts the
+        loop, unlocks the alert chime, asks the browser for notification
+        permission, and asks the phone to keep the screen awake. That is why it
+        has to be a deliberate tap and not a toggle in the header.
+      </p>
+      <p>
+        Turning it on starts a <strong>fresh run</strong>: the session log, skip
+        counts, refusal state, per-run locks and the drop-detection baseline are
+        all cleared, and anything already available gets re-alerted.
+      </p>
+      <div class="call stop">
+        <span class="call-label">The one hard limit</span>
+        <p>
+          <strong>Autopilot only runs while the page is open and in front of
+          you.</strong> Lock the phone or switch apps and the browser throttles
+          its timers to minutes. The screen wake lock exists to prevent exactly
+          this, and it is best-effort — where the phone refuses, nothing on
+          screen says so.
+        </p>
+      </div>
+    </section>
+
+    <section id="status">
+      <h3><span class="num">11</span> What it is doing right now</h3>
+      <figure class="float">
+        <img src="user-guide/today-running.png" alt="Today while autopilot bursts at a drop: a red Turn off autopilot button, a recent move, Status Checking rapidly with 57 checks, and local timing." loading="lazy">
+        <figcaption>
+          Bursting at a drop. The two “Next drop” times differ on purpose — see
+          below.
+        </figcaption>
+      </figure>
+      <div class="tablewrap">
+        <table class="wide">
+          <thead><tr><th>Status</th><th>Pace</th><th>When</th></tr></thead>
+          <tbody>
+            <tr><td>Off</td><td>—</td><td>Not running</td></tr>
+            <tr><td>Watching</td><td>~45 s</td><td>Nothing near</td></tr>
+            <tr><td>Checking often</td><td>~6 s</td><td>5→2 min before a target, or inside a refill window</td></tr>
+            <tr><td>Checking rapidly</td><td>~1.2 s</td><td>T−2:00 to T+2:00 around a target</td></tr>
+            <tr><td>Stopped</td><td>—</td><td>Eight checks failed in a row</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Beside it, <span class="ui">(57 checks)</span> counts the checks since
+        you turned it on — <strong>the simplest proof it is alive is that number
+        rising between visits</strong>.
+        <span class="ui">Local timing: last cycle 412 ms</span> is how long a
+        check is taking on your connection; a sudden jump means slow wifi, not a
+        bug.
+      </p>
+      <p>
+        The bold coloured line above the status is <strong>history</strong> — the
+        last thing Autopilot actually did, with a time. It survives switching
+        Autopilot off, because the day's log is saved. Only the Status block is
+        live.
+      </p>
+      <div class="call">
+        <span class="call-label">Not a bug</span>
+        <p>
+          Two things labelled “Next drop” on this screen are not the same. Inside
+          the Status block it is whatever moment the poller is chasing — which
+          can be a booking window, or a drop the app has learned by observation.
+          Lower down it is the built-in table only.
+        </p>
+      </div>
+      <h4>How to tell it is working</h4>
+      <p>
+        Freshness line recent → button red → Status not
+        <span class="ui">Off</span> or <span class="ui">Stopped</span> → check
+        counter rising. If all four look healthy and nothing is booking, look for
+        the red refusal box, then the amber “failed checks in a row” line, then
+        the yellow dry-run banner, then the <span class="ui">n armed</span> count
+        in Plan. A running Autopilot with <strong>0 armed</strong> will never
+        book anything.
+      </p>
+
+      <h4>Dry run</h4>
+      <figure class="float">
+        <img src="user-guide/dry-run.png" alt="Today with a yellow Dry run banner and a DRY RUN chip in the header strip." loading="lazy">
+        <figcaption>Rehearsal mode announces itself loudly, and survives reloads.</figcaption>
+      </figure>
+      <div class="call rehearse">
+        <span class="call-label">Dry run</span>
+        <p>
+          “Autopilot will watch, alert, and run every check, and the activity log
+          will show what it <em>would</em> have booked, moved, or swapped — but
+          nothing will actually be booked.” Rehearsal runs the same pre-offer
+          guards as the live path. The one thing it cannot test is the real time
+          Disney would have offered, because getting that costs a real request.
+          Turn it off in Configure.
+        </p>
+      </div>
+    </section>
+
+    <section id="drops">
+      <h3><span class="num">12</span> Around a drop</h3>
+      <p>
+        You do not have to do anything. Autopilot carries a table of the minutes
+        Disney tends to release extra inventory, per park, and bursts at all of
+        them — starting two minutes early, because Disney releases drop
+        inventory early often enough that arriving at the advertised minute is
+        arriving late.
+      </p>
+
+      <div class="rail-block">
+        <div class="rail-scale" aria-hidden="true">
+          <i style="left:0%">8am</i>
+          <i style="left:14.3%">10am</i>
+          <i style="left:28.6%">noon</i>
+          <i style="left:42.9%">2pm</i>
+          <i style="left:57.1%">4pm</i>
+          <i style="left:71.4%">6pm</i>
+          <i style="left:85.7%">8pm</i>
+          <i style="left:100%">10pm</i>
+        </div>
+        <div class="rail-row">
+          <div class="rail-name">Magic<br>Kingdom</div>
+          <div class="rail" role="img" aria-label="Magic Kingdom drops at 9:47, 11:47, 13:47, 14:17, 15:47, 17:47, 19:47 and 21:47.">
+            <b class="mk" style="left:12.7%" title="9:47 Tiana's"></b>
+            <b class="mk" style="left:27.0%" title="11:47 Tiana's"></b>
+            <b class="mk" style="left:41.3%" title="13:47 Tiana's"></b>
+            <b class="mk" style="left:44.9%" title="14:17 Tiana's"></b>
+            <b class="mk" style="left:55.6%" title="15:47 Tiana's"></b>
+            <b class="mk" style="left:69.9%" title="17:47 Tiana's"></b>
+            <b class="mk" style="left:84.2%" title="19:47 Tiana's"></b>
+            <b class="mk" style="left:98.5%" title="21:47 Tiana's"></b>
+          </div>
+        </div>
+        <div class="rail-row">
+          <div class="rail-name">EPCOT</div>
+          <div class="rail" role="img" aria-label="EPCOT drops at 8:47, 12:47, 14:47 and 17:47.">
+            <b class="ep" style="left:5.6%" title="8:47 Test Track"></b>
+            <b class="ep" style="left:34.2%" title="12:47 Test Track"></b>
+            <b class="ep" style="left:48.5%" title="14:47 Test Track"></b>
+            <b class="ep" style="left:69.9%" title="17:47 Test Track"></b>
+          </div>
+        </div>
+        <div class="rail-row">
+          <div class="rail-name">Hollywood<br>Studios</div>
+          <div class="rail" role="img" aria-label="Hollywood Studios drops at 10:47, 13:17 and 15:47.">
+            <b class="hs" style="left:19.9%" title="10:47 Millennium Falcon"></b>
+            <b class="hs" style="left:37.7%" title="13:17 Slinky Dog, Toy Story Mania, Tower of Terror"></b>
+            <b class="hs" style="left:55.6%" title="15:47 Millennium Falcon, Slinky Dog, Toy Story Mania, Tower of Terror"></b>
+          </div>
+        </div>
+        <div class="rail-row">
+          <div class="rail-name">Animal<br>Kingdom</div>
+          <div class="rail" role="img" aria-label="Animal Kingdom drops at 8:47, 9:47, 12:47, 13:47, 14:47 and 15:47.">
+            <b class="ak" style="left:5.6%" title="8:47 Expedition Everest"></b>
+            <b class="ak" style="left:12.7%" title="9:47 Kilimanjaro Safaris"></b>
+            <b class="ak" style="left:34.2%" title="12:47 Expedition Everest, Kilimanjaro Safaris"></b>
+            <b class="ak" style="left:41.3%" title="13:47 Kali River Rapids"></b>
+            <b class="ak" style="left:48.5%" title="14:47 Expedition Everest"></b>
+            <b class="ak" style="left:55.6%" title="15:47 Expedition Everest"></b>
+          </div>
+        </div>
+        <p class="rail-foot">
+          Every scheduled drop in the shipped table, on an 8am–10pm scale. Note
+          the :47 pattern, and the two :17 exceptions at Magic Kingdom (14:17)
+          and Hollywood Studios (13:17).
+        </p>
+      </div>
+
+      <div class="call arm">
+        <span class="call-label">Drops are park-wide</span>
+        <p>
+          If any attraction in the park drops at 13:47, Autopilot bursts at 13:47
+          <em>even if you are not watching that ride</em>. Refill windows are the
+          opposite — they only take effect for an attraction on your watch list.
+        </p>
+      </div>
+
+      <h4>Refill windows</h4>
+      <p>
+        Nine attractions trickle inventory back over hours rather than dropping
+        at an instant. For those, Autopilot holds the 6-second pace for the whole
+        span:
+      </p>
+      <div class="tablewrap">
+        <table class="free">
+          <tbody>
+            <tr>
+              <td>09:00–10:30</td>
+              <td>Test Track · Slinky Dog Dash · Toy Story Mania · Tower of Terror · Na'vi River Journey</td>
+            </tr>
+            <tr>
+              <td>11:00–14:30</td>
+              <td>Jingle Cruise · Jungle Cruise · Peter Pan's Flight · Mickey &amp; Minnie's Runaway Railway</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Outside those nine drop minutes, a return time appearing is somebody
+        cancelling — and forty-five seconds is how you miss it.
+      </p>
+
+      <h4>The Tier 1 hold</h4>
+      <p>
+        Disney lets a party hold one Tier 1 selection at a time until the party's
+        first redemption. So Autopilot will <strong>decline a Tier 1 it could
+        take</strong> if a Tier 1 you ranked higher has a drop coming within
+        <strong>90 minutes</strong>. Past that horizon the hold releases on its
+        own. It shows up in Activity as “held the Tier 1 slot for a better
+        attraction”; pausing the attraction you want less removes the hold.
+      </p>
+
+      <h4>The passkey</h4>
+      <p>
+        Mark one easy, high-availability, <strong>non-Tier-1</strong> attraction
+        as the day's passkey in its Configure card. Autopilot books it first;
+        once Disney's own tracker says that entitlement is spent, it asks the
+        eligibility endpoint whether the one-Tier-1 rule has actually lifted for
+        everyone in your party.
+      </p>
+      <div class="call">
+        <span class="call-label">Booking it is not enough</span>
+        <p>
+          The passkey unlocks only when the pass is actually <em>spent</em> — and
+          Disney counts a window you let lapse the same as one you rode, so
+          Autopilot cannot tell those apart.
+        </p>
+      </div>
+    </section>
+
+    <section id="tipboard">
+      <h3><span class="num">13</span> The LL tab — the tip board</h3>
+      <figure class="float">
+        <img src="user-guide/tipboard.png" alt="The tip board: a Tier 1 band listing six attractions with standby waits and LL return times, then an Other band." loading="lazy">
+        <figcaption>
+          One row per attraction: standby on the left, the next LL return time
+          on the right.
+        </figcaption>
+      </figure>
+      <p>
+        One row per attraction: a ☆ favourite, the name, a tier badge, the
+        current <span class="ui">STANDBY</span> wait, and an
+        <span class="ui">LL</span> button showing the next return time. Tap that
+        button to start booking. The banner under the header gives the next
+        moment you may book and the park's next drop.
+      </p>
+      <p>
+        <strong>Sorting</strong> offers Priority (the app's own ranking), Nearby
+        (closest first, today only), Standby, Soonest, and A to Z. Whatever you
+        choose, attractions with no availability sink to the bottom, and sorting
+        never crosses a tier boundary.
+      </p>
+      <p>
+        <strong>Symbols.</strong> ⚡ is a Lightning Pick — a long standby wait
+        paired with a soon return time. ⬇ means an upcoming drop (solid = the
+        next one, faded = later). ✓ means you already hold a pass. A
+        <strong>green bar</strong> down the left edge means this attraction is
+        available earlier than a pass you already hold in that tier — the one cue
+        with no legend entry.
+      </p>
+      <p>
+        The clock button in the header is the <strong>Autopilot status
+        light</strong>: green running, yellow dry run, red stopped, plain off,
+        with the number of attractions being watched. Tapping it opens Today; it
+        is navigation only, so a mis-tap can never change what gets booked.
+      </p>
+      <div class="call">
+        <span class="call-label">Silently absent</span>
+        <p>
+          Sold-out attractions still appear, reading “none”. A ride Disney has
+          re-themed under a new internal ID vanishes from this list entirely —
+          the warning for that is on Today.
+        </p>
+      </div>
+    </section>
+
+    <section id="by-hand">
+      <h3><span class="num">14</span> Booking by hand</h3>
+      <figure class="float">
+        <img src="user-guide/book-by-hand.png" alt="The Lightning Lane booking screen for Big Thunder Mountain Railroad, with existing passes, an arrive-by window, the party, and a Book Lightning Lane button." loading="lazy">
+        <figcaption>
+          The offer screen. The party here is the harness's fake data.
+        </figcaption>
+      </figure>
+      <p>
+        Tap any LL time on the tip board. You get the attraction, its land and
+        park, a box listing the passes you already hold that day, the offered
+        window as <span class="ui">Arrive by:</span> with a
+        <span class="ui">Change</span> button, and
+        <span class="ui">Your Party</span> with a
+        <span class="ui">Modify</span> button. The button at the bottom commits.
+      </p>
+      <ul>
+        <li>
+          <strong>Change</strong> opens a grid of return times by hour. Tick
+          <span class="ui">Show all</span> to see ten-minute slots across the
+          whole day — those are the app's educated guesses, not Disney's real
+          inventory, and picking one that does not exist gets you the nearest one
+          that does.
+        </li>
+        <li>
+          <strong>Modify</strong> trims the party. Adding someone who was not
+          previously selected fetches a fresh offer, so the return time can
+          change; removing guests leaves the offer alone.
+        </li>
+      </ul>
+      <div class="call rehearse">
+        <span class="call-label">Check the time again</span>
+        <p>
+          If the offer goes stale between loading and tapping Book, you get a red
+          “Offer expired — refreshing…” flash and a new offer is fetched.
+          <strong>Check the new time before tapping Book again.</strong>
+        </p>
+      </div>
+      <p>
+        Three dead ends you may land on instead:
+        <span class="ui">No Guests Found</span> (a network blip — Try Again),
+        <span class="ui">No Eligible Guests</span> (often with an “Eligible at
+        11:56 AM” note), and
+        <span class="ui">No Reservations Available</span> (not enough slots for
+        the whole party — trim it and check again).
+      </p>
+    </section>
+
+    <section id="plans">
+      <h3><span class="num">15</span> The Plans tab</h3>
+      <figure class="float">
+        <img src="user-guide/plans.png" alt="Your Plans, showing Haunted Mansion, Liberty Tree Tavern Lunch and TRON Lightcycle Run under a Today, September 17 heading." loading="lazy">
+        <figcaption>Your itinerary as the app last read it, grouped by park day.</figcaption>
+      </figure>
+      <p>
+        Lightning Lanes, DAS selections, dining and boarding groups, grouped by
+        park day. Tap any row for details.
+      </p>
+      <p>
+        Only <strong>Multi Pass Lightning Lanes</strong> can be changed here.
+        Dining, park passes, boarding groups and Multiple Experiences passes are
+        read-only however they look. On a Multi Pass's details screen:
+        <span class="ui">Change</span> gives a different return time for the same
+        attraction; <span class="ui">Modify</span> hands the pass back to the
+        booking flow to trade it for a different attraction, keeping it held
+        until the replacement is booked; <span class="ui">Cancel</span> removes
+        chosen guests, or the whole reservation when you remove everyone.
+      </p>
+      <div class="call stop">
+        <span class="call-label">Cancelling has no confirmation step</span>
+        <p>
+          The bottom button on Cancel Guests fires the request immediately — and
+          if it fails, the app still backs out and redraws the party as though
+          the guests had gone. Reopen the booking from Plans to see what really
+          happened.
+        </p>
+      </div>
+      <p>
+        Plans mirrors Disney; it is not live. A pass cancelled on another phone
+        will not disappear until you refresh.
+      </p>
+    </section>
+
+    <section id="times">
+      <h3><span class="num">16</span> The Times tab, and DAS</h3>
+      <figure class="float">
+        <img src="user-guide/times.png" alt="The Times Guide, showing standby waits grouped by land: Adventureland, Frontierland, Liberty Square and Fantasyland." loading="lazy">
+        <figcaption>
+          Waits grouped by land. The harness's fake clients return no show times,
+          DAS or ILL prices, so this shot is waits only.
+        </figcaption>
+      </figure>
+      <p>
+        A read-only park guide: standby waits, show and character times, and
+        Individual Lightning Lane prices, grouped by land. Names in bold and in
+        the land's colour are the ones the data file flags as popular. Symbols:
+        <code>–</code> no posted wait, <code>❌</code> showing but standby not
+        open, <code>VQ</code> virtual queue only.
+      </p>
+      <p>
+        This tab is also the <strong>only</strong> way to <em>request</em> a DAS
+        return time: a <span class="ui">DAS</span> button appears in the header
+        if Disney reports at least one registered party on your account. An
+        existing DAS selection also opens from Plans and the Timeline.
+      </p>
+    </section>
+
+    <section id="nextll">
+      <h3><span class="num">17</span> The NextLL tab</h3>
+      <figure class="float">
+        <img src="user-guide/nextll.png" alt="The NextLL tab asking What do you want to do, with buttons to book a new Lightning Lane or modify a held one." loading="lazy">
+        <figcaption>NextLL always starts with this two-way choice.</figcaption>
+      </figure>
+      <p>
+        NextLL is the “I want <em>this</em> ride, now” engine — one attraction,
+        one optional window, one button, and you stand there watching. It is a
+        second booking engine running inside the app's own, deliberately kept
+        apart from Autopilot: its own watch list, its own storage, its own
+        poller. A quick search can never add to, arm, or switch off your day
+        plan.
+      </p>
+      <p>
+        <strong>Book a new Lightning Lane</strong> picks one attraction and takes
+        the first time it can get, then keeps trying to move it earlier —
+        checking about every 0.6 seconds.
+      </p>
+      <div class="call stop">
+        <span class="call-label">Two traps in the time bounds</span>
+        <p>
+          <strong>“Return by 1pm” does not mean it will only book before
+          1pm.</strong> With nothing held the window is stripped and it takes
+          whatever is offered — even 7pm — and only then starts moving it toward
+          your window.
+        </p>
+        <p>
+          <strong>“Return after” is the opposite trap.</strong> Setting a lower
+          bound turns the window into a filter on the <em>booking</em>, so the
+          search can spend the morning refusing everything earlier than your
+          bound and holding nothing at all. For a later return, use Time Search.
+        </p>
+      </div>
+      <p>
+        <strong>Leaving the tab stops the search.</strong> It is remembered: come
+        back, tap “Book a new Lightning Lane” again, and a card offers to resume.
+        Today also shows a reminder with an “Open NextLL” button. And it
+        <strong>never stops itself when it succeeds</strong> — once the goal is
+        met the button reads <span class="ui">Done</span> but it keeps checking
+        until you tap it.
+      </p>
+    </section>
+
+    <section id="time-search">
+      <h3><span class="num">18</span> Time Search</h3>
+      <div class="figrow">
+        <figure>
+          <img src="user-guide/time-search.png" alt="Find a better time, holding 11:31 AM, with Find the earliest and an Or aim for time field." loading="lazy">
+          <figcaption>The two ways to start a search.</figcaption>
+        </figure>
+        <figure>
+          <img src="user-guide/time-search-running.png" alt="The same screen running: Holding 10:17 AM, Checking with 3 checks and 1 moved." loading="lazy">
+          <figcaption>Running, with one move already made.</figcaption>
+        </figure>
+      </div>
+      <p>
+        NextLL → Modify a held Lightning Lane → pick one →
+        <span class="ui">Improve return time</span>. Also reachable from a held
+        pass: Plans → the row → <span class="ui">Change</span> → “Search for a
+        better time”.
+      </p>
+      <p>
+        This is the one screen that can do what Autopilot structurally cannot.
+        Autopilot sees only the single earliest time the tip board advertises, so
+        it can only pull a pass <strong>earlier</strong>. Time Search opens a
+        real modify offer and reads the <strong>whole return-time grid</strong>
+        behind it, so it can walk a pass in either direction toward a time you
+        type in — including <strong>later on purpose</strong>, for a dinner
+        reservation.
+      </p>
+      <ul>
+        <li><span class="ui">Find the earliest</span> chases the soonest slot.</li>
+        <li>
+          <span class="ui">Or aim for</span> + <span class="ui">Aim for this time</span>
+          walks toward a named time, accepting gains as small as five minutes.
+        </li>
+      </ul>
+      <div class="call arm">
+        <span class="call-label">A later move is offered, never taken</span>
+        <p>
+          When the best move toward your target is a later slot, an amber box
+          appears: “A later time is available… Taking it gives up the earlier
+          reservation you hold now.” with a <span class="ui">Take it</span>
+          button. Nothing is held for you while it waits — the slot can be gone
+          by the time you tap, and the tap takes up to six seconds to act because
+          the commit runs on the next cycle.
+        </p>
+      </div>
+      <p>
+        Both searches take an exclusive, expiring lock on that one reservation
+        from their first attempted change, so Autopilot cannot touch it
+        mid-search. If Autopilot got there first you get an amber “Waiting for
+        Autopilot to finish a request…” box, and the search takes over as soon as
+        that returns.
+      </p>
+      <p>
+        <strong>Change attraction</strong> is the sister screen: it hunts a
+        replacement ride for a pass you hold, and <strong>always asks before
+        replacing</strong>, even if the offered time is earlier.
+      </p>
+    </section>
+
+    <section id="activity">
+      <h3><span class="num">19</span> The Activity screen</h3>
+      <figure class="float">
+        <img src="user-guide/activity.png" alt="Activity, showing Booking activity with a move and a failure, then Why nothing was booked with three skip tallies." loading="lazy">
+        <figcaption>
+          The log, and the skip counts underneath it. The fixture text in this
+          shot is invented — see the note below.
+        </figcaption>
+      </figure>
+      <p>
+        Today tab → <span class="ui">Activity</span>. Three sections.
+      </p>
+      <p>
+        <strong>Booking activity (N)</strong> — today's bookings, moves, swaps,
+        rehearsals and failures, newest first, capped at 20 rows. Repeated
+        failures collapse to one row with a <span class="ui">×47</span> count
+        instead of flooding the log.
+      </p>
+      <p>
+        <strong>Why nothing was booked</strong> — a tally of every reason
+        Autopilot decided not to act, in plain English: “the offered time was
+        outside the window”, “not everyone in the party was eligible”, “held the
+        Tier 1 slot for a better attraction”, “it clashed with something already
+        booked”, and a dozen more. <strong>This is the answer to “it's running,
+        so why hasn't it booked anything?”</strong> — skips are the normal
+        outcome and are kept out of the log so they cannot swamp it.
+      </p>
+      <p>
+        <strong>Learned drop times</strong> — what Autopilot has seen with its
+        own eyes, against the built-in schedule. A drop seen on <strong>two
+        different park days</strong> becomes eligible to join the times it bursts
+        for. A red “never seen in 3 watched days” is evidence for you, not an
+        action it took: removing a built-in time is switched off in this build.
+      </p>
+      <div class="call">
+        <span class="call-label">Fixture text in the screenshot</span>
+        <p>
+          “forty minutes sooner, inside the window” and “Network request failed
+          (403 offer)” are harness fixtures. The running app writes one of three
+          fixed justifications, and its failure rows read “Request failed (403)”.
+        </p>
+      </div>
+      <p>
+        The log survives a reload; the skip counts do not — they are per-run and
+        in memory. At 4am both reset and Autopilot switches itself off.
+      </p>
+    </section>
+
+    <!-- ================= PART 3 ================= -->
+
+    <div class="part" id="part-3">
+      <p class="part-label">Part three</p>
+      <h2>When something goes wrong</h2>
+      <p>
+        Most failures leave the watching, alerting and drop-learning half of the
+        app working even when booking is blocked. That is both the design and the
+        thing that is easiest to miss.
+      </p>
+    </div>
+
+    <section id="diagnostic">
+      <h3><span class="num">20</span> The one diagnostic</h3>
+      <p>
+        <strong>Book a single Lightning Lane by hand and read the banner at the
+        bottom of the screen.</strong> Everything else in this part is a
+        variation on that one test.
+      </p>
+      <div class="tablewrap">
+        <table class="free">
+          <thead><tr><th>Banner</th><th>Meaning</th><th>What to do</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>(403 guests)</code></td>
+              <td>Disney's filter is refusing this app</td>
+              <td>Stop trying; book in Disney's app. Leave AutoLL-3 running as a watcher</td>
+            </tr>
+            <tr>
+              <td><code>(no response guests)</code></td>
+              <td>Your signal dropped — an 8-second timeout</td>
+              <td>Move, or switch wifi off. <strong>If you were mid-booking, check Disney's Plans first</strong></td>
+            </tr>
+            <tr>
+              <td>“Too many requests just now.”</td>
+              <td>You tapped faster than 5 requests/second</td>
+              <td>Wait five seconds</td>
+            </tr>
+            <tr>
+              <td>“Unknown error occurred”</td>
+              <td>No status at all — usually the rate limit, on screens that do not name it</td>
+              <td>Wait five seconds and retry once</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The banner clears itself after three seconds and is stored nowhere. Miss
+        it and the only way to see it again is to repeat the action.
+      </p>
+    </section>
+
+    <section id="silent">
+      <h3><span class="num">21</span> Healthy, but never booking</h3>
+      <figure class="float">
+        <img src="user-guide/refused.png" alt="Today with a pink alert reading Disney is refusing these requests, while the status still says Watching." loading="lazy">
+        <figcaption>The only place this state is named.</figcaption>
+      </figure>
+      <p>
+        This is the failure mode to watch for. Disney's filter hits the
+        <strong>eligibility</strong> call first — one step before an offer
+        exists — so Autopilot keeps polling, keeps alerting and keeps learning
+        drop times while never acting.
+      </p>
+      <p>
+        The red <strong>“Disney is refusing these requests.”</strong> box on
+        Today is the only thing that names it. It waits a full minute before
+        appearing, so it describes a condition rather than a hiccup, and it only
+        counts outright 403s. Book by hand meanwhile; do not keep toggling
+        Autopilot, because the refusal is Disney's.
+      </p>
+      <h4>An attraction has vanished from the list</h4>
+      <figure class="float">
+        <img src="user-guide/unknown-attraction.png" alt="Today with a red line reading Disney is listing 1 attraction this build does not recognise. Configure names it." loading="lazy">
+        <figcaption>What a re-themed ride looks like from here.</figcaption>
+      </figure>
+      <p>
+        Disney has re-themed a ride and issued a new internal ID; the old one
+        stops appearing, and the new one is dropped silently — no row, no target,
+        no alert. Open <span class="ui">Configure</span> for the ID numbers.
+        There is no fix inside the app. Check your saved plan too: the target
+        sits there looking armed, and Configure lists it under “Not on today's
+        list” with a remove button.
+      </p>
+    </section>
+
+    <section id="stopped">
+      <h3><span class="num">22</span> Autopilot stopped</h3>
+      <figure class="float">
+        <img src="user-guide/stopped.png" alt="Today reading Status: Stopped after repeated errors, with a red line saying it stopped after failed checks and to turn it back on." loading="lazy">
+        <figcaption>
+          The screenshot says 5 failed checks because that is a harness fixture.
+          The real app always stops at 8.
+        </figcaption>
+      </figure>
+      <p>
+        Eight checks failed in a row, so it gave up rather than spin. It is no
+        longer watching, alerting or booking, and <strong>it does not restart
+        itself.</strong>
+      </p>
+      <p>
+        The switch still reads <span class="ui">Turn off autopilot</span>, so
+        restarting is <strong>two taps</strong>: off, then on. The exception is a
+        stop caused by an expired session — signing back in remounts the app with
+        Autopilot off, so there it is one tap.
+      </p>
+      <div class="call stop">
+        <span class="call-label">Nothing tells you</span>
+        <p>
+          No notification fires when it stops. You find out by looking at Today,
+          by the footer strip on other tabs, by noticing the header clock has
+          turned red — or by your phone starting to sleep normally again, because
+          the wake lock is released.
+        </p>
+      </div>
+    </section>
+
+    <section id="unresolved">
+      <h3><span class="num">23</span> A change that never came back</h3>
+      <figure class="float">
+        <img src="user-guide/time-search-unresolved.png" alt="Find a better time showing a red panel: A move to 10:17 AM did not come back, with an Open Plans button." loading="lazy">
+        <figcaption>The reservation is held until you or Disney settle it.</figcaption>
+      </figure>
+      <p>
+        A booking request can leave the phone and never return: the park's wifi
+        drops, the response never arrives. It may have worked or it may not, and
+        nothing arriving later can tell you which. Retrying risks moving a
+        reservation twice; forgetting it leaves a pass unprotected.
+      </p>
+      <p>
+        So that reservation is <strong>held</strong>, and the hold is visible.
+        Activity and Plan Check both list it under a red panel, naming the
+        attraction and what the change was trying to do — “Move Haunted Mansion
+        from 7:15 PM to 11:40 AM on December 5”. Nothing touches that pass until
+        Disney's own itinerary shows the exact result the request asked for.
+      </p>
+      <p>
+        <strong>Open Disney's Plans and look.</strong> Then, to release it
+        yourself: <span class="ui">I checked Disney — resolve this</span> →
+        <span class="ui">Clear this protection</span>. It asks twice because
+        clearing it is the one action here that can cost you a reservation. The
+        protection can also clear itself: a later Plans refresh showing the exact
+        requested time resolves it with no tap from you.
+      </p>
+
+      <h4>Common questions</h4>
+      <div class="tablewrap">
+        <table class="free">
+          <tbody>
+            <tr>
+              <td>“Why is nothing booking?”</td>
+              <td>In order: is Dry run on? Is anything armed and unpaused? Is the refusal box showing? Did it stop? Then read <strong>Why nothing was booked</strong> on Activity.</td>
+            </tr>
+            <tr>
+              <td>“Why did it skip a time I wanted?”</td>
+              <td>Most likely the offered time fell outside that attraction's window, or Avoid clashes refused it against a plan you already hold — including dining, which the timeline does not draw.</td>
+            </tr>
+            <tr>
+              <td>“It booked something terrible.”</td>
+              <td>Check whether <strong>Book then move</strong> is armed for it. That action ignores your window for the first booking by design.</td>
+            </tr>
+            <tr>
+              <td>“It gave away the wrong pass.”</td>
+              <td>Swap in gives up the reservation the <em>app</em> ranks worst, not the one with the highest Plan rank you typed.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= REFERENCE ================= -->
+
+    <div class="part" id="reference">
+      <p class="part-label">Reference</p>
+      <h2>The numbers</h2>
+      <p>Every threshold the engine actually uses, in one place.</p>
+    </div>
+
+    <section id="ref-cadence">
+      <h3>Checking speeds</h3>
+      <div class="tablewrap">
+        <table class="wide">
+          <thead><tr><th>Mode</th><th>Interval</th><th>Trigger</th></tr></thead>
+          <tbody>
+            <tr><td>Idle — “Watching”</td><td>45 s</td><td>Nothing near</td></tr>
+            <tr><td>Approach — “Checking often”</td><td>6 s</td><td>5→2 min before a target, or inside a refill window</td></tr>
+            <tr><td>Burst — “Checking rapidly”</td><td>1.2 s</td><td>T−2:00 to T+2:00 around a target</td></tr>
+            <tr><td>Tomorrow</td><td>15 s</td><td>Booking date is tomorrow, 7am–10pm park time</td></tr>
+            <tr><td>NextLL quick search</td><td>0.6 s</td><td>A hand-started book search</td></tr>
+            <tr><td>Time Search</td><td>6 s</td><td>A hand-started time search</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Every interval is spread ±20% so the pattern is not perfectly regular. A
+        date further out than tomorrow gets no drop times at all and sits at 45 s
+        all day.
+      </p>
+    </section>
+
+    <section id="ref-limits">
+      <h3>Limits and thresholds</h3>
+      <div class="kv">
+        <div><dt>Request budget</dt><dd>5<small>per second per client, then a 5-second cooldown</small></dd></div>
+        <div><dt>Check deadline</dt><dd>90 s<small>then abandoned, counted as a failure</small></dd></div>
+        <div><dt>Backoff</dt><dd>2→60 s<small>doubling after each failure</small></dd></div>
+        <div><dt>Gives up after</dt><dd>8<small>consecutive failed checks</small></dd></div>
+        <div><dt>Auto-move gain</dt><dd>30 min<small>1 min for a NextLL target with a bound</small></dd></div>
+        <div><dt>Time Search gain</dt><dd>5 min<small>in either direction</small></dd></div>
+        <div><dt>Tier 1 hold horizon</dt><dd>90 min<small>then the hold releases itself</small></dd></div>
+        <div><dt>Undo window</dt><dd>8 s<small>most recent removal only</small></dd></div>
+        <div><dt>Activity log</dt><dd>20<small>rows, then the oldest fall off</small></dd></div>
+        <div><dt>Drop learning</dt><dd>2 days<small>distinct park days before a time is used</small></dd></div>
+        <div><dt>Party cap</dt><dd>20<small>guests per Lightning Lane</small></dd></div>
+        <div><dt>Multi Pass slots</dt><dd>3<small>held at a time</small></dd></div>
+      </div>
+      <p>
+        <strong>Protected span around a plan:</strong> 40 minutes before it
+        starts; after the start, 60 minutes when the plan has no end time or 40
+        when it does — and for a show, up to 20 minutes before the show ends.
+      </p>
+    </section>
+
+    <section id="ref-resets">
+      <h3>What resets when</h3>
+      <div class="tablewrap">
+        <table class="free">
+          <thead><tr><th>Event</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Turning Autopilot on</td>
+              <td>Clears the session log, skip counts, refusal state, locks, cache, passkey status and drop baseline; re-alerts anything already available</td>
+            </tr>
+            <tr>
+              <td>Turning Autopilot off</td>
+              <td>Leaves skip counts and the log alone</td>
+            </tr>
+            <tr>
+              <td>Page reload</td>
+              <td>Autopilot off; skip counts lost; log and watch list survive</td>
+            </tr>
+            <tr>
+              <td>4am park-day rollover</td>
+              <td>Autopilot off; log emptied; skip counts zeroed</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="ref-glossary">
+      <h3>Glossary</h3>
+      <div class="tablewrap">
+        <table class="free">
+          <tbody>
+            <tr><td>Multi Pass</td><td>The Lightning Lane product this app books. Three at a time.</td></tr>
+            <tr><td>Tier 1</td><td>Disney's headliner group. One at a time until the party's first redemption.</td></tr>
+            <tr><td>Drop</td><td>A scheduled release of extra inventory at a fixed minute.</td></tr>
+            <tr><td>Refill window</td><td>A span of hours over which an attraction trickles inventory back, instead of dropping at an instant.</td></tr>
+            <tr><td>Passkey</td><td>An easy non-Tier-1 ride you mark to be booked and ridden first, to clear the Tier 1 hold.</td></tr>
+            <tr><td>Rank</td><td>Your own priority number for a target. Lower goes first; blank uses the built-in ranking.</td></tr>
+            <tr><td>Protected time</td><td>The span around a plan you hold that Autopilot treats as spoken for.</td></tr>
+            <tr><td>Dry run</td><td>Rehearsal: every check runs, nothing is booked.</td></tr>
+            <tr><td>Quarantine</td><td>A hold placed on a reservation whose change got no definite answer from Disney.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer>
+      <p>
+        AutoLL-3 is unofficial, experimental software. It is not affiliated with
+        or endorsed by Disney, it can stop working the day Disney changes an
+        endpoint, and it comes with no warranty. Keep Disney's own app as the
+        source of truth for what you actually hold.
+      </p>
+      <p>
+        Source and issues:
+        <a href="https://github.com/mbs1234/AutoLL-3">github.com/mbs1234/AutoLL-3</a>
+        · GPL-3.0-only, as a modified version of BG1 by Joel Bruick, with the
+        booking work from jgeurts/bg1.
+      </p>
+    </footer>
+
+  </article>
+</div>
+</body>
+</html>

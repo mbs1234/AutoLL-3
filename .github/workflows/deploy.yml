@@ -244,6 +244,27 @@ jobs:
       # answer and proves nothing; the manifest is a record for afterwards,
       # and what is worth failing the deploy over is a payload file MISSING,
       # which is checked below.
+      # The user guide ships with the site so the installer pages can link
+      # to something that explains the app. Unlike the `goofy` overlay above,
+      # these files live in THIS repository, so a missing one is a broken
+      # checkout rather than an absent upstream page -- there is nothing to
+      # degrade to, and failing is the honest answer.
+      #
+      # It runs before the manifest below on purpose: the guide is served, so
+      # it belongs in `autoll3-files.sha256` like every other served file.
+      - name: Overlay the user guide
+        run: |
+          set -euo pipefail
+          for f in docs/user-guide.html docs/user-guide; do
+            if [ ! -e "$f" ]; then
+              echo "::error::$f not found; the site would link to a missing guide"
+              exit 1
+            fi
+          done
+          cp docs/user-guide.html dist/guide.html
+          cp -R docs/user-guide dist/user-guide
+          echo "guide: $(find dist/user-guide -type f | wc -l | tr -d ' ') screenshots + guide.html"
+
       - name: Create release manifest
         run: |
           set -euo pipefail
