@@ -1,3 +1,4 @@
+import { APP_SLUG } from '@/appIdentity';
 import { parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
 import { storageKey } from '@/storageNamespace';
@@ -194,7 +195,16 @@ export interface QuarantineResult {
   error?: unknown;
 }
 
-const QUARANTINE_EVENT = 'autoll3:quarantine-change';
+/**
+ * The `window` event a quarantine change is announced on within this page.
+ *
+ * Namespaced by `APP_SLUG` for the same reason the storage keys are: a sibling
+ * build can be running in this very page, and an unprefixed name would have
+ * each of them re-reading a store the other wrote and their own did not.
+ * Notification across tabs is the `storage` listener in `subscribeQuarantine`,
+ * which keys on `QUARANTINE_KEY` and is therefore already build-specific.
+ */
+const QUARANTINE_EVENT = `${APP_SLUG}:quarantine-change`;
 let generatedId = 0;
 
 /** An id that stays with one mutation through abandonment and any late result. */

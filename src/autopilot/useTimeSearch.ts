@@ -4,6 +4,7 @@ import { RequestError, RequestNotSent } from '@/api/client';
 import type { RequestControl } from '@/api/client';
 import { Booking } from '@/api/itinerary';
 import { LLMP, Offer, OfferError } from '@/api/ll';
+import { APP_NAME } from '@/appIdentity';
 import { ParkTime, parkDate } from '@/datetime';
 import { sleep } from '@/sleep';
 
@@ -372,8 +373,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         if (mountedRef.current) {
           setState(s => ({
             ...s,
-            lastError:
-              'AutoLL-3 could not coordinate this reservation. Reload before trying again.',
+            lastError: `${APP_NAME} could not coordinate this reservation. Reload before trying again.`,
             phase: guard.phase,
           }));
           stop('failed');
@@ -485,8 +485,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
             if (mountedRef.current) {
               setState(s => ({
                 ...s,
-                lastError:
-                  'AutoLL-3 could not release the reservation lock. Reload before trying again.',
+                lastError: `${APP_NAME} could not release the reservation lock. Reload before trying again.`,
               }));
             }
           }
@@ -518,8 +517,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
               setState(s => ({
                 ...s,
                 contended: true,
-                lastError:
-                  'AutoLL-3 lost the reservation lock. Refresh Plans before trying again.',
+                lastError: `${APP_NAME} lost the reservation lock. Refresh Plans before trying again.`,
               }));
               stop('failed');
             }
@@ -539,8 +537,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         if (mountedRef.current) {
           setState(s => ({
             ...s,
-            lastError:
-              'AutoLL-3 could not keep the reservation lock alive. Reload before trying again.',
+            lastError: `${APP_NAME} could not keep the reservation lock alive. Reload before trying again.`,
             phase: guard.phase,
           }));
           stop('failed');
@@ -615,8 +612,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
               phase: guard.phase,
               ...(resolutionError
                 ? {
-                    lastError:
-                      'The request was rejected, but AutoLL-3 could not clear its saved protection. Resolve it from Activity after checking Plans.',
+                    lastError: `The request was rejected, but ${APP_NAME} could not clear its saved protection. Resolve it from Activity after checking Plans.`,
                   }
                 : {}),
             }));
@@ -740,8 +736,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         phase: guard.phase,
         ...(retainError
           ? {
-              lastError:
-                'The move succeeded, but AutoLL-3 could not retain all local protection. Refresh Plans before making another change.',
+              lastError: `The move succeeded, but ${APP_NAME} could not retain all local protection. Refresh Plans before making another change.`,
             }
           : {}),
         ...(!runningRef.current || !canContinue
@@ -830,8 +825,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
           console.error(error);
           setState(s => ({
             ...s,
-            lastError:
-              'AutoLL-3 could not renew the reservation lock. Refresh Plans before making another change.',
+            lastError: `${APP_NAME} could not renew the reservation lock. Refresh Plans before making another change.`,
           }));
           stop('failed');
           return;

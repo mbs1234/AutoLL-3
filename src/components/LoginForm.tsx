@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { AuthData, AuthStatus } from '@/api/auth';
 import { Resort } from '@/api/resort';
+import { PAGES_BASE } from '@/appIdentity';
 
 type EventListener = (result: any) => void;
 
@@ -58,7 +59,7 @@ class OneId {
       this.clientId = `TPR-${resortId}-LBSDK.${os}`;
       const client = self.OneID!.get({
         clientId: this.clientId,
-        responderPage: 'https://mbs1234.github.io/AutoLL-3/responder.html',
+        responderPage: `${PAGES_BASE}/responder.html`,
       });
       await client.init();
       this.client = client;

@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 
 import { sdd } from '@/__fixtures__/ll';
 import { wdw } from '@/__fixtures__/resort';
+import { APP_NAME } from '@/appIdentity';
 import {
   QUARANTINE_KEY,
   leaseKey,
@@ -15,6 +16,19 @@ import Activity from './Activity';
 import { BZ, renderScreen } from './screenTestSetup';
 
 const setup = (options = {}) => renderScreen(<Activity />, options);
+
+/**
+ * The quarantine panel's wording for an entry it cannot clear on its own.
+ *
+ * `APP_NAME` is escaped on the way into the pattern rather than interpolated
+ * raw. The current name has no regex metacharacters, but the name is whatever
+ * `appIdentity` says it is, and a sibling build called `aLL.4` would turn the
+ * `.` into a wildcard -- a test that still passes while matching the wrong
+ * build's text is worse than one that fails.
+ */
+const OLDER_ENTRY = new RegExp(
+  `saved by an older ${APP_NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} version`
+);
 
 beforeEach(() => localStorage.clear());
 
@@ -137,9 +151,7 @@ describe('Activity diagnostics', () => {
     expect(
       screen.getByText(/1 unresolved Lightning Lane change/)
     ).toBeVisible();
-    expect(
-      screen.getByText(/saved by an older AutoLL-3 version/)
-    ).toBeVisible();
+    expect(screen.getByText(OLDER_ENTRY)).toBeVisible();
     fireEvent.click(screen.getByText('I checked Disney — resolve this'));
     expect(screen.getByText(/Clear this only after checking/)).toBeVisible();
     expect(quarantinedAt(key)).toBeDefined();

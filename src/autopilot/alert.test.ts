@@ -1,3 +1,5 @@
+import { NOTIFICATION_TAG_NAMESPACE } from '@/storageNamespace';
+
 import {
   alertPermission,
   audioReady,
@@ -183,11 +185,11 @@ describe('fireAlert()', () => {
     fireAlert({
       title: 'Slinky Dog',
       body: '11:05 AM',
-      tag: 'autoll3-test-sdd',
+      tag: `${NOTIFICATION_TAG_NAMESPACE}test-sdd`,
     });
     expect(ctor).toHaveBeenCalledWith('Slinky Dog', {
       body: '11:05 AM',
-      tag: 'autoll3-test-sdd',
+      tag: `${NOTIFICATION_TAG_NAMESPACE}test-sdd`,
     });
   });
 

@@ -3,6 +3,7 @@ import { use, useMemo, useRef, useState } from 'react';
 import { RequestNotSent } from '@/api/client';
 import { LLMP } from '@/api/itinerary';
 import { Experience } from '@/api/ll';
+import { APP_NAME } from '@/appIdentity';
 import {
   acquire as acquireLease,
   keepAlive as keepLeaseAlive,
@@ -169,7 +170,7 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
       {!search.running && !search.unresolved && (
         <>
           <p className="mt-3 text-sm text-gray-600">
-            Searches continuously for a replacement. AutoLL-3 will always ask
+            Searches continuously for a replacement. {APP_NAME} will always ask
             before replacing this Lightning Lane, even if the offered time is
             earlier.
           </p>

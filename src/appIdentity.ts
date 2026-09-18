@@ -15,6 +15,21 @@
 export const APP_NAME = 'AutoLL-3';
 
 /**
+ * The same name as a storage- and event-safe token.
+ *
+ * Lowercase and unpunctuated because it is a prefix for things the browser
+ * keys on rather than displays: `localStorage` keys, notification tags, and
+ * the cross-tab quarantine event. Those namespaces are how two builds share
+ * `disneyworld.disney.go.com` without overwriting each other, so this value
+ * must differ between builds even though nothing ever shows it to anyone.
+ *
+ * Kept beside `APP_NAME` rather than derived from it: the derivation is a
+ * one-liner, but a silent change in how it strips punctuation would silently
+ * repoint every stored key. `appIdentity.test.ts` asserts the two agree.
+ */
+export const APP_SLUG = 'autoll3';
+
+/**
  * The name where space is tight.
  *
  * The tab bar has four buttons across a phone's width and has to stay on one
@@ -35,6 +50,20 @@ export const APP_SHORT = 'aLL-3';
  * inspection, which two similar glyphs would not be.
  */
 export const APP_ICON = '🧪';
+
+/**
+ * Where this build's own pages live.
+ *
+ * The bookmarklet runs injected into Disney's origin and has none of its own,
+ * so the handful of pages that cannot run there -- the start page, the OAuth
+ * responder, the news feed -- are served from GitHub Pages instead. The path
+ * segment is the repository name, which is also `APP_NAME`.
+ *
+ * One constant rather than three spelled-out URLs: these are the addresses
+ * that must never point at a sibling build, because the responder in
+ * particular is handed a live Disney session.
+ */
+export const PAGES_BASE = `https://mbs1234.github.io/${APP_NAME}`;
 
 function iconHref(glyph: string): string {
   // `text` with a `dy` rather than a centred `dominant-baseline`: baseline
