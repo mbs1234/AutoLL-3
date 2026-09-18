@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
+import { APP_NAME } from '@/appIdentity';
 import kvdb from '@/kvdb';
 import { HOME_TAB_KEY } from '@/storageNamespace';
 
@@ -32,7 +33,7 @@ if (scenario.tab) kvdb.set(HOME_TAB_KEY, scenario.tab);
 
 const world = new World(scenario.script);
 const clients = createFakeClients(world);
-document.title = `AutoLL-3 harness: ${scenario.title}`;
+document.title = `${APP_NAME} harness: ${scenario.title}`;
 
 const app = <HarnessApp scenario={scenario} world={world} clients={clients} />;
 

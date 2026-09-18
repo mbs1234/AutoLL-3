@@ -5,6 +5,7 @@ import { createBooking, hm, wdw } from '@/__fixtures__/ll';
 import { savePendingSearch } from '@/autopilot/nextll';
 import TabsContext from '@/contexts/TabContext';
 import { ParkTime } from '@/datetime';
+import { PARTY_IDS_KEY } from '@/hooks/useSavedParty';
 import { TODAY, nav, setTime } from '@/testing';
 
 import Activity from './Activity';
@@ -355,7 +356,7 @@ describe('Today backoff', () => {
 
 describe('Today context strip', () => {
   it('names the park, the day and the party under the title', () => {
-    localStorage.setItem('autoll3.genie.partyIds', JSON.stringify(['a', 'b']));
+    localStorage.setItem(PARTY_IDS_KEY, JSON.stringify(['a', 'b']));
     setup();
     const strip = screen.getByText('Party of 2').parentElement!;
     expect(within(strip).getByText('Magic Kingdom')).toBeInTheDocument();

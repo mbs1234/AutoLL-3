@@ -1,6 +1,7 @@
 import { use, useEffect, useMemo, useState } from 'react';
 
 import { Guests } from '@/api/ll';
+import { APP_NAME } from '@/appIdentity';
 import { available as leaseCoordinationAvailable } from '@/autopilot/lease';
 import { PlanCheckLevel, checkPlan } from '@/autopilot/plancheck';
 import useQuarantine from '@/autopilot/useQuarantine';
@@ -207,8 +208,8 @@ export default function PlanCheck() {
         {!coordinated && (
           <li className={`rounded-sm p-2 text-sm ${STYLE.review}`}>
             <span className="font-semibold">Review:</span> This browser cannot
-            coordinate reservation locks across tabs. Keep only one AutoLL-3 tab
-            open, and do not run a foreground Time Search while Autopilot is
+            coordinate reservation locks across tabs. Keep only one {APP_NAME}{' '}
+            tab open, and do not run a foreground Time Search while Autopilot is
             acting.
           </li>
         )}
@@ -234,7 +235,7 @@ export default function PlanCheck() {
       </ul>
       <h3>Current party</h3>
       <p className="text-sm text-gray-600">
-        Check whether the guests AutoLL-3 currently sees are eligible in
+        Check whether the guests {APP_NAME} currently sees are eligible in
         general, at {park.name} on this date. Attraction-specific eligibility,
         inventory, and the actual offered time can change and remain protected
         by the final action checks.

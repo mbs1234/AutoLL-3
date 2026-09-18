@@ -37,8 +37,13 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Origin this fork is served from. Must match `base` in vite.config.mts
-  # and the responderPage URL in src/components/LoginForm.tsx.
+  # Origin this fork is served from, used only to repoint upstream's URLs in
+  # the INHERITED static pages below. The app's own pages -- start, responder,
+  # news -- no longer appear here or in the bundle as literals: they are
+  # composed at runtime from `PAGES_BASE` in src/appIdentity.ts, which is also
+  # where `base` in vite.config.mts gets its path segment. So this value is a
+  # second spelling of that one constant and must agree with it. It is kept
+  # spelled out because it brands files that never pass through the bundler.
   PAGES_ORIGIN: https://mbs1234.github.io/AutoLL-3
 
 jobs:

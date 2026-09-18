@@ -63,6 +63,10 @@ import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
 import { DateTime, ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
+import {
+  NEXTLL_WATCHLIST_KEY,
+  NOTIFICATION_TAG_NAMESPACE,
+} from '@/storageNamespace';
 import { TODAY, TOMORROW, setTime } from '@/testing';
 
 import AutopilotProvider, {
@@ -482,7 +486,9 @@ describe('AutopilotProvider', () => {
     await enable();
     await waitFor(() => expect(fireAlert).toHaveBeenCalledTimes(1));
     expect(fireAlert).toHaveBeenCalledWith(
-      expect.objectContaining({ tag: `autoll3-autopilot-${TODAY}-${BZ}` })
+      expect.objectContaining({
+        tag: `${NOTIFICATION_TAG_NAMESPACE}autopilot-${TODAY}-${BZ}`,
+      })
     );
   });
 
@@ -497,7 +503,7 @@ describe('AutopilotProvider', () => {
     await waitFor(() => expect(fireAlert).toHaveBeenCalledTimes(1));
     expect(fireAlert).toHaveBeenCalledWith(
       expect.objectContaining({
-        tag: `autoll3-autopilot-${TOMORROW}-${BZ}`,
+        tag: `${NOTIFICATION_TAG_NAMESPACE}autopilot-${TOMORROW}-${BZ}`,
         body: expect.stringContaining('on '),
       })
     );
@@ -2144,7 +2150,7 @@ describe('AutopilotProvider with a second provider mounted inside it', () => {
                     <Probe />
                     {inner && (
                       <AutopilotProvider
-                        watchListKey="autoll3.nextll.watchlist"
+                        watchListKey={NEXTLL_WATCHLIST_KEY}
                         repeatMoves
                       >
                         <div />

@@ -1,3 +1,4 @@
+import { PAGES_BASE } from '@/appIdentity';
 import { act, cleanup, render, screen, waitFor } from '@/testing';
 
 import LoginForm from './LoginForm';
@@ -39,7 +40,7 @@ describe('LoginForm', () => {
     await waitFor(() => expect(launchLogin).toHaveBeenCalled());
     expect(self.OneID.get).toHaveBeenCalledWith({
       clientId: 'TPR-WDW-LBSDK.IOS',
-      responderPage: 'https://mbs1234.github.io/AutoLL-3/responder.html',
+      responderPage: `${PAGES_BASE}/responder.html`,
     });
 
     const exp = new Date('2050-01-01T00:00:00Z').getTime();

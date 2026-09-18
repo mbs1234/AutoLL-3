@@ -4,6 +4,7 @@ import { RequestNotSent } from '@/api/client';
 import type { RequestControl } from '@/api/client';
 import { Booking, isLLMP } from '@/api/itinerary';
 import { Guests } from '@/api/ll';
+import { APP_NAME } from '@/appIdentity';
 import {
   AlertPermission,
   alertPermission,
@@ -138,6 +139,7 @@ import {
   modifyDate,
   parkDate,
 } from '@/datetime';
+import { NOTIFICATION_TAG_NAMESPACE } from '@/storageNamespace';
 import { now as syncedNow } from '@/timesync';
 
 /**
@@ -649,7 +651,7 @@ export default function AutopilotProvider({
           fireAlert({
             title: `${experience.name} reopened`,
             body: 'Availability can return quickly after a reopening.',
-            tag: `autoll3-reopened-${obsDate}-${id}`,
+            tag: `${NOTIFICATION_TAG_NAMESPACE}reopened-${obsDate}-${id}`,
           });
         }
         const cov = recordCoverage(
@@ -898,7 +900,7 @@ export default function AutopilotProvider({
             ? `Return time ${formatTime(hit.returnTime)}`
             : `Return time ${formatTime(hit.returnTime)} on ${formatDate(date, 'short')}`,
           // Same tag per ride, so a repeat alert replaces rather than stacks.
-          tag: `autoll3-autopilot-${date}-${hit.experience.id}`,
+          tag: `${NOTIFICATION_TAG_NAMESPACE}autopilot-${date}-${hit.experience.id}`,
         });
       }
 
@@ -1459,7 +1461,7 @@ export default function AutopilotProvider({
                 if (outcome?.status === 'failed') {
                   outcome = {
                     ...outcome,
-                    error: `${outcome.error}; AutoLL-3 could not save unresolved-change protection`,
+                    error: `${outcome.error}; ${APP_NAME} could not save unresolved-change protection`,
                   };
                 }
               }
@@ -1608,18 +1610,18 @@ export default function AutopilotProvider({
               ? {
                   title: `Booked ${experience.name}`,
                   body: `Return time ${formatTime(outcome.returnTime)}`,
-                  tag: `autoll3-autopilot-booked-${date}-${experience.id}`,
+                  tag: `${NOTIFICATION_TAG_NAMESPACE}autopilot-booked-${date}-${experience.id}`,
                 }
               : outcome.status === 'modified'
                 ? {
                     title: `Moved ${experience.name} earlier`,
                     body: `${formatTime(outcome.from)} to ${formatTime(outcome.to)}`,
-                    tag: `autoll3-autopilot-booked-${date}-${experience.id}`,
+                    tag: `${NOTIFICATION_TAG_NAMESPACE}autopilot-booked-${date}-${experience.id}`,
                   }
                 : {
                     title: `Swapped in ${experience.name}`,
                     body: `Gave up ${outcome.replaced.name}; return ${formatTime(outcome.to)}`,
-                    tag: `autoll3-autopilot-booked-${date}-${experience.id}`,
+                    tag: `${NOTIFICATION_TAG_NAMESPACE}autopilot-booked-${date}-${experience.id}`,
                   }
           );
           try {
@@ -1729,7 +1731,7 @@ export default function AutopilotProvider({
           fireAlert({
             title: 'Tier 1 hold unlocked',
             body: 'Your passkey is spent and Disney is no longer holding the Tier 1 limit for your party.',
-            tag: `autoll3-passkey-${date}`,
+            tag: `${NOTIFICATION_TAG_NAMESPACE}passkey-${date}`,
           });
         } else {
           setPasskeyStatus('waiting');

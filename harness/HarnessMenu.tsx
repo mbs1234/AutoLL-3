@@ -1,3 +1,4 @@
+import { APP_NAME } from '@/appIdentity';
 import kvdb from '@/kvdb';
 
 import { bridge } from './bridge';
@@ -129,7 +130,7 @@ export default function HarnessMenu({
   }
   return (
     <aside className="w-80 shrink-0 text-sm text-black">
-      <h1 className="mb-3 text-lg font-semibold">AutoLL-3 harness</h1>
+      <h1 className="mb-3 text-lg font-semibold">{APP_NAME} harness</h1>
       {body}
     </aside>
   );

@@ -1,9 +1,24 @@
-/** Shared origin namespace for every durable or session-scoped AutoLL-3 key. */
-export const STORAGE_NAMESPACE = 'autoll3.' as const;
+import { APP_SLUG } from './appIdentity';
+
+/**
+ * Shared origin namespace for every durable or session-scoped key this build
+ * owns.
+ *
+ * Derived from `APP_SLUG` because that is the one value a sibling build
+ * changes: spelling the prefix out here as well would mean two places had to
+ * be kept in step for two builds to stay out of each other's stored state.
+ *
+ * The `as const` on this and on the notification namespace is load-bearing.
+ * Both feed the template literal types below and `storageKey`'s return type,
+ * and a template literal expression without it widens to `string` -- which
+ * would quietly turn `StorageKey`, `NotificationTag` and every namespaced key
+ * in the repo into plain `string` with nothing failing to say so.
+ */
+export const STORAGE_NAMESPACE = `${APP_SLUG}.` as const;
 export type StorageKey = `${typeof STORAGE_NAMESPACE}${string}`;
 
 /** Shared-origin notification tags use a separate browser namespace. */
-export const NOTIFICATION_TAG_NAMESPACE = 'autoll3-' as const;
+export const NOTIFICATION_TAG_NAMESPACE = `${APP_SLUG}-` as const;
 export type NotificationTag = `${typeof NOTIFICATION_TAG_NAMESPACE}${string}`;
 
 export function storageKey<const Suffix extends string>(

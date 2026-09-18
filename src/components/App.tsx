@@ -4,6 +4,7 @@ import { AuthStatus, ReauthNeeded, authStore } from '@/api/auth';
 import { InvalidOrigin } from '@/api/client';
 import { LLClient } from '@/api/ll';
 import { Resort, loadResort } from '@/api/resort';
+import { PAGES_BASE } from '@/appIdentity';
 import ClientsContext, { createClients } from '@/contexts/ClientsContext';
 import ResortContext from '@/contexts/ResortContext';
 import { DateTime } from '@/datetime';
@@ -18,7 +19,7 @@ import Merlock from './ll/Merlock';
 export const NEWS_VERSION = 0;
 
 /** Where anyone who ran the bookmarklet on a page it cannot use is sent. */
-const START_PAGE = 'https://mbs1234.github.io/AutoLL-3/start.html';
+const START_PAGE = `${PAGES_BASE}/start.html`;
 
 function disableDoubleTapZoom() {
   document.body.addEventListener('click', () => null);

@@ -1,4 +1,5 @@
 import { AuthData, ReauthNeeded, authStore } from '@/api/auth';
+import { APP_NAME, PAGES_BASE } from '@/appIdentity';
 import { DISCLAIMER_ACCEPTED_KEY } from '@/hooks/useDisclaimer';
 import { NEWS_VERSION_KEY } from '@/hooks/useNews';
 import kvdb from '@/kvdb';
@@ -55,7 +56,7 @@ describe('App', () => {
   it('shows News if newer than last seen', async () => {
     kvdb.set(NEWS_VERSION_KEY, -1);
     renderComponent();
-    await see.screen('AutoLL-3 News');
+    await see.screen(`${APP_NAME} News`);
     click('Close');
     expect(kvdb.get(NEWS_VERSION_KEY)).toBe(NEWS_VERSION);
   });
@@ -94,19 +95,15 @@ describe('App', () => {
     self.origin = 'https://disneyland.disney.go.com';
     renderComponent();
     await waitFor(() => {
-      expect(navigate).toHaveBeenCalledWith(
-        'https://mbs1234.github.io/AutoLL-3/start.html'
-      );
+      expect(navigate).toHaveBeenCalledWith(`${PAGES_BASE}/start.html`);
     });
   });
 
-  it('redirects to start page if AutoLL-3 cannot run from this origin', async () => {
+  it(`redirects to start page if ${APP_NAME} cannot run from this origin`, async () => {
     self.origin = 'https://example.com';
     renderComponent();
     await waitFor(() => {
-      expect(navigate).toHaveBeenCalledWith(
-        'https://mbs1234.github.io/AutoLL-3/start.html'
-      );
+      expect(navigate).toHaveBeenCalledWith(`${PAGES_BASE}/start.html`);
     });
   });
 });
