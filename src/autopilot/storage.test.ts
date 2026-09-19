@@ -370,6 +370,25 @@ describe("the day's action locks", () => {
     saveLocks(OWNER, [], ['book:A']);
     expect(loadLocks()).toEqual(['book:A']);
   });
+
+  /**
+   * A characterisation guard, not a behaviour change: this passes on the build
+   * before action locks carried a booking date as much as on the one after.
+   *
+   * It is here because that is the whole reason the key could gain a date with
+   * no storage migration a week before a freeze. Keys are opaque strings to
+   * this file and the stored string is the identity -- so a future edit that
+   * starts parsing or rewriting one on the way in would desync the owner-scoped
+   * removal above, and this is what would say so.
+   */
+  it('round-trips a dated key byte for byte', () => {
+    const key = '2026-10-18:book:80010114';
+    saveLocks(OWNER, [key]);
+    expect(loadLocks()).toEqual([key]);
+    expect(holdsLock(key, OWNER)).toBe(true);
+    saveLocks(OWNER, [], [key]);
+    expect(loadLocks()).toEqual([]);
+  });
 });
 
 describe("the day's committed return times", () => {

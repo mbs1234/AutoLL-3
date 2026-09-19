@@ -1,4 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { use, useState } from 'react';
 
 import { mk, wdw } from '@/__fixtures__/resort';
@@ -7,7 +9,7 @@ import type { RequestControl } from '@/api/client';
 import { Booking } from '@/api/itinerary';
 import { Experience, FlexExperience } from '@/api/ll';
 import { fireAlert, primeAudio } from '@/autopilot/alert';
-import { CONFIRM_ABSENT_POLLS } from '@/autopilot/autobook';
+import { AutoBookLedger, CONFIRM_ABSENT_POLLS } from '@/autopilot/autobook';
 import {
   LEASE_TTL_MS,
   QUARANTINE_KEY,
@@ -130,6 +132,7 @@ function Probe() {
     lastSkip,
     sessionLog,
     dropSummaries,
+    bookedCount,
   } = use(AutopilotContext);
   const [claimed, setClaimed] = useState<string>('');
   return (
@@ -143,6 +146,8 @@ function Probe() {
       <button onClick={() => setDryRun(true)}>dry run on</button>
       <button onClick={() => setRequireWholeParty(true)}>whole party on</button>
       <span data-testid="mode">{status.mode}</span>
+      <span data-testid="lastError">{status.lastError ?? ''}</span>
+      <span data-testid="bookedCount">{bookedCount}</span>
       <span data-testid="targets">{targets.length}</span>
       <span data-testid="passkey">{passkeyStatus}</span>
       <span data-testid="lastSkip">
@@ -323,12 +328,21 @@ function setupBooking({
   // The same for `book`, which is the other side of the commit boundary: a
   // request held open here has already left the device.
   bookDelay = undefined as Promise<void> | undefined,
+  // Per-call, for holding one `book` open while a later one runs to completion
+  // -- which is what a tick abandoned at its deadline looks like from here.
+  // Indexed like `bookErrors`; falls back to `bookDelay`.
+  bookDelays = [] as (Promise<void> | undefined)[],
   // Holds the client's pre-dispatch work open, as first-use sensor generation
   // can. The operation signal must reach this side of RequestControl.
   preDispatchDelay = undefined as Promise<void> | undefined,
   // Holds the availability request open, for scope/cancellation tests before
   // any alerting or booking decision has been made.
   experiencesDelay = undefined as Promise<void> | undefined,
+  // The same for the plans poll, per call. A tick stalled here is abandoned by
+  // the poller and resumes at the settle sweep -- the one stretch of a tick
+  // with no `stale()` check in it, and the one that can release every lock on
+  // the ledger.
+  plansDelays = [] as (Promise<void> | undefined)[],
   // Disney's own view of what the party holds, as of the offer. Fresher than
   // the plans snapshot the tick started from, and the two can differ by a move.
   offerItinerary = [] as unknown[],
@@ -370,8 +384,12 @@ function setupBooking({
       if (preDispatchDelay) await preDispatchDelay;
       const send = async () => {
         control?.onDispatch?.();
-        if (bookDelay) await bookDelay;
-        const failure = bookErrors[bookCalls++];
+        // Taken before the wait, so overlapping calls keep the order they were
+        // dispatched in rather than the order they happen to finish in.
+        const call = bookCalls++;
+        const delay = bookDelays[call] ?? bookDelay;
+        if (delay) await delay;
+        const failure = bookErrors[call];
         if (failure === 'no-response') {
           throw new Error('Network request failed');
         }
@@ -393,7 +411,15 @@ function setupBooking({
   const setPolledPlans = (next: Booking[]) => {
     polled = next;
   };
-  const pollPlans = jest.fn(async () => polled);
+  let plansCalls = 0;
+  const pollPlans = jest.fn(async () => {
+    // What plans said when this poll was *asked*, not when it finally answers.
+    // A held response that came back stale is the whole point of the delay.
+    const answered = polled;
+    const delay = plansDelays[plansCalls++];
+    if (delay) await delay;
+    return answered;
+  });
   const pollExperiences = jest.fn(async () => {
     if (experiencesDelay) await experiencesDelay;
     return experiences;
@@ -3096,12 +3122,62 @@ describe('AutopilotProvider shared action locks', () => {
     const { book } = setupBooking();
     await enable();
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
-    expect(loadLocks()).toEqual([`book:${BZ}`]);
+    expect(loadLocks()).toEqual([`${TODAY}:book:${BZ}`]);
   });
 
   // A lock left in the day's copy by an earlier instance still blocks acting:
   // that is the whole point of sharing them.
   it('adopts a lock another instance left behind', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    saveLocks(OTHER_TAB, [`${TODAY}:book:${BZ}`]);
+    const { book } = setupBooking();
+    await enable();
+    await runTicks(3);
+    expect(book).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ...and gives it back on plans evidence, which is the half with the teeth.
+   *
+   * This is the only thing in the product that ever releases a lock left by a
+   * tab that has since been closed: nothing adopted is ever owned here, so no
+   * `releaseAttempt` of ours can reach it, and the shared copy keeps it under
+   * its original owner's name until the 4am rollover. Two tabs open on a
+   * booking morning and one of them closed after taking a lock is an ordinary
+   * morning, and without this the attraction reads `already-attempted` for the
+   * rest of the day.
+   */
+  it('releases a lock another instance left behind once plans settle it', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    saveLocks(OTHER_TAB, [`${TODAY}:book:${BZ}`]);
+    const { book } = setupBooking();
+    await enable();
+    await runTicks(3);
+    expect(book).not.toHaveBeenCalled();
+    // Plans never show the reservation, so the absences add up, the lock goes,
+    // and this instance books it itself.
+    await runTicks(RELEASE_TICKS);
+    expect(book).toHaveBeenCalledTimes(1);
+  });
+
+  // ...but it must say so. This used to `continue` in silence, which is
+  // indistinguishable on screen from nothing being available.
+  it('names the adopted lock as the reason it did nothing', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    saveLocks(OTHER_TAB, [`${TODAY}:book:${BZ}`]);
+    setupBooking();
+    await enable();
+    await runTicks(3);
+    expect(screen.getByTestId('lastSkip')).toHaveTextContent(
+      new RegExp(`^${wdw.experience(BZ).name}: already-attempted$`)
+    );
+  });
+
+  // The shape an older build published, which the owner's installed copy is
+  // still writing until every tab is reloaded. It blocks, because a key with
+  // no date in it cannot say which date it meant and the safe reading is all
+  // of them -- which is exactly what the build that wrote it does.
+  it('honours a lock left by an older build', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
     saveLocks(OTHER_TAB, [`book:${BZ}`]);
     const { book } = setupBooking();
@@ -3110,16 +3186,17 @@ describe('AutopilotProvider shared action locks', () => {
     expect(book).not.toHaveBeenCalled();
   });
 
-  // ...but it must say so. This used to `continue` in silence, which is
-  // indistinguishable on screen from nothing being available.
-  it('names the adopted lock as the reason it did nothing', async () => {
+  // ...and says which of the two it is. This is the one case where the date
+  // fix still costs a booking, so it must not be reported in the words that
+  // mean somebody else is mid-request on it.
+  it('names an older build as the reason, not a live action', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
     saveLocks(OTHER_TAB, [`book:${BZ}`]);
     setupBooking();
     await enable();
     await runTicks(3);
     expect(screen.getByTestId('lastSkip')).toHaveTextContent(
-      new RegExp(`^${wdw.experience(BZ).name}: already-attempted$`)
+      new RegExp(`^${wdw.experience(BZ).name}: stale-lock$`)
     );
   });
 
@@ -3132,7 +3209,7 @@ describe('AutopilotProvider shared action locks', () => {
     const { book } = setupBooking();
     await enable();
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
-    expect(loadLocks()).toEqual([`book:${BZ}`]);
+    expect(loadLocks()).toEqual([`${TODAY}:book:${BZ}`]);
     // Off, then disarmed so the new run has nothing to re-book, then on:
     // `reset()` runs on the way in. Disarming is what makes the withdrawal
     // observable on its own -- left armed, the new run books again and takes a
@@ -3184,7 +3261,7 @@ describe('AutopilotProvider park-day rollover', () => {
     const { book } = setupBooking();
     await enable();
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
-    expect(loadLocks()).toEqual([`book:${BZ}`]);
+    expect(loadLocks()).toEqual([`${TODAY}:book:${BZ}`]);
     await crossRollover();
     // Day-scoped storage reads empty for the new day, and the ledger agrees.
     expect(loadLocks()).toEqual([]);
@@ -3447,5 +3524,665 @@ describe('AutopilotProvider cross-instance overlaps', () => {
     });
     await enable();
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+  });
+});
+
+/**
+ * Roadmap item 10, end to end: the booking date moving under a lock.
+ *
+ * This is the morning of 2026-10-11 in miniature. The party is on-site, so all
+ * three October park days are booked in one sitting from one date picker: three
+ * dates, many searches, the picker moved between them. An action lock that did
+ * not name a date retired an attraction on dates nothing had been attempted for.
+ */
+describe('AutopilotProvider across booking dates', () => {
+  beforeEach(() => setTime('09:00'));
+
+  /** A Multi Pass for BZ on a given date, with its own entitlement id. */
+  function heldOn(date: string, hour: number, id: string): Booking {
+    return {
+      type: 'LL',
+      subtype: 'MP',
+      id,
+      facilityId: BZ,
+      name: 'Held',
+      start: new DateTime(date, new ParkTime(hour)),
+      end: new DateTime(date, new ParkTime(hour + 1)),
+      cancellable: true,
+      modifiable: true,
+      guests: [{ id: 'g1', name: 'A' }],
+    } as unknown as Booking;
+  }
+
+  // The user-visible bug. Book for one date, move the picker, and the
+  // attraction was skipped as already-attempted on a date holding nothing.
+  it('books again for the date the picker moved to', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book, offerOptions, setBookingDate } = setupBooking();
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+
+    await act(async () => setBookingDate(TOMORROW));
+    await runTicks(2);
+    expect(book).toHaveBeenCalledTimes(2);
+    // And for the new date, not a second attempt at the old one.
+    expect(offerOptions[0]).toEqual({ date: TODAY });
+    expect(offerOptions[1]).toEqual({ date: TOMORROW });
+  });
+
+  // The case that never healed. A booking whose response was lost leaves a lock
+  // this instance owns and has never seen held, and the doubt-hold returns
+  // before the absence counter -- correctly, for its own date. Undated, that
+  // hold covered every other date too, for the rest of the session, which is
+  // precisely the shape a 7am rush produces.
+  it('books for a new date although the old one is still in doubt', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book, offerOptions, setBookingDate } = setupBooking({
+      bookErrors: ['no-response'],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+
+    await act(async () => setBookingDate(TOMORROW));
+    await runTicks(RELEASE_TICKS);
+    expect(book).toHaveBeenCalledTimes(2);
+    expect(offerOptions[1]).toEqual({ date: TOMORROW });
+  });
+
+  // The half with no release path at all. `modify` locks were never swept, so
+  // no evidence could clear one: a move made for one date blocked moving that
+  // attraction on every other date for the rest of the session.
+  it('moves a reservation on a new date after moving one on the old', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { book, offerOptions, setBookingDate } = setupBooking({
+      offerHour: 11,
+      plans: [heldOn(TODAY, 19, 'ent-1'), heldOn(TOMORROW, 19, 'ent-2')],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(offerOptions[0]).toEqual({
+      booking: expect.objectContaining({ id: 'ent-1' }),
+    });
+
+    await act(async () => setBookingDate(TOMORROW));
+    await runTicks(2);
+    expect(book).toHaveBeenCalledTimes(2);
+    expect(offerOptions[1]).toEqual({
+      booking: expect.objectContaining({ id: 'ent-2' }),
+    });
+  });
+
+  // The release path itself, on one date. The settle loop swept `book` locks
+  // only, so nothing could ever clear a move's lock: cancel the reservation by
+  // hand and the attraction stayed unmovable for the rest of the session, with
+  // the lock sitting in the day's shared copy for every other instance to adopt.
+  it('releases a move lock once the reservation is gone', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { book, setPolledPlans } = setupBooking({
+      offerHour: 11,
+      plans: [heldOn(TODAY, 19, 'ent-1')],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    await runTicks(PLANS_EVERY_N_TICKS + 1);
+    expect(loadLocks()).toEqual([`${TODAY}:modify:${BZ}`]);
+
+    // Paused, so the only thing that can touch the lock from here is the
+    // settle loop -- which is what this is about.
+    await act(async () => {
+      screen.getByText('pause BZ').click();
+    });
+    // Cancelled by hand. Two consecutive plans polls without it are what the
+    // release needs, and the first one of those also has to have seen it held.
+    setPolledPlans([]);
+    await runTicks(RELEASE_TICKS);
+    expect(loadLocks()).toEqual([]);
+  });
+
+  /**
+   * The retry token is paired one to one with a ledger lock, so it has to carry
+   * the same date the lock does.
+   *
+   * Keyed by action alone, a token minted for a rejection on one date expires
+   * and releases a *different* date's doubt-hold -- re-sending a booking whose
+   * outcome was never learned. That inverts the rule the ledger is built on,
+   * and it is the same inversion the comment above `RETRY_AFTER_MS`'s consumer
+   * already warns about, reached by a different route.
+   */
+  it('does not let a retry token from one date unlock another', async () => {
+    saveWatchList([{ experienceId: BZ, bookThenMove: true }]);
+    const { book, setBookingDate } = setupBooking({
+      repeatMoves: true,
+      // Today's attempt is refused outright, which mints a token. Tomorrow's
+      // takes a real lock and then never hears back.
+      bookErrors: [410, 'no-response'],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+
+    await act(async () => setBookingDate(TOMORROW));
+    await runTicks(2);
+    // The second attempt happened -- otherwise this would pass for the trivial
+    // reason that nothing ever took a lock on the new date.
+    expect(book).toHaveBeenCalledTimes(2);
+    // Long enough for today's token to have expired several times over.
+    await runTicks(Math.ceil(RETRY_AFTER_MS / IDLE_INTERVAL_MS) + 4);
+    expect(book).toHaveBeenCalledTimes(2);
+  });
+
+  // Publication is symmetric with adoption: a key for the date the picker moved
+  // off must keep being republished, since the per-tick write is what heals a
+  // lost one. Left out, moving the picker silently abandons a live lock.
+  it('keeps publishing the old date’s lock after the picker moves', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book, setBookingDate } = setupBooking();
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+
+    await act(async () => setBookingDate(TOMORROW));
+    await runTicks(2);
+    expect(loadLocks().sort()).toEqual([
+      `${TODAY}:book:${BZ}`,
+      `${TOMORROW}:book:${BZ}`,
+    ]);
+  });
+});
+
+/**
+ * The settle loop, driven end to end rather than at the ledger.
+ *
+ * The provider is where the two halves meet: it picks the action from the same
+ * plans the sweep reads, and it sweeps before it acts, so a tick that settles a
+ * lock can book on that same observation a few lines later. Every case below
+ * was reachable only through that ordering.
+ */
+describe('AutopilotProvider settling action locks', () => {
+  beforeEach(() => setTime('09:00'));
+  // The poll interval carries +/-20%% jitter, and every case below turns on
+  // which *poll* a thing lands on. Pinned to the midpoint, where `withJitter`
+  // returns the interval unchanged, so a tick is a tick.
+  beforeEach(() => jest.spyOn(Math, 'random').mockReturnValue(0.5));
+  afterEach(() => jest.restoreAllMocks());
+
+  /**
+   * The double booking. An attraction held, moved, cancelled by hand, rebooked,
+   * and the rebooking's response lost.
+   *
+   * Sharing "seen held" across kinds let the move-era observation stand in for
+   * evidence about the booking, so two absent polls threw away the doubt-hold
+   * protecting a request whose outcome was never learned -- and the next pass
+   * of the action loop spent a second entitlement on the same attraction.
+   */
+  it('does not rebook a lost booking on a move’s evidence', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true, autoModify: true }]);
+    const { book, offerOptions, pollPlans, setPolledPlans } = setupBooking({
+      offerHour: 11,
+      plans: [heldBZAt(19)],
+      // The move lands. The booking that follows the manual cancellation never
+      // hears back, which is exactly what the doubt-hold is for.
+      bookErrors: [undefined, 'no-response'],
+    });
+    // A fresh booking offers against a date; a move offers against the
+    // reservation it is moving. Only the first kind spends an entitlement, and
+    // only the first kind is what must not happen twice.
+    const bookings = () => offerOptions.filter(o => 'date' in o).length;
+    // Plans are polled every tenth tick, and the whole of this failure is which
+    // *poll* each thing lands on -- so step by poll rather than by tick, or the
+    // test is measuring where the arithmetic happened to land.
+    const untilNextPlansPoll = async () => {
+      const polls = pollPlans.mock.calls.length;
+      // Generously: the poll interval carries jitter, so a fixed number of
+      // 45-second advances does not map one to one onto ticks.
+      for (let i = 0; i < PLANS_EVERY_N_TICKS * 3; ++i) {
+        if (pollPlans.mock.calls.length > polls) {
+          // Let the rest of that tick finish: the sweep runs on the poll, and
+          // the action loop it feeds is a dozen awaits further on. Advancing by
+          // zero drains those without reaching the next tick, which is ~45s
+          // away.
+          await act(async () => {
+            for (let drain = 0; drain < 20; ++drain) {
+              await jest.advanceTimersByTimeAsync(0);
+            }
+          });
+          return;
+        }
+        await runTicks(1);
+      }
+      throw new Error('no plans poll happened');
+    };
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    // A poll that sees the reservation: what confirms the move's lock.
+    await untilNextPlansPoll();
+
+    // Cancelled by hand. The next poll is the first that shows it gone, and
+    // that same tick's action loop goes on to book -- sweep first, act second.
+    setPolledPlans([]);
+    await untilNextPlansPoll();
+    // The booking really was made and really is in doubt. Without this the rest
+    // would pass for the trivial reason that nothing ever took the lock this is
+    // about.
+    expect(bookings()).toBe(1);
+    expect(loadLocks()).toContain(`${TODAY}:book:${BZ}`);
+
+    // The second absent poll. This is the one: the move's lock has now been
+    // seen absent twice and goes, and sharing "seen held" across kinds hands
+    // the booking that same second observation.
+    await untilNextPlansPoll();
+    expect(bookings()).toBe(1);
+    expect(loadLocks()).toContain(`${TODAY}:book:${BZ}`);
+
+    // And it stays held, however long nothing is there.
+    await runTicks(RELEASE_TICKS * 2);
+    expect(bookings()).toBe(1);
+    expect(loadLocks()).toContain(`${TODAY}:book:${BZ}`);
+  });
+
+  // The legacy branch of `settleableIds` is the only thing that feeds an old
+  // build's lock into this loop, and it is the whole of the back-compat claim:
+  // a date-less key clears on the same evidence, in the same two polls, as the
+  // build that wrote it clears it.
+  it('clears an older build’s booking lock on plans evidence', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    saveLocks(OTHER_TAB, [`book:${BZ}`]);
+    const { book } = setupBooking();
+    await enable();
+    await runTicks(2);
+    expect(book).not.toHaveBeenCalled();
+    await runTicks(RELEASE_TICKS);
+    expect(book).toHaveBeenCalledTimes(1);
+  });
+
+  // ...but only `book:`, because only `book:` clears in the build that wrote
+  // it. Releasing its move lock on our evidence would free an action that build
+  // still considers taken.
+  it('leaves an older build’s move lock blocking', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    saveLocks(OTHER_TAB, [`modify:${BZ}`]);
+    const { book, setPolledPlans } = setupBooking({
+      offerHour: 11,
+      plans: [heldBZAt(19)],
+    });
+    await enable();
+    await runTicks(PLANS_EVERY_N_TICKS + 1);
+    // The very evidence that clears a date-less `book:` key, applied for far
+    // longer than a release needs. The reservation the *context* reports is
+    // still there, so a cleared lock would be acted on immediately.
+    setPolledPlans([]);
+    await runTicks(RELEASE_TICKS * 2);
+    expect(book).not.toHaveBeenCalled();
+    // And it is still the older build's key doing the blocking, not some other
+    // guard that would make this pass for the wrong reason.
+    expect(screen.getByTestId('lastSkip')).toHaveTextContent(
+      new RegExp(`^${wdw.experience(BZ).name}: stale-lock$`)
+    );
+  });
+
+  // Two locks on one attraction, one absent poll. The dedup in `settleableIds`
+  // is what keeps that from counting as two observations and releasing both
+  // after a single one.
+  it('does not release two locks on one attraction after one absent poll', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true, autoModify: true }]);
+    saveLocks(OTHER_TAB, [`${TODAY}:book:${BZ}`, `${TODAY}:modify:${BZ}`]);
+    const { book, setPolledPlans } = setupBooking({ plans: [heldBZAt(19)] });
+    await enable();
+    // One poll showing it held, then exactly one showing it gone.
+    await runTicks(PLANS_EVERY_N_TICKS + 1);
+    setPolledPlans([]);
+    await runTicks(PLANS_EVERY_N_TICKS);
+    expect(book).not.toHaveBeenCalled();
+  });
+
+  // A swap's lock is published in the dated shape and released by the same
+  // evidence, at the provider boundary rather than only in the ledger.
+  it('publishes and releases a swap lock', async () => {
+    saveWatchList([{ experienceId: BZ, autoSwap: true }]);
+    const heldRanked = (id: string, priority: number): Booking =>
+      ({
+        type: 'LL',
+        subtype: 'MP',
+        id: `ent-${id}`,
+        facilityId: id,
+        name: `Ride ${id}`,
+        experience: { id, name: `Ride ${id}`, priority },
+        start: new DateTime(TODAY, new ParkTime(15)),
+        end: new DateTime(TODAY, new ParkTime(16)),
+        cancellable: true,
+        modifiable: true,
+        guests: [{ id: 'g1', name: 'A' }],
+      }) as unknown as Booking;
+    const { book, setPolledPlans } = setupBooking({
+      offerHour: 11,
+      experiences: [available(BZ, new ParkTime(11), { priority: 1.0 })],
+      plans: [
+        heldRanked('w1', 4.1),
+        heldRanked('w2', 3.0),
+        heldRanked('w3', 2),
+      ],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(loadLocks()).toContain(`${TODAY}:swap:${BZ}`);
+
+    // The gained reservation appears, then is cancelled by hand: seen held, and
+    // then absent twice, which is what a release needs.
+    await act(async () => {
+      screen.getByText('pause BZ').click();
+    });
+    setPolledPlans([heldBZAt(11)]);
+    await runTicks(PLANS_EVERY_N_TICKS + 1);
+    setPolledPlans([]);
+    await runTicks(RELEASE_TICKS);
+    expect(loadLocks()).not.toContain(`${TODAY}:swap:${BZ}`);
+  });
+});
+
+/**
+ * Which of the two things blocking an attraction the screen names.
+ *
+ * `stale-lock` tells the owner to reload their other tabs. That is the right
+ * answer only when an un-interpretable key is the *only* thing in the way; said
+ * over the top of a live request from a current-build tab it sends them to do
+ * something that cannot help.
+ */
+describe('AutopilotProvider naming what blocks an attraction', () => {
+  beforeEach(() => setTime('09:00'));
+
+  it('names the live action when a dated lock blocks alongside a stale one', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    saveLocks(OTHER_TAB, [`book:${BZ}`, `${TODAY}:book:${BZ}`]);
+    setupBooking();
+    await enable();
+    await runTicks(2);
+    expect(screen.getByTestId('lastSkip')).toHaveTextContent(
+      new RegExp(`^${wdw.experience(BZ).name}: already-attempted$`)
+    );
+  });
+});
+
+/**
+ * Ticks overlap, and the ledger holds one booking date at a time.
+ *
+ * `usePoller` stops waiting on a tick at `TICK_DEADLINE_MS` and starts the next
+ * one while the abandoned tick runs on to completion. That next tick moves the
+ * ledger onto whatever date the picker is on now -- so the tail of the
+ * abandoned tick, which carries no date of its own, would act on a different
+ * date's records than the one it fetched plans for and took its lock on.
+ */
+describe('AutopilotProvider with ticks overlapping a date change', () => {
+  beforeEach(() => setTime('09:00'));
+  // The poll interval carries +/-20%% jitter, and every case below turns on
+  // which *poll* a thing lands on. Pinned to the midpoint, where `withJitter`
+  // returns the interval unchanged, so a tick is a tick.
+  beforeEach(() => jest.spyOn(Math, 'random').mockReturnValue(0.5));
+  afterEach(() => jest.restoreAllMocks());
+
+  it('settles a rejection against the date its own tick was working', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    let releaseFirst: () => void = () => undefined;
+    const firstBook = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    const { book, setBookingDate } = setupBooking({
+      // The first request stalls past the tick deadline and comes back a 410 --
+      // proof it changed nothing. The second takes a real lock for the new date
+      // and never hears back, which is the doubt the 410 must not settle.
+      bookDelays: [firstBook],
+      bookErrors: [410, 'no-response'],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+
+    // Past the deadline: the poller gives up on that tick and schedules the
+    // next, while the request is still out.
+    await runTicks(Math.ceil(TICK_DEADLINE_MS / IDLE_INTERVAL_MS) + 1);
+    await act(async () => setBookingDate(TOMORROW));
+    await runTicks(2);
+    // The new date really did take a lock -- otherwise this would pass for the
+    // trivial reason that there was nothing there to withdraw.
+    expect(book).toHaveBeenCalledTimes(2);
+    expect(loadLocks()).toContain(`${TOMORROW}:book:${BZ}`);
+
+    // And now the stalled request answers, for the date it was sent on.
+    await act(async () => releaseFirst());
+    await runTicks(2);
+    // Its rejection withdraws its own date's lock and leaves the other date's
+    // doubt-hold alone. Withdrawn the wrong way round, nothing is protecting
+    // tomorrow's booking and NextLL's provider books it a second time.
+    expect(loadLocks()).toEqual([`${TOMORROW}:book:${BZ}`]);
+  });
+
+  /**
+   * The same inversion at the sweep, which is the site that can release every
+   * lock the ledger holds.
+   *
+   * There is no `stale()` check anywhere between `await pollPlans()` and the
+   * settle sweep, so a tick abandoned at its deadline resumes *there* — with
+   * its own date and its own plans, against a ledger a newer tick has since
+   * moved. Unwrapped, it reads the newer date's locks and judges them on the
+   * older date's plans: today's reservation stands in for tomorrow's, which
+   * confirms a lock nothing has ever seen held, and confirmation is the one
+   * condition standing between a booking whose response was lost and a second
+   * entitlement.
+   */
+  it('sweeps the locks of the date its own tick fetched plans for', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    let releasePlans: () => void = () => undefined;
+    const stalledPlans = new Promise<void>(resolve => {
+      releasePlans = resolve;
+    });
+    const { book, setBookingDate } = setupBooking({
+      // Today holds BZ, so today's tick never books and today has no lock...
+      plans: [heldBZAt(11, TODAY)],
+      // ...and today's plans poll stalls past the tick deadline.
+      plansDelays: [stalledPlans],
+      // Tomorrow's booking is the one that never hears back.
+      bookErrors: ['no-response'],
+    });
+    await enable();
+    await runTicks(Math.ceil(TICK_DEADLINE_MS / IDLE_INTERVAL_MS) + 1);
+    await act(async () => setBookingDate(TOMORROW));
+    await runTicks(2);
+    // Tomorrow really did take a lock and lose the response -- otherwise this
+    // would pass for the trivial reason that there was nothing to protect.
+    expect(book).toHaveBeenCalledTimes(1);
+    expect(loadLocks()).toEqual([`${TOMORROW}:book:${BZ}`]);
+
+    // And now today's plans answer, long after the picker moved.
+    await act(async () => releasePlans());
+    await runTicks(RELEASE_TICKS);
+
+    // Swept on its own date there is nothing there to settle. Swept on
+    // tomorrow's, today's held reservation confirms tomorrow's in-doubt lock,
+    // two absent polls then release it, and BZ is booked a second time for a
+    // date that may already hold it.
+    expect(book).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The same inversion, from inside the booking helper rather than after it.
+   *
+   * `markBooked` runs when the booking round trip returns, which for an
+   * abandoned tick is long after a newer one moved the ledger. It clears the
+   * doubt-hold for a request whose response was lost, so on the wrong date it
+   * discards the only thing standing between that date and a second
+   * entitlement. The helpers take a `BookLedger` rather than the instance so
+   * the provider can hand them one pinned to the tick's own date.
+   */
+  it('counts a stalled booking against the date it was made for', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    let releaseFirst: () => void = () => undefined;
+    const firstBook = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    const { book, setBookingDate, setPolledPlans } = setupBooking({
+      // Today's booking stalls past the tick deadline and then succeeds.
+      // Tomorrow's takes a lock and never hears back.
+      bookDelays: [firstBook],
+      bookErrors: [undefined, 'no-response'],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+
+    await runTicks(Math.ceil(TICK_DEADLINE_MS / IDLE_INTERVAL_MS) + 1);
+    await act(async () => setBookingDate(TOMORROW));
+    await runTicks(2);
+    expect(book).toHaveBeenCalledTimes(2);
+
+    // Today's booking finally lands.
+    await act(async () => releaseFirst());
+    await runTicks(2);
+    expect(screen.getByTestId('bookedCount')).toHaveTextContent('1');
+
+    // Tomorrow's turns up in plans, which is what settles the doubt it left.
+    // Cleared against the wrong date above, there is no doubt left to settle
+    // and this booking is never counted -- nor protected.
+    setPolledPlans([heldBZAt(11, TOMORROW)]);
+    await runTicks(PLANS_EVERY_N_TICKS + 1);
+    expect(screen.getByTestId('bookedCount')).toHaveTextContent('2');
+  });
+});
+
+/*
+ * The invariant the two tests above rest on, checked over the source itself.
+ *
+ * The ledger holds one booking date at a time and ticks overlap by design, so
+ * correctness here is not a property of any one call site: it is the property
+ * that *every* date-sensitive ledger call in a tick goes through
+ * `onBookingDate`. A behavioural test can only reach the sites that have a
+ * visible consequence today — the rejection, the stalled `markBooked`, the
+ * settle sweep — and the remaining ones (the repeatMoves release, the dry-run
+ * mark) are wrapped for the same reason with nothing yet able to say so. A
+ * contributor adding a sixth unwrapped call gets no signal from any of them.
+ *
+ * Read over the source, in the shape `events.test.ts` already uses for the
+ * skip-reason labels: derived from what the file actually says rather than
+ * from a list kept by hand, so it cannot quietly fall behind.
+ */
+describe('AutopilotProvider ledger calls in a tick', () => {
+  // These answer about every booking date this instance has touched, or about
+  // none at all, so the date the ledger happens to be on cannot change what
+  // they say. Safe outside the wrapper, and deliberately a short list.
+  const DATE_AGNOSTIC = new Set([
+    'adoptAttempted',
+    'publishableKeys',
+    'bookedCount',
+    'reset',
+    'startNewDay',
+  ]);
+  // The wrapper's own machinery, plus the once-per-tick statement of the date
+  // that puts the ledger on the date this tick captured.
+  const MOVES_THE_DATE = new Set(['bookingDate', 'setBookingDate']);
+
+  const source = readFileSync(
+    join(process.cwd(), 'src', 'providers', 'AutopilotProvider.tsx'),
+    'utf8'
+  );
+
+  /** The character span of each `onBookingDate(...)` call, parens matched. */
+  const wrappedSpans = (text: string): [number, number][] => {
+    const spans: [number, number][] = [];
+    const calls = /onBookingDate\(/g;
+    let call: RegExpExecArray | null;
+    while ((call = calls.exec(text))) {
+      let depth = 0;
+      let i = call.index + call[0].length - 1;
+      for (; i < text.length; ++i) {
+        if (text[i] === '(') ++depth;
+        else if (text[i] === ')' && --depth === 0) break;
+      }
+      spans.push([call.index, i]);
+    }
+    return spans;
+  };
+
+  it('routes every date-sensitive one through onBookingDate', () => {
+    const spans = wrappedSpans(source);
+    // Guards the guard: a regex that matched nothing would pass silently.
+    expect(spans.length).toBeGreaterThan(4);
+    const unwrapped = [...source.matchAll(/ledgerRef\.current\.(\w+)/g)]
+      .filter(
+        use => !DATE_AGNOSTIC.has(use[1]!) && !MOVES_THE_DATE.has(use[1]!)
+      )
+      .filter(
+        use => !spans.some(([from, to]) => use.index > from && use.index < to)
+      )
+      .map(use => use[1]!);
+    expect(unwrapped).toEqual([]);
+  });
+
+  // And the allowlist is not a place to hide a call: every name on it has to
+  // be a method the ledger actually has, and every date-sensitive method has
+  // to be absent from it.
+  it('keeps the allowlist honest', () => {
+    const ledger = new AutoBookLedger(TODAY);
+    for (const name of [...DATE_AGNOSTIC, ...MOVES_THE_DATE]) {
+      expect(name in ledger || name in Object.getPrototypeOf(ledger)).toBe(
+        true
+      );
+    }
+    for (const name of ['hasAttempted', 'markAttempted', 'markBooked']) {
+      expect(DATE_AGNOSTIC.has(name)).toBe(false);
+    }
+  });
+});
+
+/**
+ * A booking date the ledger cannot read.
+ *
+ * `BookingDateProvider` validates, so nothing reaches here today -- but the key
+ * shape now depends on the date being a real one: an empty string would build
+ * `:book:80010114`, which collides across every date in exactly the way dating
+ * the keys exists to prevent, while passing every test that supplies a real
+ * date. So the ledger refuses it, and this is what that refusal looks like from
+ * the outside: named on screen, not a quietly idle engine.
+ */
+describe('AutopilotProvider given an unreadable booking date', () => {
+  beforeEach(() => setTime('09:00'));
+
+  it('stops and says why, rather than acting on a date nobody chose', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book, setBookingDate } = setupBooking();
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+
+    await act(async () => setBookingDate(''));
+    // Past the backoff, which grows with each failure.
+    for (let i = 0; i < MAX_CONSECUTIVE_FAILURES + 2; ++i) {
+      await runTicks(1, BACKOFF_BASE_MS * 2 ** MAX_CONSECUTIVE_FAILURES);
+    }
+    expect(screen.getByTestId('mode')).toHaveTextContent('stopped');
+    expect(screen.getByTestId('lastError')).toHaveTextContent(
+      'Not a booking date'
+    );
+    // And nothing was booked against the unreadable date.
+    expect(book).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The same refusal arriving on the *first* render, which is the half that
+   * used to take the screen down.
+   *
+   * `??=` stopped the ledger being constructed on every render; it still runs
+   * on the first, so a provider mounted with a date it cannot read threw out
+   * of `render`, with no error boundary under it. The construction now takes
+   * the park day, which is a park date by construction, and the picker's date
+   * reaches the ledger inside the poller -- where a refusal is a stopped run
+   * with a reason on it rather than a blank screen.
+   */
+  it('mounts on an unreadable date and still says why', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book } = setupBooking({ bookingDate: '' });
+    // Rendering got this far, which is the whole point: the Probe is on screen.
+    expect(screen.getByTestId('mode')).toHaveTextContent('off');
+    await enable();
+    for (let i = 0; i < MAX_CONSECUTIVE_FAILURES + 2; ++i) {
+      await runTicks(1, BACKOFF_BASE_MS * 2 ** MAX_CONSECUTIVE_FAILURES);
+    }
+    expect(screen.getByTestId('mode')).toHaveTextContent('stopped');
+    expect(screen.getByTestId('lastError')).toHaveTextContent(
+      'Not a booking date'
+    );
+    expect(book).not.toHaveBeenCalled();
   });
 });

@@ -86,7 +86,7 @@ function deps(overrides: Partial<Parameters<typeof attemptAutoSwap>[3]> = {}) {
     createSwapOffer: jest.fn(async () => offerAt(at(11))),
     book: jest.fn(async () => held('new', 1.0)),
     guests: party(),
-    ledger: new AutoBookLedger(),
+    ledger: new AutoBookLedger(DATE),
     ...overrides,
   } as Parameters<typeof attemptAutoSwap>[3];
 }
@@ -216,7 +216,7 @@ describe('chooseSwapVictim()', () => {
 });
 
 describe('shouldSwap()', () => {
-  const ledger = () => new AutoBookLedger();
+  const ledger = () => new AutoBookLedger(DATE);
 
   it('allows a swap when full and a worse reservation exists', () => {
     const result = shouldSwap(target(), incoming('new', 1.0), full(), ledger());
@@ -406,7 +406,7 @@ describe('attemptAutoSwap() party re-check', () => {
   });
 
   it('gives up nothing and takes no lock when it refuses', async () => {
-    const ledger = new AutoBookLedger();
+    const ledger = new AutoBookLedger(DATE);
     await attemptAutoSwap(
       target(),
       incoming('new', 1.0),
@@ -490,7 +490,7 @@ describe('attemptAutoSwap() commit boundary', () => {
 
   it('publishes neither a lock nor evidence when transport refuses before dispatch', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const ledger = new AutoBookLedger();
+    const ledger = new AutoBookLedger(DATE);
     const onCommitting = jest.fn();
     const outcome = await attemptAutoSwap(
       target(),
@@ -518,7 +518,7 @@ describe('attemptAutoSwap() commit boundary', () => {
 
   it('publishes neither a lock nor evidence when the lifecycle refuses dispatch', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const ledger = new AutoBookLedger();
+    const ledger = new AutoBookLedger(DATE);
     const onCommitting = jest.fn();
     const outcome = await attemptAutoSwap(
       target(),

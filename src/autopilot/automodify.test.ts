@@ -83,7 +83,7 @@ function deps(
     createModifyOffer: jest.fn(async () => offerAt(at(11))),
     book: jest.fn(async () => existingLL(at(11))),
     guests: party(),
-    ledger: new AutoBookLedger(),
+    ledger: new AutoBookLedger(DATE),
     ...overrides,
   } as Parameters<typeof attemptAutoModify>[4];
 }
@@ -154,7 +154,7 @@ describe('improvementMinutes()', () => {
 });
 
 describe('shouldModify()', () => {
-  const ledger = () => new AutoBookLedger();
+  const ledger = () => new AutoBookLedger(DATE);
 
   it('allows a large improvement', () => {
     const result = shouldModify(target(), existingLL(at(19)), at(11), ledger());
@@ -303,7 +303,7 @@ describe('attemptAutoModify()', () => {
     });
 
     it('takes no lock when it refuses', async () => {
-      const ledger = new AutoBookLedger();
+      const ledger = new AutoBookLedger(DATE);
       await attemptAutoModify(
         target(),
         experience,
@@ -535,14 +535,14 @@ describe('a targeted modify', () => {
         windowed({ minImprovementMinutes: 1 }),
         held,
         at(11),
-        new AutoBookLedger()
+        new AutoBookLedger(DATE)
       )
     ).toMatchObject({ ok: true });
   });
 
   it('still refuses the same gain without a named bar', () => {
     expect(
-      shouldModify(windowed(), held, at(11), new AutoBookLedger())
+      shouldModify(windowed(), held, at(11), new AutoBookLedger(DATE))
     ).toMatchObject({ ok: false, reason: 'not-an-improvement' });
   });
 
@@ -554,7 +554,7 @@ describe('a targeted modify', () => {
         windowed({ minImprovementMinutes: 1 }),
         held,
         at(9),
-        new AutoBookLedger()
+        new AutoBookLedger(DATE)
       )
     ).toMatchObject({ ok: false, reason: 'offer-outside-window' });
   });
@@ -571,7 +571,7 @@ describe('a targeted modify', () => {
         }),
         held,
         at(14),
-        new AutoBookLedger()
+        new AutoBookLedger(DATE)
       )
     ).toMatchObject({ ok: false, reason: 'not-an-improvement' });
   });
@@ -579,7 +579,7 @@ describe('a targeted modify', () => {
   // The post-offer re-check reads the same bar, so a targeted search is not
   // stopped by the very rule it relaxed one step earlier.
   it('commits an offer that clears the target bar', async () => {
-    const ledger = new AutoBookLedger();
+    const ledger = new AutoBookLedger(DATE);
     const outcome = await attemptAutoModify(
       windowed({ minImprovementMinutes: 1 }),
       experience,
@@ -691,7 +691,7 @@ describe('attemptAutoModify() against the offer itinerary', () => {
 describe('attemptAutoModify() commit boundary', () => {
   it('publishes neither a lock nor evidence when transport refuses before dispatch', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const ledger = new AutoBookLedger();
+    const ledger = new AutoBookLedger(DATE);
     const onCommitting = jest.fn();
     const outcome = await attemptAutoModify(
       target(),
@@ -720,7 +720,7 @@ describe('attemptAutoModify() commit boundary', () => {
 
   it('publishes neither a lock nor evidence when the lifecycle refuses dispatch', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const ledger = new AutoBookLedger();
+    const ledger = new AutoBookLedger(DATE);
     const onCommitting = jest.fn();
     const outcome = await attemptAutoModify(
       target(),

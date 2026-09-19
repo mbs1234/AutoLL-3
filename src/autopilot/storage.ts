@@ -233,9 +233,20 @@ export function saveSettings(settings: AutopilotSettings): void {
 }
 
 /**
- * Per-attraction action locks (`AutoBookLedger.attemptedKeys()`), shared so a
+ * Per-attraction action locks (`AutoBookLedger.publishableKeys()`), shared so a
  * second tab or a nested provider (NextLL nests one inside the app's own) can
  * see what another instance has already attempted today.
+ *
+ * Keys are opaque strings here, and deliberately so: they are
+ * `${bookingDate}:${kind}:${experienceId}`, and the date inside one is the
+ * ledger's business rather than this file's. That is what let the key gain a
+ * date without a storage migration -- the stored string is the identity, and
+ * rewriting one on the way in would desync the owner-scoped removal below.
+ *
+ * Note the two dates are different dates. This store is scoped to the *park*
+ * day, as the commits are; the date inside a key is the day the reservation
+ * would be *for*. On a booking morning one day's bucket holds keys for every
+ * park day being booked, which is the point.
  *
  * Day-scoped, like the commits. Written as the union of what is already stored
  * and what this instance holds, so a lock another instance took is never lost

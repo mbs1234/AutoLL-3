@@ -5,6 +5,7 @@ import { ParkTime, parkDate } from '@/datetime';
 
 import {
   AutoBookLedger,
+  BookLedger,
   ClashCheck,
   actionWasRejected,
   withAttemptDispatch,
@@ -232,7 +233,7 @@ export interface AutoModifyDeps {
     to: ParkTime;
   }) => RequestControl;
   guests: Guests;
-  ledger: AutoBookLedger;
+  ledger: BookLedger;
   minImprovementMinutes?: number;
   /** Optional; when it reports a clash, the move is abandoned. */
   clashes?: ClashCheck;
