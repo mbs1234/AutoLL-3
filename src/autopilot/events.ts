@@ -14,10 +14,14 @@ export const SKIP_TEXT: Record<string, string> = {
   'offer-outside-window': 'the offered time was outside the window',
   'not-an-improvement': 'the time was not enough better to move for',
   'offer-not-an-improvement': 'the offer came back not enough better',
+  'ambiguous-existing-booking':
+    'Disney did not identify which reservation for that attraction was changing',
   'no-eligible-guests': 'nobody was eligible',
   'not-full': 'a slot was free, so it booked instead of swapping',
   'no-worse-reservation': 'nothing held was worth giving up',
   'already-attempted': 'a booking for it was already held or in flight',
+  'unresolved-change':
+    'its last change has no definite result; check Disney Plans',
   'outside-window': 'the advertised time was outside the window',
   'overlaps-plans': 'it clashed with something already booked',
   'not-modifiable': 'Disney marked the reservation unmodifiable',

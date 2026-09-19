@@ -614,8 +614,10 @@ export class AutoBookLedger {
     // actually keeps two instances off one reservation is the lease -- taken in
     // `AutopilotProvider` and held across the send in `startWhileHeld`, and
     // exclusive, expiring and owned in a way an attempt lock is not (see
-    // `LockKind`). This lock is anti-thrash on top of it. `book` has no
-    // reservation to lease, so there the lock is the only record there is.
+    // `LockKind`). Fresh bookings lease the attraction they are about to
+    // create; modify and swap lease the reservation being replaced. The
+    // action lock remains the durable anti-thrash and unknown-outcome record
+    // after that short-lived dispatch lease is released.
     for (const key of this.released) {
       if (!shared.has(key)) this.released.delete(key);
     }

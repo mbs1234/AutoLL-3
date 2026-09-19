@@ -48,6 +48,8 @@ import {
   leaseKey,
   mutationId,
   quarantine,
+  quarantinedAt,
+  quarantinedMutations,
   release as releaseLease,
   resolveDoubt,
   startWhileHeld,
@@ -101,6 +103,7 @@ import {
   activeCommits,
   clearCommit,
   commitDate,
+  holdsLock,
   loadBookingLog,
   loadCommits,
   loadLocks,
@@ -355,6 +358,12 @@ export default function AutopilotProvider({
     // real day has turned must not write yesterday's locks into today's
     // bucket.
     released => {
+      // A retry token describes the exact lock that was taken for a rejected
+      // request. If plans, a manual release, or reset gives that lock back by
+      // another path, the token must die with it; otherwise the same key can be
+      // reused by a later unknown-outcome request and the expired token will
+      // release the new doubt-hold.
+      for (const key of released ?? []) retryAtRef.current.delete(key);
       if (parkDate() === parkDayRef.current) {
         // `publishableKeys`, not `attemptedKeys`: the latter includes locks
         // adopted from other instances, and re-publishing those under this
@@ -1116,48 +1125,74 @@ export default function AutopilotProvider({
         // since moved the ledger onto: the lock this asks about, the retry
         // token paired with it and the release it may perform all belong to
         // `date`.
-        const blockedBy = onBookingDate(() => {
-          if (!ledgerRef.current.hasAttempted(experience.id, kind)) {
+        const attemptBlocker = () =>
+          onBookingDate(() => {
+            if (!ledgerRef.current.hasAttempted(experience.id, kind)) {
+              return undefined;
+            }
+            const unresolved = quarantinedMutations().some(
+              doubt =>
+                doubt.date === date &&
+                ((kind === 'modify' &&
+                  doubt.kind === 'modify' &&
+                  doubt.facilityId === experience.id) ||
+                  (kind === 'swap' &&
+                    doubt.kind === 'swap' &&
+                    doubt.gaining === experience.id))
+            );
+            if (unresolved) return 'unresolved-change';
+            // Held for good, unless this is a rejection whose wait has run out.
+            // The token is keyed by date as well, because it is paired one to one
+            // with a ledger lock and is the thing that gives one back: keyed by
+            // action alone, a token minted for a rejection on one date would
+            // expire and release a live doubt-hold on another, re-sending a
+            // booking whose outcome was never learned. That is exactly the
+            // inversion the comment further down warns about.
+            const token = lockKey(date, kind, experience.id);
+            const retryAt = retryAtRef.current.get(token);
+            // A rejected attempt is kept locally while its retry waits, but it
+            // is deliberately withdrawn from the shared store so another
+            // provider can win the attraction. If one did, this token must not
+            // release the same-shaped lock now owned by that provider. Keep
+            // waiting until its key leaves the shared store; plans evidence may
+            // settle this local copy in the meantime.
+            if (
+              retryAt !== undefined &&
+              loadLocks().includes(token) &&
+              !holdsLock(token, lockOwnerRef.current)
+            ) {
+              return 'already-attempted';
+            }
+            if (retryAt === undefined || Date.now() < retryAt) {
+              // Every case is reported. A lock with no retry token used to
+              // `continue` in silence, which is the worst way for this to fail:
+              // a lock adopted from the day's shared copy on a fresh mount looks
+              // exactly like nothing being available, and the screen sits on
+              // "checking" for the rest of the day naming no reason.
+              //
+              // A lock left by an older build is called out separately. It blocks
+              // like any other, but it is the one case where this build is
+              // refusing to act against a key it cannot interpret rather than
+              // deferring to a live action, and it is the only way the date fix
+              // can still cost a booking -- so it must not be reported in the
+              // words that mean somebody else is working on it.
+              //
+              // Only when it is the *only* thing blocking, though. A date-less
+              // key and a current-build tab's dated key can both be present, and
+              // then the live action is what to report: "reload the other tabs"
+              // is the wrong instruction while a request for this date is in
+              // flight somewhere, and following it would not unblock anything.
+              if (retryAt !== undefined) return 'waiting-to-retry';
+              return ledgerRef.current.hasUndatedLock(experience.id, kind) &&
+                !ledgerRef.current.hasDatedLock(experience.id, kind)
+                ? 'stale-lock'
+                : 'already-attempted';
+            }
+            retryAtRef.current.delete(token);
+            ledgerRef.current.releaseAttempt(experience.id, kind);
             return undefined;
-          }
-          // Held for good, unless this is a rejection whose wait has run out.
-          // The token is keyed by date as well, because it is paired one to one
-          // with a ledger lock and is the thing that gives one back: keyed by
-          // action alone, a token minted for a rejection on one date would
-          // expire and release a live doubt-hold on another, re-sending a
-          // booking whose outcome was never learned. That is exactly the
-          // inversion the comment further down warns about.
-          const token = lockKey(date, kind, experience.id);
-          const retryAt = retryAtRef.current.get(token);
-          if (retryAt === undefined || Date.now() < retryAt) {
-            // Every case is reported. A lock with no retry token used to
-            // `continue` in silence, which is the worst way for this to fail:
-            // a lock adopted from the day's shared copy on a fresh mount looks
-            // exactly like nothing being available, and the screen sits on
-            // "checking" for the rest of the day naming no reason.
-            //
-            // A lock left by an older build is called out separately. It blocks
-            // like any other, but it is the one case where this build is
-            // refusing to act against a key it cannot interpret rather than
-            // deferring to a live action, and it is the only way the date fix
-            // can still cost a booking -- so it must not be reported in the
-            // words that mean somebody else is working on it.
-            //
-            // Only when it is the *only* thing blocking, though. A date-less
-            // key and a current-build tab's dated key can both be present, and
-            // then the live action is what to report: "reload the other tabs"
-            // is the wrong instruction while a request for this date is in
-            // flight somewhere, and following it would not unblock anything.
-            if (retryAt !== undefined) return 'waiting-to-retry';
-            return ledgerRef.current.hasUndatedLock(experience.id, kind) &&
-              !ledgerRef.current.hasDatedLock(experience.id, kind)
-              ? 'stale-lock'
-              : 'already-attempted';
-          }
-          retryAtRef.current.delete(token);
-          ledgerRef.current.releaseAttempt(experience.id, kind);
-          return undefined;
-        });
+          });
+        const blockedBy = attemptBlocker();
         if (blockedBy) {
           bumpSkip(blockedBy, experience.name);
           continue;
@@ -1197,6 +1232,7 @@ export default function AutopilotProvider({
         let acting:
           | { key: string; owner: string; stopRenewal: () => void }
           | undefined;
+        let changesExistingReservation = false;
         let pageOnlyProtection = false;
         try {
           const guests = await guestsFor(experience.id, date);
@@ -1327,7 +1363,14 @@ export default function AutopilotProvider({
               ? chooseSwapVictim(allHeldToday, experience)
               : undefined;
           const changing = kind === 'swap' ? victim : existing;
-          const reservation = changing?.facilityId;
+          changesExistingReservation = !!changing;
+          // Fresh bookings need the same exclusive dispatch lane as changes.
+          // Without it, the two providers routinely mounted in one app can
+          // both pass the shared-ledger check, generate offers, and publish the
+          // same action lock immediately before sending two requests. A book
+          // leases the attraction it is about to create; a modify/swap leases
+          // the reservation it is replacing.
+          const leaseFacility = changing?.facilityId ?? experience.id;
           const changingReservationIds = changing
             ? [
                 ...new Set([
@@ -1346,7 +1389,7 @@ export default function AutopilotProvider({
             abandonAt: tickStartedAt + MAX_MUTATION_MS,
             onAbandon: async abandoned => {
               const lease = acting;
-              if (lease && abandoned.dispatched) {
+              if (lease && changesExistingReservation && abandoned.dispatched) {
                 try {
                   const protection = await quarantine(
                     lease.key,
@@ -1389,20 +1432,36 @@ export default function AutopilotProvider({
             },
           });
 
-          if (reservation) {
-            const key = leaseKey(reservation, date);
-            const got = await acquireLease(key, owner);
-            if (!got || operation.abandoned) {
-              operation.settle();
-              if (got) await releaseLease(key, owner);
-              await operation.waitForAbandonment();
-              bumpSkip('already-attempted', experience.name);
-              continue;
-            }
-            acting = { key, owner, stopRenewal: () => undefined };
-            acting.stopRenewal = keepLeaseAlive(key, owner, () =>
-              operation?.abandon('lease-refused')
+          const actionLeaseKey = leaseKey(leaseFacility, date);
+          const got = await acquireLease(actionLeaseKey, owner);
+          if (!got || operation.abandoned) {
+            operation.settle();
+            if (got) await releaseLease(actionLeaseKey, owner);
+            await operation.waitForAbandonment();
+            bumpSkip(
+              quarantinedAt(actionLeaseKey) === undefined
+                ? 'already-attempted'
+                : 'unresolved-change',
+              experience.name
             );
+            continue;
+          }
+          acting = { key: actionLeaseKey, owner, stopRenewal: () => undefined };
+          acting.stopRenewal = keepLeaseAlive(actionLeaseKey, owner, () =>
+            operation?.abandon('lease-refused')
+          );
+
+          // Eligibility can be a round trip. Another provider may finish the
+          // same action after this tick's first shared-lock read but before
+          // this one enters the exclusive lease. Serialising the offers is not
+          // enough on its own: re-read the durable action locks while holding
+          // the lease, so a waiter cannot act on the stale decision it made
+          // before the winner published its result.
+          onBookingDate(() => ledgerRef.current.adoptAttempted(loadLocks()));
+          const leaseBlockedBy = attemptBlocker();
+          if (leaseBlockedBy) {
+            bumpSkip(leaseBlockedBy, experience.name);
+            continue;
           }
 
           const stillAuthorized = (action: ActionKind, offerTime: ParkTime) =>
@@ -1456,11 +1515,16 @@ export default function AutopilotProvider({
             };
           };
 
-          if (reservation && !acting) {
+          if (!acting) {
             // Somebody else is changing one of these right now -- a foreground
             // search, or another tab. Skipping costs one tick; acting would
             // cost an entitlement.
-            bumpSkip('already-attempted', experience.name);
+            bumpSkip(
+              quarantinedAt(actionLeaseKey) === undefined
+                ? 'already-attempted'
+                : 'unresolved-change',
+              experience.name
+            );
             continue;
           }
           if (kind === 'swap') {
@@ -1567,7 +1631,7 @@ export default function AutopilotProvider({
                 outcome?.status === 'failed' &&
                 !outcome.rejected;
               try {
-                if (unknown) {
+                if (unknown && changesExistingReservation) {
                   const protection = await quarantine(
                     lease.key,
                     { id: current.id, ...(current.evidence ?? {}) },
@@ -1580,7 +1644,7 @@ export default function AutopilotProvider({
                       error: `${outcome.error}; unresolved-change protection is available only while this page remains open`,
                     };
                   }
-                } else if (current.dispatched) {
+                } else if (current.dispatched && changesExistingReservation) {
                   pageOnlyProtection = false;
                   // Success and a definite rejection both answer this exact
                   // request, including when they arrive after abandonment.

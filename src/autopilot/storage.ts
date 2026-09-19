@@ -270,10 +270,10 @@ export function saveSettings(settings: AutopilotSettings): void {
  * Not atomic, and localStorage offers no way to make it so -- two instances can
  * still interleave a read and a write and lose one update. It is instead
  * self-healing: every holder republishes what it owns on each poll, so a lost
- * key is back within a tick rather than gone for the day. A genuinely atomic
- * lease wants the Web Locks API, which is async and would have to reach up
- * through the ledger's synchronous callbacks; that is a change worth making
- * deliberately rather than three months before a trip.
+ * key is back within a tick rather than gone for the day. The separate
+ * Web-Lock-backed operation lease closes the live dispatch race; this store is
+ * the longer-lived record that prevents retries and survives after that lease
+ * is released.
  */
 
 /** What is stored: lock key to the id of the instance that holds it. */

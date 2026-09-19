@@ -39,6 +39,12 @@ export interface PlanCheckInput {
   tierLimitLifted: boolean;
 }
 
+export interface PlanReview {
+  /** Stable identity of the park/date/configuration and verdict reviewed. */
+  key: string;
+  blockers: number;
+}
+
 /**
  * Whether Autopilot would consider this target for a *booking*.
  *
@@ -259,4 +265,53 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
       (a, b) => rank[a.item.level] - rank[b.item.level] || a.index - b.index
     )
     .map(({ item }) => item);
+}
+
+/**
+ * The exact review Today may acknowledge.
+ *
+ * A bare boolean outlived park, date and target changes. This key carries the
+ * plan's scope and action settings plus the verdict the checker produced. A
+ * changed plan that happens to render different findings therefore becomes
+ * unreviewed automatically, while harmless live-data churn that leaves the
+ * result unchanged does not nag the user to reopen the screen.
+ */
+export function planReview(
+  input: PlanCheckInput,
+  items: PlanCheckItem[] = checkPlan(input)
+): PlanReview {
+  const stable = (value: object) => JSON.stringify(value);
+  const targets = input.targets
+    .filter(target => targetApplies(target, input.parkId, input.date))
+    .map(target => ({
+      experienceId: target.experienceId,
+      name: target.name,
+      parkId: target.parkId,
+      date: target.date,
+      rank: target.rank,
+      minImprovementMinutes: target.minImprovementMinutes,
+      passkey: target.passkey === true,
+      after: target.after ? String(target.after) : undefined,
+      before: target.before ? String(target.before) : undefined,
+      autoBook: target.autoBook === true,
+      autoModify: target.autoModify === true,
+      autoSwap: target.autoSwap === true,
+      bookThenMove: target.bookThenMove === true,
+      paused: target.paused === true,
+    }))
+    .sort((a, b) => stable(a).localeCompare(stable(b)));
+  const verdict = [...items].sort((a, b) => stable(a).localeCompare(stable(b)));
+  return {
+    key: JSON.stringify({
+      parkId: input.parkId,
+      date: input.date,
+      targets,
+      requireWholeParty: input.requireWholeParty,
+      avoidOverlaps: input.avoidOverlaps,
+      dryRun: input.dryRun,
+      tierLimitLifted: input.tierLimitLifted,
+      items: verdict,
+    }),
+    blockers: items.filter(item => item.level === 'blocker').length,
+  };
 }

@@ -380,6 +380,24 @@ describe('LLClientWDW', () => {
       });
     });
 
+    it('preserves existing reservation identity in the offer itinerary', async () => {
+      const res = offerResponse(offer);
+      res.data.itinerary.items.splice(1, 0, {
+        type: 'EXISTING_ITEM',
+        id: 'ent-split-party',
+        facilityId: hm.id,
+        startDateTime: `${TODAY}T12:00:00`,
+        startTime: '12:00:00',
+        endDateTime: `${TODAY}T13:00:00`,
+        endTime: '13:00:00',
+      });
+      respond(res);
+
+      const result = await client.offer(hm, guests, { date: TODAY });
+      expect(result.itinerary[0]?.id).toBe('ent-split-party');
+      expect(String(result.itinerary[0]?.startTime)).toBe('12:00:00');
+    });
+
     it('throws OfferError if no offer in response', async () => {
       const response = offerResponse(offer);
       response.data.itinerary.items = [];

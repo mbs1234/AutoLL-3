@@ -3,11 +3,14 @@
 Written 2026-09-16, against `main` at `787cff3`, version 0.5.0.
 Trip dates recorded 2026-09-17; items re-checked against `b7f225f` the same day.
 
-Three items name a commit or a line number. Those were verified still true at
-`b7f225f`: the cadence inputs are still gated on `watchingToday`
-(`AutopilotProvider.tsx:1795`), `useQuarantine()` is still absent from Today, and
-`shouldHoldTierSlot` still returns a boolean. Anything here that stops being true
-should be struck rather than quietly left standing.
+Item 10 shipped in `15b2985`. Items 2, 5 and 11 shipped in the 2026-09-19
+review-fix release and remain below as records of the defects and their
+acceptance criteria. Their line citations describe the pre-fix tree.
+
+The unattended future-date cadence gap and the Tier 1 predicate remain current.
+Today now consumes `useQuarantine()`, fresh bookings now take the operation
+lease, Plan Check acknowledgements are scoped to the reviewed plan, and retry
+tokens now retire with the locks that created them.
 
 `docs/FUTURE.md` is the standing list of everything not done. This file is the
 argument about what to do next and in what order, worked in evenings with a full
@@ -96,11 +99,10 @@ workflow that works today.
 
 **1. Never lose something silently.** Five places where the engine acts,
 declines to act, or stops acting, and the screen in your hand does not say so.
-That is the failure mode this project rates worst. Items 2, 3, 4, 8 and 10 are
-instances of it. Two are small; two turned out larger than this document first
-priced them, because the pricing assumed screen work where the honest fix
-reaches into the provider. Item 10 is the only one of the five that is a defect
-rather than a gap, and it is the only one that goes wrong at a desk.
+That is the failure mode this project rates worst. Items 2 and 10 are closed;
+items 3, 4 and 8 remain. Two turned out larger than this document first priced
+them, because the pricing assumed screen work where the honest fix reaches into
+the provider.
 
 **2. Be there when inventory appears.** On the 7:00 a.m. morning a *future*
 park date's booking window opens, the unattended poller idles at forty-five
@@ -144,26 +146,25 @@ inventory that by then is gone.
 
 | order | item | why here |
 |---|---|---|
-| 1 | **10** — the date-less attempt lock | new, found 2026-09-19. Bites on this morning and essentially no other day of the year |
-| 2 | **5** — the checklist remembers the wrong date | `planChecked` never resets on a date change, so it vouches for a day it never checked. ~20 minutes for that half alone |
+| done | **10** — the date-less attempt lock | completed in `15b2985`; action locks now include the booking date and all three action kinds have evidence-based release paths |
+| done | **5** — the checklist remembers the wrong date | completed: the acknowledgement now identifies the exact park, date, targets, settings and rendered verdict |
 | — | **1** — future-date burst, unattended | does **not** apply. The morning is attended, and Time Search already polls at 600ms on any date |
-| — | **2** — engine stopped touching a reservation | does **not** apply. Both `quarantine()` call sites are lease-guarded and a fresh booking never takes a lease, so the count reads zero all morning |
+| done | **2** — engine stopped touching a reservation | completed: Today shows every unresolved mutation; fresh bookings now also take a short-lived operation lease, while only changes to existing reservations can enter quarantine |
 
 **The park days — 2026-10-18 to 20, walking around.** Here the original
 ranking holds, because it was always a park-day ranking:
 
 | order | item | why here |
 |---|---|---|
-| 1 | **2** — engine stopped touching a reservation | pure gain: under an hour, no unknowns, and it removes a screen that actively misleads. Modifies and swaps *do* take leases, so the count is real here |
+| done | **2** — engine stopped touching a reservation | Today now shows the count, explains that Autopilot stopped, and routes to Activity without offering a destructive clear action |
 | 2 | **3** — warn before a held pass lapses | half already shipped; the predicate it needs already exists |
 | 3 | **4** — name the Tier 1 hold's attraction | re-priced _medium_; provider work |
 | 4 | **8** — the drop the engine is bursting for | re-priced _medium_. Its cheap honesty half is worth taking alone |
 
 **Neither deadline.** Item **1** (blocked on one reading, and the attended case
 already ships), item **9** ((b)(c)(d) are one evening; (a) needs a decision
-first), item **7** (calendar-blocked until roughly Nov 27), item **11** (found
-while reviewing item 10; it predates it, and item 10 already removed its worst
-half). Item **6** has moved to *After the trip*.
+first), item **7** (calendar-blocked until roughly Nov 27). Item **6** has moved
+to *After the trip*. Item **11** is complete.
 
 **The schedule this implies.** Last change on `main` lands **2026-10-04**;
 merge AutoLL-3 → AutoLL-4 on **2026-10-06**, leaving five days of soak; hard
@@ -174,7 +175,7 @@ and republishes the exact bundle that has to work on the 11th. There is a
 second window between the booking morning and the trip, but nothing currently
 needs it.
 
-### 10. Give the attempt lock a date, as every other store already has — _small_
+### 10. Give the attempt lock a date, as every other store already has — _completed in `15b2985`_
 
 Found 2026-09-19, while working out what the on-site booking rule changes. It
 is not a refinement of anything above; it is a defect, and it is the only one
@@ -234,7 +235,15 @@ does with old-shaped keys written by an instance that has not been updated.
 **Where.** `src/autopilot/autobook.ts`, `src/providers/AutopilotProvider.tsx`,
 `src/autopilot/storage.ts`.
 
-### 2. Say on Today when the engine has stopped touching a reservation — and stop it saying the opposite — _small_
+### 2. Say on Today when the engine has stopped touching a reservation — and stop it saying the opposite — _completed 2026-09-19_
+
+**Shipped.** Today subscribes to the unresolved-mutation store, renders an
+all-date red count and explanation, and routes to Activity for the full details
+and explicit resolution controls. The provider now reports `unresolved-change`
+before the generic `already-attempted` explanation, including when lease
+acquisition is refused by quarantine. Component and provider regressions cover
+both the visible warning and the truthful skip reason. The diagnosis below is
+retained as the pre-fix record.
 
 An unresolved change is the state where the engine has deliberately stopped
 acting and needs a human to open Disney's Plans. It is visible on Activity and
@@ -434,7 +443,15 @@ minutes asserts `fireAlert` is called exactly once; that fails on HEAD because
 nothing fires, and fails again against a naive fix built on `allHeldToday`, which
 is empty in that scenario.
 
-### 5. Stop the pre-trip checklist claiming a readiness it never verified — _medium_
+### 5. Stop the pre-trip checklist claiming a readiness it never verified — _completed 2026-09-19_
+
+**Shipped.** Plan Check reports the result only after it renders. Today stores a
+deterministic review identity containing the park, date, applicable targets,
+settings and verdict; any relevant change invalidates the tick automatically.
+A blocker can never produce a completed row, and a completed Plan Check remains
+reopenable. The separate convenience idea of moving the unknown-attraction
+warning into the checklist remains ordinary UX backlog, not part of this
+correctness fix. The diagnosis below is retained as the pre-fix record.
 
 The checklist ticks "Plan Check reviewed" the instant you tap Open, whatever
 Plan Check reported. Both entry points — the header button at `Today.tsx:194-202`
@@ -1000,7 +1017,14 @@ carries a name or is gone. And `docs/FUTURE.md:189-192`, `docs/FUTURE.md:585`
 and `docs/PLAN.md:862-863` no longer claim a live tip board inside the freeze is
 required.
 
-### 11. Retire a retry token when the lock it was minted for is given back — _small_
+### 11. Retire a retry token when the lock it was minted for is given back — _completed 2026-09-19_
+
+**Shipped.** `AutoBookLedger` already reports the exact keys it releases through
+`onAttemptChange`; the provider now deletes the corresponding retry tokens in
+that same callback. The end-to-end regression reproduces L1 rejection, plans
+releasing L1, and an unknown L2 response, then proves the orphaned L1 token
+cannot release L2 and send a third request. The diagnosis below is retained as
+the pre-fix record.
 
 Found 2026-09-19 while reviewing item 10. **It predates item 10**, and item 10
 narrowed it rather than causing it: the same structure is on HEAD, where the

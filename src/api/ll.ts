@@ -171,6 +171,14 @@ interface Overlap {
 }
 
 export interface OfferItineraryItem {
+  /**
+   * Reservation/entitlement identity for an existing itinerary item.
+   *
+   * Optional because park-hour and other itinerary rows do not carry one.
+   * WDW's `EXISTING_ITEM` does, and preserving it is what distinguishes two
+   * split-party reservations for the same attraction.
+   */
+  id?: string;
   overlap: Overlap;
   facilityId: string;
   startTime: ParkTime;

@@ -6,14 +6,15 @@ name: Build and deploy AutoLL-3
 #   main - TypeScript/React source. `vite build` emits ONLY bg1.js,
 #            bg1.css, responder.html and their chunks (see the
 #            rollupOptions.input list in vite.config.mts).
-#   goofy  - upstream's published Pages output. It is the only place the
+#   AutoLL-2 installer revision - upstream's published Pages output. It is the
 #            surrounding site exists: index.html (which generates the
 #            bookmarklet), start.html, news.html, contact.html,
 #            autoloader.user.js, icon.png, index.css.
 #
 # Building main alone gives you an app with no way to install or launch
 # it. This workflow builds fresh code from main, then overlays the static
-# pages from goofy, then repoints upstream URLs at this fork.
+# pages from the pinned installer revision, then repoints upstream URLs at this
+# fork.
 
 on:
   push:
@@ -45,6 +46,11 @@ env:
   # second spelling of that one constant and must agree with it. It is kept
   # spelled out because it brands files that never pass through the bundler.
   PAGES_ORIGIN: https://mbs1234.github.io/AutoLL-3
+  # Immutable inputs. The published runtime includes executable code from
+  # AutoLL-2, so branch heads would let a rerun of the same AutoLL-3 commit
+  # produce a different release without passing this repository's review gate.
+  AUTOLL2_INSTALLER_REV: a3531c6621cd8dd76582224792fceb635c93be12
+  AUTOLL2_RUNTIME_REV: 0926bc8a71af55bc886f31c54d98f7a98b6b2a4d
 
 jobs:
   build:
@@ -58,14 +64,14 @@ jobs:
       - name: Check out source (main)
         uses: actions/checkout@v5
 
-      - name: Check out static site (goofy)
+      - name: Check out pinned static site
         uses: actions/checkout@v5
         with:
           # AutoLL-3 owns main; the inherited installer assets remain in the
           # reviewed AutoLL-2 source repository until they are independently
           # maintained here.
           repository: mbs1234/AutoLL-2
-          ref: goofy
+          ref: ${{ env.AUTOLL2_INSTALLER_REV }}
           path: goofy-static
 
       # The base's own published output. `sensor-data.js` is loaded at runtime
@@ -73,11 +79,11 @@ jobs:
       # alongside the build, and it has to be *this* copy -- `goofy` carries a
       # different vintage of the same filename, and pairing that with this
       # bundle fails in a way that is hard to read.
-      - name: Check out base static output (gh-pages)
+      - name: Check out pinned runtime output
         uses: actions/checkout@v5
         with:
           repository: mbs1234/AutoLL-2
-          ref: gh-pages
+          ref: ${{ env.AUTOLL2_RUNTIME_REV }}
           path: base-static
 
       - name: Set up Node
@@ -126,7 +132,7 @@ jobs:
       - name: Build app bundle
         run: npm run build
 
-      - name: Overlay static site from goofy
+      - name: Overlay pinned static site
         run: |
           set -euo pipefail
           # Only files the mickey build does not emit. Build outputs
@@ -163,7 +169,8 @@ jobs:
           # the import rejects with an error carrying no HTTP status, so
           # `useDataLoader` falls through to "Unknown error occurred" and every
           # booking fails for a reason the message does not name. Taken from
-          # gh-pages rather than goofy on purpose -- see the checkout step.
+          # The runtime pin rather than the installer pin on purpose -- see the
+          # checkout steps above.
           if [ -f "base-static/sensor-data.js" ]; then
             cp "base-static/sensor-data.js" "dist/sensor-data.js"
             echo "overlaid sensor-data.js"
@@ -257,8 +264,8 @@ jobs:
       # it describes what is actually published.
       #
       # It records all three source revisions, because `dist` is assembled
-      # from three branches: the bundle from this one, the installer pages
-      # from `goofy`, and the runtime module from `gh-pages`. The commit that
+      # from three commits: the bundle from this one, the installer pages from
+      # AutoLL-2, and its runtime module. The commit that
       # triggered the run identifies only the first, so a build reproduced
       # from `sourceRevision` alone would not match what shipped.
       #
@@ -268,10 +275,10 @@ jobs:
       # and what is worth failing the deploy over is a payload file MISSING,
       # which is checked below.
       # The user guide ships with the site so the installer pages can link
-      # to something that explains the app. Unlike the `goofy` overlay above,
-      # these files live in THIS repository, so a missing one is a broken
-      # checkout rather than an absent upstream page -- there is nothing to
-      # degrade to, and failing is the honest answer.
+      # to something that explains the app. Unlike the inherited installer
+      # overlay above, these files live in THIS repository, so a missing one is
+      # a broken checkout rather than an absent upstream page -- there is
+      # nothing to degrade to, and failing is the honest answer.
       #
       # It runs before the manifest below on purpose: the guide is served, so
       # it belongs in `autoll3-files.sha256` like every other served file.
@@ -306,7 +313,7 @@ jobs:
       - name: Create release manifest
         run: |
           set -euo pipefail
-          goofy_rev=$(git -C goofy-static rev-parse HEAD)
+          installer_rev=$(git -C goofy-static rev-parse HEAD)
           base_rev=$(git -C base-static rev-parse HEAD)
           (
             cd dist
@@ -348,7 +355,7 @@ jobs:
               }
             done
             printf '{\n  "application": "AutoLL-3",\n  "sourceRevision": "%s",\n  "installerRevision": "%s",\n  "runtimeModuleRevision": "%s",\n  "fileManifest": "autoll3-files.sha256"\n}\n' \
-              "$GITHUB_SHA" "$goofy_rev" "$base_rev" > autoll3-release.json
+              "$GITHUB_SHA" "$installer_rev" "$base_rev" > autoll3-release.json
           )
 
       - name: Show what will be deployed

@@ -1,11 +1,16 @@
-import { fireEvent, screen, within } from '@testing-library/react';
-import { createRef } from 'react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
+import { type ReactElement, createRef } from 'react';
 
 import { createBooking, hm, wdw } from '@/__fixtures__/ll';
+import { mk } from '@/__fixtures__/resort';
+import { leaseKey, quarantine } from '@/autopilot/lease';
 import { savePendingSearch } from '@/autopilot/nextll';
+import { planReview } from '@/autopilot/plancheck';
 import TabsContext from '@/contexts/TabContext';
-import { ParkTime } from '@/datetime';
+import { ParkTime, parkDate } from '@/datetime';
 import { PARTY_IDS_KEY } from '@/hooks/useSavedParty';
+import kvdb from '@/kvdb';
+import { PLAN_CHECK_REVIEW_KEY } from '@/storageNamespace';
 import { TODAY, nav, setTime } from '@/testing';
 
 import Activity from './Activity';
@@ -13,7 +18,7 @@ import Configure from './Configure';
 import PlanCheck from './PlanCheck';
 import Timeline from './Timeline';
 import Today from './Today';
-import { BZ, DB, OFF, renderScreen } from './screenTestSetup';
+import { BZ, DB, OFF, llExperience, renderScreen } from './screenTestSetup';
 
 // Pins the clock to the repo's canonical TODAY (see @/testing), so "today"
 // means the date the fixtures are built for.
@@ -82,8 +87,11 @@ describe('Today', () => {
     expect(requestNotifications).toHaveBeenCalledTimes(1);
   });
 
-  it('marks Plan Check reviewed after opening it from the checklist', () => {
-    setup({ bookingDate: '2021-10-02' });
+  it('does not mark Plan Check reviewed merely because its route was opened', () => {
+    setup({
+      bookingDate: '2021-10-02',
+      targets: [{ experienceId: BZ, autoBook: true }],
+    });
     const item = screen
       .getAllByRole('listitem')
       .find(element => element.textContent?.includes('Run Plan Check'));
@@ -91,8 +99,114 @@ describe('Today', () => {
     expect(
       screen
         .getAllByRole('listitem')
-        .find(element => element.textContent?.includes('Plan Check reviewed'))
-    ).toHaveTextContent('Plan Check reviewed');
+        .find(element => element.textContent?.includes('Run Plan Check'))
+    ).toHaveTextContent('Run Plan Check');
+    expect(nav.goTo.mock.calls[0]?.[0].type).toBe(PlanCheck);
+  });
+
+  it('marks the rendered clean result reviewed and keeps it reopenable', () => {
+    const date = '2021-10-02';
+    const targets = [{ experienceId: BZ, autoBook: true }];
+    const experiences = [llExperience(BZ), llExperience(DB)];
+    setup({ bookingDate: date, targets, experiences });
+
+    const item = screen
+      .getAllByRole('listitem')
+      .find(element => element.textContent?.includes('Run Plan Check'));
+    fireEvent.click(within(item!).getByRole('button', { name: 'Open' }));
+    const routed = nav.goTo.mock.calls[0]?.[0] as ReactElement<{
+      onReviewed: (review: ReturnType<typeof planReview>) => void;
+    }>;
+    const review = planReview({
+      targets,
+      parkId: mk.id,
+      date,
+      experiences,
+      plans: [],
+      requireWholeParty: false,
+      avoidOverlaps: true,
+      dryRun: false,
+      tierLimitLifted: false,
+    });
+    act(() => routed.props.onReviewed(review));
+
+    const reviewed = screen
+      .getAllByRole('listitem')
+      .find(element => element.textContent?.includes('Plan Check reviewed'));
+    expect(reviewed).toHaveTextContent('✓ Plan Check reviewed');
+    fireEvent.click(within(reviewed!).getByRole('button', { name: 'Review' }));
+    expect(nav.goTo).toHaveBeenCalledTimes(2);
+    expect(kvdb.get(PLAN_CHECK_REVIEW_KEY)).toEqual(review);
+  });
+
+  it('does not certify a reviewed plan that has a blocker', () => {
+    const date = '2021-10-02';
+    const targets = [
+      {
+        experienceId: BZ,
+        autoBook: true,
+        after: new ParkTime(15),
+        before: new ParkTime(10),
+      },
+    ];
+    const experiences = [llExperience(BZ), llExperience(DB)];
+    const review = planReview({
+      targets,
+      parkId: mk.id,
+      date,
+      experiences,
+      plans: [],
+      requireWholeParty: false,
+      avoidOverlaps: true,
+      dryRun: false,
+      tierLimitLifted: false,
+    });
+    kvdb.set(PLAN_CHECK_REVIEW_KEY, review);
+
+    setup({ bookingDate: date, targets, experiences });
+
+    const item = screen
+      .getAllByRole('listitem')
+      .find(element => element.textContent?.includes('Plan Check found'));
+    expect(item).toHaveTextContent('○ Plan Check found 1 blocker');
+  });
+
+  it('does not carry a Plan Check acknowledgement to another date', () => {
+    const targets = [{ experienceId: BZ, autoBook: true }];
+    const experiences = [llExperience(BZ), llExperience(DB)];
+    kvdb.set(
+      PLAN_CHECK_REVIEW_KEY,
+      planReview({
+        targets,
+        parkId: mk.id,
+        date: '2021-10-02',
+        experiences,
+        plans: [],
+        requireWholeParty: false,
+        avoidOverlaps: true,
+        dryRun: false,
+        tierLimitLifted: false,
+      })
+    );
+
+    setup({ bookingDate: '2021-10-03', targets, experiences });
+    expect(screen.getByText(/Run Plan Check before enabling/)).toBeVisible();
+  });
+
+  it('shows unresolved protection on Today and routes to its details', async () => {
+    await quarantine(leaseKey(BZ, parkDate()), {
+      id: 'move-1',
+      kind: 'modify',
+      to: '11:00:00',
+    });
+    setup();
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      '1 unresolved Lightning Lane change needs review.'
+    );
+    expect(screen.getByText(/has stopped changing/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Review protection' }));
+    expect(nav.goTo.mock.calls[0]?.[0].type).toBe(Activity);
   });
 
   it('shows the most recent find', () => {

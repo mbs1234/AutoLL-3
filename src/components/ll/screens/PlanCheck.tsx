@@ -1,9 +1,14 @@
-import { use, useEffect, useMemo, useState } from 'react';
+import { use, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Guests } from '@/api/ll';
 import { APP_NAME } from '@/appIdentity';
 import { available as leaseCoordinationAvailable } from '@/autopilot/lease';
-import { PlanCheckLevel, checkPlan } from '@/autopilot/plancheck';
+import {
+  PlanCheckLevel,
+  PlanReview,
+  checkPlan,
+  planReview,
+} from '@/autopilot/plancheck';
 import useQuarantine from '@/autopilot/useQuarantine';
 import Button from '@/components/Button';
 import Screen from '@/components/Screen';
@@ -46,7 +51,11 @@ const LABEL: Record<PlanCheckLevel, string> = {
 };
 
 /** A no-request review of the current Autopilot configuration. */
-export default function PlanCheck() {
+export default function PlanCheck({
+  onReviewed,
+}: {
+  onReviewed?: (review: PlanReview) => void;
+} = {}) {
   const { park } = use(ParkContext);
   const { bookingDate } = use(BookingDateContext);
   const { ll } = use(ClientsContext);
@@ -59,25 +68,22 @@ export default function PlanCheck() {
   const doubts = useQuarantine();
   const relevantDoubts = doubts.filter(doubt => doubt.date === bookingDate);
   const coordinated = leaseCoordinationAvailable();
-  // Recomputed only when a fact it reads changes, rather than on every render
-  // -- this screen stays mounted while Autopilot polls behind it.
-  const items = useMemo(
-    () =>
-      checkPlan({
-        targets,
-        parkId: park.id,
-        date: bookingDate,
-        experiences,
-        plans,
-        requireWholeParty,
-        avoidOverlaps,
-        dryRun,
-        // Only a spent entitlement lifts the limit, which is what the
-        // provider reports as `unlocked`. A merely configured passkey does
-        // not, and treating it as if it did was the same mistake as reading a
-        // reservation as evidence of a redemption.
-        tierLimitLifted: passkeyStatus === 'unlocked',
-      }),
+  const input = useMemo(
+    () => ({
+      targets,
+      parkId: park.id,
+      date: bookingDate,
+      experiences,
+      plans,
+      requireWholeParty,
+      avoidOverlaps,
+      dryRun,
+      // Only a spent entitlement lifts the limit, which is what the
+      // provider reports as `unlocked`. A merely configured passkey does
+      // not, and treating it as if it did was the same mistake as reading a
+      // reservation as evidence of a redemption.
+      tierLimitLifted: passkeyStatus === 'unlocked',
+    }),
     [
       targets,
       park.id,
@@ -90,6 +96,19 @@ export default function PlanCheck() {
       passkeyStatus,
     ]
   );
+  // Recomputed only when a fact it reads changes, rather than on every render
+  // -- this screen stays mounted while Autopilot polls behind it.
+  const items = useMemo(() => checkPlan(input), [input]);
+  const reviewed = useMemo(() => planReview(input, items), [input, items]);
+  const reportedReview = useRef(false);
+  useEffect(() => {
+    // Report only the result actually rendered when this screen was opened.
+    // Nav keeps covered screens mounted; repeatedly acknowledging later hidden
+    // updates would turn passive background polling into a fresh user review.
+    if (reportedReview.current || !onReviewed) return;
+    reportedReview.current = true;
+    onReviewed(reviewed);
+  }, [onReviewed, reviewed]);
   const blockers = items.filter(item => item.level === 'blocker').length;
   const reviews =
     items.filter(item => item.level === 'review').length +

@@ -29,18 +29,20 @@ Three separate gaps, worth understanding before touching the build:
 
 ## How this fork resolves them
 
-`.github/workflows/deploy.yml` builds `main`, overlays the static pages from
-`mbs1234/AutoLL-2@goofy` and the runtime module from `mbs1234/AutoLL-2@gh-pages`,
-rewrites upstream URLs, and deploys to Pages. Both are separate public
-repositories, which is why the default `GITHUB_TOKEN` can read them:
+`.github/workflows/deploy.yml` builds `main`, overlays the static pages and
+runtime module from immutable AutoLL-2 commits, rewrites upstream URLs, and
+deploys to Pages. The current pins are `a3531c6` for the installer snapshot
+(from `goofy`) and `0926bc8` for the runtime snapshot (from `gh-pages`). The
+repository is public, so the default `GITHUB_TOKEN` can read both commits:
 
 ```
-main (source) ──► npm run build ──► dist/
-goofy  (static) ──► overlay index/start/news/contact/autoloader/icon/css
-                    (never overwriting freshly built bg1.js, bg1.css,
-                     responder.html or their chunks)
-                 ──► brand URLs and labels for mbs1234.github.io/AutoLL-3
-                 ──► GitHub Pages
+main (source) ───────────► npm run build ──► dist/
+installer commit (static) ─► overlay index/start/news/contact/autoloader/icon/css
+                              (never overwriting freshly built bg1.js, bg1.css,
+                               responder.html or their chunks)
+runtime commit ────────────► overlay sensor-data.js
+                            ─► brand URLs and labels for mbs1234.github.io/AutoLL-3
+                            ─► GitHub Pages
 ```
 
 ## Booking
@@ -70,12 +72,12 @@ booking from this build was confirmed working on 2026-09-05.
 
 **One deployment trap, already sprung once.** `sensor-data.js` is loaded by
 dynamic import at runtime and is *not* a rollup input, so `vite build` does not
-emit it — it has to be copied into `dist/` by the deploy workflow, from
-`gh-pages` rather than `goofy` (both branches carry that filename; they were
-different vintages when this was written, and as of 2026-09-17 they are the same
-blob, `7b3512ae`. The workflow still reads `gh-pages`, because that is the
-branch whose vintage is paired with this base and nothing guarantees they stay
-identical). When it is missing the import rejects with an error carrying no HTTP
+emit it — it has to be copied into `dist/` by the deploy workflow, from the
+runtime commit rather than the installer commit (both source branches carry
+that filename; they were different vintages when this was written, and as of
+2026-09-17 they are the same blob, `7b3512ae`). The workflow pins the reviewed
+runtime vintage because nothing guarantees the two branch heads stay identical.
+When it is missing the import rejects with an error carrying no HTTP
 status, so `useDataLoader` shows "Unknown error occurred" and every booking fails
 without naming a cause. The overlay step now fails the build rather than
 warning, so this cannot recur silently.

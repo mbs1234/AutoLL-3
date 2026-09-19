@@ -3,7 +3,7 @@ import { mk } from '@/__fixtures__/resort';
 import { ParkTime } from '@/datetime';
 import { TODAY, TOMORROW, setTime } from '@/testing';
 
-import { PlanCheckInput, checkPlan } from './plancheck';
+import { PlanCheckInput, checkPlan, planReview } from './plancheck';
 
 // The Tier 1 hold applies only to the current park day, and `checkPlan`
 // compares its input against `parkDate()`. Without pinning the clock, TODAY
@@ -308,5 +308,40 @@ describe('checkPlan', () => {
       ],
     });
     expect(items.map(item => item.level)).toEqual(['blocker', 'review']);
+  });
+});
+
+describe('planReview', () => {
+  it('is stable when semantically identical targets are reordered', () => {
+    const first = {
+      ...base(),
+      targets: [
+        {
+          experienceId: hm.id,
+          autoBook: true,
+          after: new ParkTime(15),
+          before: new ParkTime(10),
+        },
+        { experienceId: jc.id, autoBook: true, paused: true },
+      ],
+    };
+    const second = { ...first, targets: [...first.targets].reverse() };
+
+    expect(planReview(first).key).toBe(planReview(second).key);
+  });
+
+  it('changes when the reviewed plan or verdict changes', () => {
+    const original = base();
+    const key = planReview(original).key;
+
+    expect(planReview({ ...original, date: TOMORROW }).key).not.toBe(key);
+    expect(planReview({ ...original, dryRun: true }).key).not.toBe(key);
+    expect(
+      planReview({
+        ...original,
+        targets: [{ experienceId: hm.id, autoModify: true }],
+      }).key
+    ).not.toBe(key);
+    expect(planReview({ ...original, experiences: [] }).key).not.toBe(key);
   });
 });

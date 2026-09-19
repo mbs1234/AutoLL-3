@@ -123,10 +123,11 @@ From the handoff and from the code, none of them negotiable here:
 - AutoLL-3 is a Walt Disney World Lightning Lane client. No Disneyland, no
   virtual queues, one destination on the start page. AutoLL keeps both.
 - All work lands in AutoLL-3. AutoLL-2 is the stable base and has to stay
-  where it is: `deploy.yml` checks out `mbs1234/AutoLL-2` at `goofy` for the
-  installer pages and at `gh-pages` for the runtime module, rewriting the
-  AutoLL-2 name in the copied assets, so that repository must keep existing
-  for AutoLL-3 to deploy at all. AutoLL is frozen. The settled constraints in
+  where it is: `deploy.yml` checks out immutable commits from its `goofy` and
+  `gh-pages` histories for the installer pages and runtime module, rewriting
+  the AutoLL-2 name in the copied assets, so that repository must keep existing
+  for AutoLL-3 to deploy at all. Updating either pin is an explicit reviewed
+  release change. AutoLL is frozen. The settled constraints in
   the handoff (sensor integration, Thrill Data tables, entitlement rules, git
   identity, release gate) are untouched by anything here.
 

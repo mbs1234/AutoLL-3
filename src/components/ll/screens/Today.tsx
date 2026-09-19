@@ -1,11 +1,13 @@
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
 
 import { LLMP, isLLMP } from '@/api/itinerary';
 import { checklist } from '@/autopilot/checklist';
 import { describeMode } from '@/autopilot/describe';
 import { latestActivity } from '@/autopilot/events';
 import { loadPendingSearch } from '@/autopilot/nextll';
+import { PlanReview, checkPlan, planReview } from '@/autopilot/plancheck';
 import { NO_REFUSALS } from '@/autopilot/refusal';
+import useQuarantine from '@/autopilot/useQuarantine';
 import { WatchTarget } from '@/autopilot/watchlist';
 import Button from '@/components/Button';
 import Tab from '@/components/Tab';
@@ -25,6 +27,7 @@ import TabsContext from '@/contexts/TabContext';
 import { parkDate, upcomingTimes } from '@/datetime';
 import { PARTY_IDS_KEY } from '@/hooks/useSavedParty';
 import kvdb from '@/kvdb';
+import { PLAN_CHECK_REVIEW_KEY } from '@/storageNamespace';
 
 import Activity from './Activity';
 import Configure from './Configure';
@@ -60,6 +63,7 @@ export default function Today({ ref }: HomeTabProps) {
     enabled,
     setEnabled,
     status,
+    targets,
     targetsHere,
     notifications,
     requestNotifications,
@@ -67,6 +71,8 @@ export default function Today({ ref }: HomeTabProps) {
     lastSkip,
     bookingLog,
     dryRun,
+    requireWholeParty,
+    avoidOverlaps,
     refusals,
     passkeyStatus,
   } = use(AutopilotContext);
@@ -83,8 +89,11 @@ export default function Today({ ref }: HomeTabProps) {
   const { ll } = use(ClientsContext);
   const { goTo } = use(NavContext);
   const { changeTab } = use(TabsContext);
-  const [planChecked, setPlanChecked] = useState(false);
+  const [reviewedPlan, setReviewedPlan] = useState<PlanReview | undefined>(() =>
+    kvdb.get<PlanReview>(PLAN_CHECK_REVIEW_KEY)
+  );
   const [now, setNow] = useState(() => Date.now());
+  const doubts = useQuarantine();
 
   // The underlying data timestamps only change after successful requests. A
   // lightweight clock lets the wording remain truthful while this tab stays
@@ -127,14 +136,55 @@ export default function Today({ ref }: HomeTabProps) {
       pending.experienceId)
     : undefined;
   const unknown = unknownExperienceIds?.length ?? 0;
+  const planCheckInput = useMemo(
+    () => ({
+      targets,
+      parkId: park.id,
+      date: bookingDate,
+      experiences,
+      plans,
+      requireWholeParty,
+      avoidOverlaps,
+      dryRun,
+      tierLimitLifted: passkeyStatus === 'unlocked',
+    }),
+    [
+      targets,
+      park.id,
+      bookingDate,
+      experiences,
+      plans,
+      requireWholeParty,
+      avoidOverlaps,
+      dryRun,
+      passkeyStatus,
+    ]
+  );
+  const currentReview = useMemo(() => {
+    const items = checkPlan(planCheckInput);
+    return planReview(planCheckInput, items);
+  }, [planCheckInput]);
   const readiness = checklist({
     // Read-only: mounting useSavedParty here would call ll.setPartyIds while
     // this screen is merely being viewed.
     partySize: kvdb.get<string[]>(PARTY_IDS_KEY)?.length ?? 0,
     targets: targetsHere,
     notifications,
-    planChecked,
+    planReviewed: reviewedPlan?.key === currentReview.key,
+    planBlockers: currentReview.blockers,
   });
+
+  const rememberReview = (review: PlanReview) => {
+    setReviewedPlan(review);
+    try {
+      kvdb.set(PLAN_CHECK_REVIEW_KEY, review);
+    } catch (error) {
+      // The acknowledgement still lasts for this mounted screen when durable
+      // storage is unavailable; it simply will not survive a reload.
+      console.error(error);
+    }
+  };
+  const openPlanCheck = () => goTo(<PlanCheck onReviewed={rememberReview} />);
   // This line describes both data sets, so it reports the older of the two
   // fetches -- and only once *both* have fetched. Filtering the undefined ones
   // out first and taking the minimum of what was left meant one loaded context
@@ -191,13 +241,7 @@ export default function Today({ ref }: HomeTabProps) {
         <Button type="small" onClick={() => goTo(<Configure />)}>
           Configure
         </Button>
-        <Button
-          type="small"
-          onClick={() => {
-            setPlanChecked(true);
-            goTo(<PlanCheck />);
-          }}
-        >
+        <Button type="small" onClick={openPlanCheck}>
           Plan check
         </Button>
         <Button type="small" onClick={() => goTo(<Timeline />)}>
@@ -207,6 +251,30 @@ export default function Today({ ref }: HomeTabProps) {
           Activity
         </Button>
       </div>
+
+      {doubts.length > 0 && (
+        <section
+          className="mt-3 rounded-sm bg-red-100 p-2 text-sm text-red-900"
+          role="alert"
+        >
+          <p className="font-semibold">
+            {doubts.length} unresolved Lightning Lane change
+            {doubts.length === 1 ? ' needs' : 's need'} review.
+          </p>
+          <p className="mt-1">
+            Autopilot has stopped changing the affected reservation
+            {doubts.length === 1 ? '' : 's'} until Disney Plans confirms what
+            happened or you resolve the protection.
+          </p>
+          <Button
+            type="small"
+            className="mt-2"
+            onClick={() => goTo(<Activity />)}
+          >
+            Review protection
+          </Button>
+        </section>
+      )}
 
       {!isToday && (
         <section
@@ -223,7 +291,7 @@ export default function Today({ ref }: HomeTabProps) {
                 <span>
                   {item.done ? '✓' : '○'} {item.text}
                 </span>
-                {!item.done && (
+                {(!item.done || item.subject === 'plan-check') && (
                   <Button
                     type="small"
                     onClick={() => {
@@ -234,12 +302,15 @@ export default function Today({ ref }: HomeTabProps) {
                       ) {
                         goTo(<Configure />);
                       } else if (item.subject === 'plan-check') {
-                        setPlanChecked(true);
-                        goTo(<PlanCheck />);
+                        openPlanCheck();
                       } else requestNotifications();
                     }}
                   >
-                    {item.subject === 'notifications' ? 'Enable' : 'Open'}
+                    {item.subject === 'notifications'
+                      ? 'Enable'
+                      : item.done
+                        ? 'Review'
+                        : 'Open'}
                   </Button>
                 )}
               </li>
