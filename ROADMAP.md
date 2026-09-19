@@ -161,8 +161,9 @@ ranking holds, because it was always a park-day ranking:
 
 **Neither deadline.** Item **1** (blocked on one reading, and the attended case
 already ships), item **9** ((b)(c)(d) are one evening; (a) needs a decision
-first), item **7** (calendar-blocked until roughly Nov 27). Item **6** has
-moved to *After the trip*.
+first), item **7** (calendar-blocked until roughly Nov 27), item **11** (found
+while reviewing item 10; it predates it, and item 10 already removed its worst
+half). Item **6** has moved to *After the trip*.
 
 **The schedule this implies.** Last change on `main` lands **2026-10-04**;
 merge AutoLL-3 → AutoLL-4 on **2026-10-06**, leaving five days of soak; hard
@@ -998,6 +999,59 @@ September 5 pass, and each of the four nulls at `src/api/data/wdw.ts:1484-1487`
 carries a name or is gone. And `docs/FUTURE.md:189-192`, `docs/FUTURE.md:585`
 and `docs/PLAN.md:862-863` no longer claim a live tip board inside the freeze is
 required.
+
+### 11. Retire a retry token when the lock it was minted for is given back — _small_
+
+Found 2026-09-19 while reviewing item 10. **It predates item 10**, and item 10
+narrowed it rather than causing it: the same structure is on HEAD, where the
+token key carries no date at all.
+
+**The pairing that is only half enforced.** A retry token is a promise about one
+particular attempt lock: NextLL mints one in `AutopilotProvider.tsx` when an
+action is refused outright — Disney rejecting the call, or our own limiter never
+sending it — and the next tick reads it back, finds the wait elapsed, and calls
+`ledger.releaseAttempt(...)` to let the action be taken again. Token and lock are
+minted together and are meant to die together. Only one half of that is written
+down. `retryAtRef` is pruned when the token is consumed, and again on enable —
+never when the lock it was paired with is released by anything *else*, and the
+plans sweep releases locks on evidence all day.
+
+**What it does.** A token minted for lock L1 survives L1's release. The
+attraction is later locked again — L2, same date, same kind, same experience,
+because that is the only shape a lock on one action can take — and this time the
+request goes out and nothing comes back, which is the case the doubt-hold exists
+for. The very next tick finds `hasAttempted` true, reads the leftover token,
+sees a time long past, and calls `releaseAttempt`: the doubt-hold for L2 is
+deleted and the action handed back. The attraction is then booked again on the
+strength of a decision made about a request that had already been answered.
+
+**Item 10 removed the cross-date half.** The token key is now
+`lockKey(date, kind, experienceId)` rather than `` `${kind}:${experienceId}` ``,
+so a token minted for one booking date can no longer release a live doubt-hold
+on another — which was the wider and more likely case, and the one a booking
+morning with nine searches across three park days would have produced. What is
+left is same-key reuse after a release, which HEAD has identically. That is why
+this is its own item and not a regression in item 10.
+
+**Why it is _small_, and why it is still here.** The narrow fix is to drop the
+token wherever its lock is dropped, which means the ledger has to say that a lock
+was released — it already states releases to `onAttemptChange`, so the provider
+can retire tokens from the same list rather than growing a second source of
+truth. The reason it is not free is the direction of the error: a token that is
+kept too long releases a doubt-hold, and a token dropped too eagerly only costs a
+retry NextLL would have made anyway. Anything written here should be biased the
+second way, and should say so in a comment.
+
+**Done means.** A provider test that fails on HEAD *and* on today's tree: run
+NextLL on one attraction with `autoBook` only; make the first booking come back a
+410 so a token is minted; let the plans sweep release that lock on
+`CONFIRM_ABSENT_POLLS` absent polls; then let the attraction be booked again with
+the response lost, and assert `book` was called exactly twice across the whole
+run. Today it is called three times.
+
+**Where.** `src/providers/AutopilotProvider.tsx` (the token map, its mint site
+and its read site), `src/autopilot/autobook.ts` (`releaseAttempt` and the release
+branch of `resolveHeld`, which are the two places a lock is given back).
 
 ## After the trip
 

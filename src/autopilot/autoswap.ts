@@ -5,6 +5,7 @@ import { ParkTime, parkDate } from '@/datetime';
 
 import {
   AutoBookLedger,
+  BookLedger,
   ClashCheck,
   actionWasRejected,
   withAttemptDispatch,
@@ -187,7 +188,7 @@ export interface AutoSwapDeps {
     to: ParkTime;
   }) => RequestControl;
   guests: Guests;
-  ledger: AutoBookLedger;
+  ledger: BookLedger;
   /** Optional; when it reports a clash, the swap is abandoned. */
   clashes?: ClashCheck;
   /**

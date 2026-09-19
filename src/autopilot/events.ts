@@ -32,6 +32,13 @@ export const SKIP_TEXT: Record<string, string> = {
   // exactly the moment the user is asking why nothing is booking.
   'waiting-to-retry':
     'it failed a moment ago and is waiting before trying again',
+  // Also raised by the provider. Action locks carry the booking date they were
+  // taken for; one written by an older version of the app does not, so there is
+  // no honest way to tell which date it meant and it has to block every date
+  // until plans clear it. Worth its own words rather than "already-attempted",
+  // because the answer is to reload the other tabs, not to wait.
+  'stale-lock':
+    'a lock left by an older version of the app is still blocking it',
 };
 
 export const skipText = (reason: string) => SKIP_TEXT[reason] ?? reason;

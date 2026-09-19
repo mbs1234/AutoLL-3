@@ -16,8 +16,10 @@ import {
   ActionKind,
   AutoBookLedger,
   AutoBookOutcome,
+  BookLedger,
   ClashCheck,
   attemptAutoBook,
+  lockKey,
   shouldAttempt,
 } from '@/autopilot/autobook';
 import {
@@ -320,28 +322,50 @@ export default function AutopilotProvider({
   const lockOwnerRef = useRef(
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   );
-  const ledgerRef = useRef(
-    new AutoBookLedger(
-      // Shares this instance's action locks with any other tab or nested
-      // provider (e.g. NextLL) watching the same park day, so the two do not
-      // independently book, modify or swap the same attraction. See
-      // `AutoBookLedger.adoptAttempted` and `storage.ts`'s `saveLocks`. Guarded
-      // against `parkDayRef`: a backgrounded tab settling something after the
-      // real day has turned must not write yesterday's locks into today's
-      // bucket.
-      released => {
-        if (parkDate() === parkDayRef.current) {
-          // `publishableKeys`, not `attemptedKeys`: the latter includes locks
-          // adopted from other instances, and re-publishing those under this
-          // instance's id would transfer ownership of them.
-          saveLocks(
-            lockOwnerRef.current,
-            ledgerRef.current.publishableKeys(),
-            released
-          );
-        }
+  // Filled on the first render and never again. `useRef(new AutoBookLedger())`
+  // constructs on *every* render and discards all but the first, which is
+  // ordinarily only waste -- but this constructor refuses a date it cannot
+  // read. `undefined!` rather than a `| undefined` type so that the ~25 readers
+  // below do not each have to assert.
+  const ledgerRef = useRef<AutoBookLedger>(undefined!);
+  ledgerRef.current ??= new AutoBookLedger(
+    // The park day, deliberately, and not the date the picker is on.
+    //
+    // `??=` stopped the constructor running on every render; it still runs on
+    // the *first* one, and a date it cannot read would throw out of render,
+    // where this provider sits behind no error boundary and the whole screen
+    // goes down rather than the one tick that can name the problem on it.
+    // `parkDate()` is derived from the clock and is a park date by
+    // construction, so the refusal cannot happen here at all. The picker's date
+    // reaches the ledger a few lines into the first tick, through
+    // `setBookingDate`, which is inside the poller: there a refusal stops the
+    // run and says why, which is what the owner needs to see.
+    //
+    // Nothing asks this ledger a date-sensitive question before that
+    // assignment -- the only calls outside a tick are `reset`, `startNewDay`,
+    // `bookedCount` and `publishableKeys`, none of which depend on the date --
+    // and 'AutopilotProvider ledger calls in a tick' is the test that keeps it
+    // that way.
+    parkDayRef.current,
+    // Shares this instance's action locks with any other tab or nested
+    // provider (e.g. NextLL) watching the same park day, so the two do not
+    // independently book, modify or swap the same attraction. See
+    // `AutoBookLedger.adoptAttempted` and `storage.ts`'s `saveLocks`. Guarded
+    // against `parkDayRef`: a backgrounded tab settling something after the
+    // real day has turned must not write yesterday's locks into today's
+    // bucket.
+    released => {
+      if (parkDate() === parkDayRef.current) {
+        // `publishableKeys`, not `attemptedKeys`: the latter includes locks
+        // adopted from other instances, and re-publishing those under this
+        // instance's id would transfer ownership of them.
+        saveLocks(
+          lockOwnerRef.current,
+          ledgerRef.current.publishableKeys(),
+          released
+        );
       }
-    )
+    }
   );
 
   // Drop learning: the previous tipboard state, plus what the poller has seen
@@ -588,6 +612,69 @@ export default function AutopilotProvider({
       // change land between two decisions -- eligibility fetched for one day and
       // spent booking another. Same reasoning as `currentPlans` below.
       const date = bookingDateRef.current;
+      // And the ledger is moved onto it here, once, from that same captured
+      // value. Every lock it takes or settles below is therefore asked about
+      // the same day `findExistingLL` is asked about a few lines further on --
+      // which is the whole of the defect this closes, since no ledger method
+      // takes a date and so none of them can be given a different one.
+      ledgerRef.current.setBookingDate(date);
+      /**
+       * Run one *synchronous* ledger call on the date this tick captured.
+       *
+       * The ledger holds one booking date at a time, and ticks overlap by
+       * design: at `TICK_DEADLINE_MS` the poller stops waiting on a tick,
+       * rejects its promise and starts the next one, while the abandoned tick
+       * runs on to completion. That next tick sets the ledger onto whatever
+       * date the picker is on now -- so everything below here in an abandoned
+       * tick would otherwise read a different date's records than the one it
+       * fetched plans for, sent its offer against, and took its lock on. A
+       * rejection belonging to the 18th would withdraw the 19th's doubt-hold,
+       * and the 19th would then be booked twice.
+       *
+       * Restoring rather than skipping, because the abandoned tick's work is
+       * still true about *its* date and dropping it silently leaves a lock or a
+       * doubt-hold nothing will ever clear. Synchronous is what makes it safe:
+       * no other tick can run between the two assignments.
+       */
+      const onBookingDate = <T,>(call: () => T): T => {
+        const moved = ledgerRef.current.bookingDate;
+        if (moved === date) return call();
+        ledgerRef.current.setBookingDate(date);
+        try {
+          return call();
+        } finally {
+          ledgerRef.current.setBookingDate(moved);
+        }
+      };
+      /**
+       * The same ledger, pinned to this tick's date, for the action helpers.
+       *
+       * They take a structural `BookLedger` rather than the instance precisely
+       * so this can be handed in. Their calls are the ones the wrapper above
+       * cannot reach from here: `markAttempted` runs inside the dispatch
+       * boundary and `markBooked` runs *after* the booking round trip, where
+       * the tick may long since have been abandoned. `markBooked` is the one
+       * that costs something -- it clears the doubt-hold for a lost response,
+       * and on the wrong date that is the only thing stopping a second
+       * entitlement being spent there.
+       */
+      const datedLedger: BookLedger = {
+        hasAttempted: (id, kind) =>
+          onBookingDate(() => ledgerRef.current.hasAttempted(id, kind)),
+        markAttempted: (id, kind, rehearsal) => {
+          const rollback = onBookingDate(() =>
+            ledgerRef.current.markAttempted(id, kind, rehearsal)
+          );
+          // The undo runs if the dispatch marker refuses the send, and has to
+          // undo it on the date it was taken on.
+          return () => onBookingDate(rollback);
+        },
+        markBooked: id => onBookingDate(() => ledgerRef.current.markBooked(id)),
+        // Read-through, not a snapshot: the count moves while a helper runs.
+        get bookedCount() {
+          return ledgerRef.current.bookedCount;
+        },
+      };
       const forToday = date === parkDate();
       const activeTargets = targetsRef.current.filter(target =>
         targetApplies(target, park.id, date)
@@ -811,20 +898,28 @@ export default function AutopilotProvider({
       // Only plans fetched during this tick count as evidence.
       if (freshPlans) {
         const settled = freshPlans;
-        for (const id of ledgerRef.current.attemptedBookIds) {
-          const stillHeld = !!findExistingLL(settled, id, date);
-          ledgerRef.current.resolveBook(
-            id,
-            stillHeld,
-            // A redeemed or lapsed pass leaves plans looking exactly like a
-            // cancelled one, and only the tracker can tell the two apart.
-            forToday && ll.experienced({ id })
-          );
-        }
-        // The loop above sweeps `book:` locks only, so a return time committed
-        // by a move or a swap -- or by an instance that has since gone away --
-        // had nothing to clear it and blocked a 100-minute band of return
-        // times for the rest of the park day. Two things end a commit's job:
+        // Every kind, not `book` alone. A move or a swap takes a lock on the
+        // same evidence a booking does and is released by the same evidence,
+        // and sweeping only `book` left the other two with no release path at
+        // all: a move made for one date blocked that action on every other date
+        // for the rest of the session, with nothing able to clear it.
+        onBookingDate(() => {
+          for (const id of ledgerRef.current.settleableIds) {
+            const stillHeld = !!findExistingLL(settled, id, date);
+            ledgerRef.current.resolveHeld(
+              id,
+              stillHeld,
+              // A redeemed or lapsed pass leaves plans looking exactly like a
+              // cancelled one, and only the tracker can tell the two apart.
+              forToday && ll.experienced({ id })
+            );
+          }
+        });
+        // Committed return times are a separate record with its own lifetime,
+        // and nothing above touches them. A return time committed by a move or
+        // a swap -- or by an instance that has since gone away -- had nothing
+        // to clear it and blocked a 100-minute band of return times for the
+        // rest of the park day. Two things end a commit's job:
         // plans carrying the reservation, which is the better witness because
         // a parsed plan has an end time and gives the narrower span; and the
         // record outliving the window between committing and plans catching
@@ -1017,23 +1112,55 @@ export default function AutopilotProvider({
           bumpSkip('slots-full', experience.name);
           continue;
         }
-        if (ledgerRef.current.hasAttempted(experience.id, kind)) {
+        // On this tick's date, not whatever date a newer overlapping tick has
+        // since moved the ledger onto: the lock this asks about, the retry
+        // token paired with it and the release it may perform all belong to
+        // `date`.
+        const blockedBy = onBookingDate(() => {
+          if (!ledgerRef.current.hasAttempted(experience.id, kind)) {
+            return undefined;
+          }
           // Held for good, unless this is a rejection whose wait has run out.
-          const retryAt = retryAtRef.current.get(`${kind}:${experience.id}`);
+          // The token is keyed by date as well, because it is paired one to one
+          // with a ledger lock and is the thing that gives one back: keyed by
+          // action alone, a token minted for a rejection on one date would
+          // expire and release a live doubt-hold on another, re-sending a
+          // booking whose outcome was never learned. That is exactly the
+          // inversion the comment further down warns about.
+          const token = lockKey(date, kind, experience.id);
+          const retryAt = retryAtRef.current.get(token);
           if (retryAt === undefined || Date.now() < retryAt) {
-            // Both cases are reported. A lock with no retry token used to
+            // Every case is reported. A lock with no retry token used to
             // `continue` in silence, which is the worst way for this to fail:
             // a lock adopted from the day's shared copy on a fresh mount looks
             // exactly like nothing being available, and the screen sits on
             // "checking" for the rest of the day naming no reason.
-            bumpSkip(
-              retryAt === undefined ? 'already-attempted' : 'waiting-to-retry',
-              experience.name
-            );
-            continue;
+            //
+            // A lock left by an older build is called out separately. It blocks
+            // like any other, but it is the one case where this build is
+            // refusing to act against a key it cannot interpret rather than
+            // deferring to a live action, and it is the only way the date fix
+            // can still cost a booking -- so it must not be reported in the
+            // words that mean somebody else is working on it.
+            //
+            // Only when it is the *only* thing blocking, though. A date-less
+            // key and a current-build tab's dated key can both be present, and
+            // then the live action is what to report: "reload the other tabs"
+            // is the wrong instruction while a request for this date is in
+            // flight somewhere, and following it would not unblock anything.
+            if (retryAt !== undefined) return 'waiting-to-retry';
+            return ledgerRef.current.hasUndatedLock(experience.id, kind) &&
+              !ledgerRef.current.hasDatedLock(experience.id, kind)
+              ? 'stale-lock'
+              : 'already-attempted';
           }
-          retryAtRef.current.delete(`${kind}:${experience.id}`);
+          retryAtRef.current.delete(token);
           ledgerRef.current.releaseAttempt(experience.id, kind);
+          return undefined;
+        });
+        if (blockedBy) {
+          bumpSkip(blockedBy, experience.name);
+          continue;
         }
         if (kind === 'modify' && !wantsModify) continue;
         if (kind === 'book' && !wantsBook) continue;
@@ -1140,7 +1267,11 @@ export default function AutopilotProvider({
           // of the offer's real time, since that needs the offer. Marked attempted
           // so it logs once per attraction per action rather than on every tick.
           if (settingsRef.current.dryRun) {
-            const pre =
+            // Both the guard and the mark on this tick's date, for the reason
+            // `onBookingDate` gives: a rehearsal filed against a date this tick
+            // never worked would keep a real attempt on that date out of the
+            // settle sweep for the rest of the session.
+            const pre = onBookingDate(() =>
               kind === 'swap'
                 ? shouldSwap(
                     target,
@@ -1155,14 +1286,17 @@ export default function AutopilotProvider({
                       hit.returnTime,
                       ledgerRef.current
                     )
-                  : shouldAttempt(hit.target, ledgerRef.current);
+                  : shouldAttempt(hit.target, ledgerRef.current)
+            );
             if (!pre.ok) {
               bumpSkip(pre.reason, experience.name);
               continue;
             }
             // Rehearsal: marks only so this logs once, and stays out of the
             // allowance and the settle loop -- nothing was requested.
-            ledgerRef.current.markAttempted(experience.id, kind, true);
+            onBookingDate(() =>
+              ledgerRef.current.markAttempted(experience.id, kind, true)
+            );
             logOutcome(experience.name, {
               status: 'dry-run',
               kind,
@@ -1338,7 +1472,7 @@ export default function AutopilotProvider({
                 ll.offer(exp, g, { booking: victim }),
               book: (offer, control) => ll.book(offer, undefined, control),
               guests,
-              ledger: ledgerRef.current,
+              ledger: datedLedger,
               clashes,
               partyIsAcceptable,
               requestControl: ({ from, to }) =>
@@ -1364,7 +1498,7 @@ export default function AutopilotProvider({
                   ll.offer(exp, g, { booking }),
                 book: (offer, control) => ll.book(offer, undefined, control),
                 guests,
-                ledger: ledgerRef.current,
+                ledger: datedLedger,
                 clashes,
                 partyIsAcceptable,
                 requestControl: ({ from, to }) =>
@@ -1385,7 +1519,7 @@ export default function AutopilotProvider({
               createOffer: (exp, g) => ll.offer(exp, g, { date }),
               book: (offer, control) => ll.book(offer, undefined, control),
               guests,
-              ledger: ledgerRef.current,
+              ledger: datedLedger,
               clashes,
               partyIsAcceptable,
               requestControl: offerTime => requestControl(offerTime),
@@ -1534,23 +1668,33 @@ export default function AutopilotProvider({
         // the default allowance on a booking that does not exist. Only `book`
         // takes a hold, and the attempt lock stays: autopilot keeps one action
         // per attraction per session either way.
+        //
+        // Both asked on this tick's date. This is the tail of a tick that may
+        // have been abandoned mid-request, so the ledger can already be on the
+        // date a newer tick moved it to -- and a rejection belonging to the
+        // 18th withdrawing the 19th's doubt-hold is how the 19th gets booked
+        // twice.
         if (
           kind === 'book' &&
           outcome.status === 'failed' &&
           outcome.rejected &&
-          ledgerRef.current.hasAttempted(experience.id, kind)
+          onBookingDate(() =>
+            ledgerRef.current.hasAttempted(experience.id, kind)
+          )
         ) {
-          ledgerRef.current.resolveRejected(experience.id);
+          onBookingDate(() => ledgerRef.current.resolveRejected(experience.id));
         }
 
         if (
           repeatMoves &&
           outcome.status === 'failed' &&
           outcome.rejected &&
-          ledgerRef.current.hasAttempted(experience.id, kind)
+          onBookingDate(() =>
+            ledgerRef.current.hasAttempted(experience.id, kind)
+          )
         ) {
           retryAtRef.current.set(
-            `${kind}:${experience.id}`,
+            lockKey(date, kind, experience.id),
             Date.now() + RETRY_AFTER_MS
           );
         }
@@ -1569,7 +1713,10 @@ export default function AutopilotProvider({
           // oscillating. Released only on success: a move that failed should not
           // be retried all afternoon.
           if (repeatMoves && outcome.status === 'modified') {
-            ledgerRef.current.releaseAttempt(experience.id, 'modify');
+            // This tick's date again: the move that succeeded was this date's.
+            onBookingDate(() =>
+              ledgerRef.current.releaseAttempt(experience.id, 'modify')
+            );
           }
           // Publish the committed return time for any other instance to see.
           // Plans are refetched every tenth tick, so without this a second tab
