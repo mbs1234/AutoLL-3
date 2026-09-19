@@ -19,6 +19,7 @@ import {
 import Button from '@/components/Button';
 import Tab from '@/components/Tab';
 import { Time } from '@/components/Time';
+import ContextStrip from '@/components/ll/ContextStrip';
 import AutopilotContext from '@/contexts/AutopilotContext';
 import BookingDateContext from '@/contexts/BookingDateContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
@@ -105,7 +106,7 @@ export function NextLLChooser({ ref }: Partial<HomeTabProps> = {}) {
     return <NextLLModifyPicker ref={ref} onBack={() => setMode('choose')} />;
   }
   return (
-    <Tab title={NEXTLL} ref={ref}>
+    <Tab title={NEXTLL} subhead={<ContextStrip />} ref={ref}>
       <h2 className="mt-2 text-xl font-semibold">What do you want to do?</h2>
       <p className="mt-2 text-sm text-gray-600">
         Find a new Lightning Lane, or improve one you already hold.
@@ -304,6 +305,7 @@ export function NextLL({
           <RefreshButton name="Experiences" onClick={refreshExperiences} />
         </>
       }
+      subhead={<ContextStrip />}
       ref={ref}
     >
       {!enabled ? (
