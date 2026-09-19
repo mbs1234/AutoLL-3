@@ -72,14 +72,15 @@ describe('Activity log', () => {
           name: 'Big Thunder',
           at: new ParkTime(9, 47),
           status: 'unknown',
-          detail: 'Network request failed',
+          detail: 'No answer — check your plans',
         },
       ],
     });
     expect(screen.getByText('no answer')).toBeVisible();
     expect(screen.getByText(/check Disney Plans/)).toHaveTextContent(
-      'Big Thunder: Network request failed -- check Disney Plans'
+      'Big Thunder -- check Disney Plans'
     );
+    expect(screen.queryByText(/check your plans/i)).not.toBeInTheDocument();
     expect(screen.queryByText('failed')).not.toBeInTheDocument();
   });
 

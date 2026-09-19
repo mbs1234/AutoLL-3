@@ -112,14 +112,12 @@ function actionEvent(entry: BookingLogEntry): AutopilotEvent {
     }
     // A dispatched request that never came back is not a failure, and calling
     // it one is the reading that gets a guest to try again.
-    case 'unknown': {
-      const why = detail ? `: ${detail}` : '';
+    case 'unknown':
       return {
         at,
         level: 'warn',
-        text: `No answer for ${name}${why} -- check Disney Plans`,
+        text: `No answer for ${name} -- check Disney Plans`,
       };
-    }
     case 'failed': {
       const why = detail ? `: ${detail}` : '';
       return { at, level: 'warn', text: `Failed on ${name}${why}` };

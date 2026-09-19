@@ -58,8 +58,7 @@ function Action({ entry }: { entry: BookingLogEntry }) {
       description = (
         <>
           <span className="text-yellow-700">no answer</span> for{' '}
-          <b>{entry.name}</b>
-          {entry.detail ? `: ${entry.detail}` : ''} -- check Disney Plans
+          <b>{entry.name}</b> -- check Disney Plans
         </>
       );
       break;

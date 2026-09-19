@@ -240,12 +240,12 @@ does with old-shaped keys written by an instance that has not been updated.
 **Shipped.** Today subscribes to the unresolved-mutation store, renders an
 all-date red count and explanation, and routes to Activity for the full details
 and explicit resolution controls. The provider now reports `unresolved-change`
-before the generic `already-attempted` explanation, including when lease
-acquisition is refused by quarantine. Component and provider regressions cover
-both the visible warning and the truthful skip reason. While a doubt remains,
-automatic booking, moving and swapping are blocked for every attraction the
-mutation could have affected. The diagnosis below is retained as the pre-fix
-record.
+before the generic `already-attempted` explanation when quarantine refuses any
+key in the attempted mutation's conflict set. Component and provider
+regressions cover both the visible warning and the truthful skip reason. While
+a doubt remains, automatic booking, moving and swapping are blocked for every
+attraction the mutation could have affected. The diagnosis below is retained as
+the pre-fix record.
 
 An unresolved change is the state where the engine has deliberately stopped
 acting and needs a human to open Disney's Plans. It is visible on Activity and

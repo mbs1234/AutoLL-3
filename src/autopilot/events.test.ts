@@ -206,11 +206,13 @@ describe('an outcome nobody learned', () => {
 
   it('is not reported as a failure', () => {
     const event = latestActivity({
-      bookingLog: [entry({ detail: 'Network request failed' })],
+      bookingLog: [entry({ detail: 'No answer — check your plans' })],
     });
     expect(event?.text).not.toMatch(/failed on/i);
-    expect(event?.text).toContain('No answer for Space Mountain');
-    expect(event?.text).toContain('check Disney Plans');
+    expect(event?.text).toBe(
+      'No answer for Space Mountain -- check Disney Plans'
+    );
+    expect(event?.text).not.toMatch(/check your plans/i);
   });
 
   it('still asks for attention, because the reservation may have moved', () => {
