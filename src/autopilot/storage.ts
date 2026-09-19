@@ -1,3 +1,4 @@
+import { isBookingLogStatus } from '@/autopilot/bookingStatus';
 import { BookingLogEntry } from '@/contexts/AutopilotContext';
 import { ParkTime, parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
@@ -32,15 +33,6 @@ function parseTime(value?: string): ParkTime | undefined {
   }
 }
 
-const STATUSES = new Set<BookingLogEntry['status']>([
-  'booked',
-  'modified',
-  'swapped',
-  'failed',
-  'skipped',
-  'dry-run',
-]);
-
 /**
  * Today's activity log.
  *
@@ -54,7 +46,7 @@ export function loadBookingLog(): BookingLogEntry[] {
   const stored = kvdb.getDaily<StoredLogEntry[]>(LOG_KEY);
   if (!Array.isArray(stored)) return [];
   return stored.flatMap(e => {
-    if (typeof e?.name !== 'string' || !STATUSES.has(e.status)) return [];
+    if (typeof e?.name !== 'string' || !isBookingLogStatus(e.status)) return [];
     const at = parseTime(e.at);
     if (!at) return [];
     const returnTime = parseTime(e.returnTime);

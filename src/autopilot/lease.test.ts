@@ -28,6 +28,7 @@ const B = 'instance-b';
 // and every quarantine test passes for the wrong reason.
 const DATE = parkDate();
 const KEY = leaseKey('80010114', DATE);
+const OTHER_KEY = leaseKey('80010129', DATE);
 
 beforeEach(() => {
   localStorage.clear();
@@ -106,11 +107,29 @@ describe('the operation lease', () => {
   });
 
   it('keeps leases on other reservations apart', async () => {
-    const other = leaseKey('80010129', DATE);
     await acquire(KEY, A);
-    expect(await acquire(other, B)).toBe(true);
+    expect(await acquire(OTHER_KEY, B)).toBe(true);
     expect(holder(KEY)).toBe(A);
-    expect(holder(other)).toBe(B);
+    expect(holder(OTHER_KEY)).toBe(B);
+  });
+
+  it('acquires a conflict set all-or-nothing', async () => {
+    await acquire(OTHER_KEY, A);
+
+    expect(await acquire([KEY, OTHER_KEY], B)).toBe(false);
+    expect(holder(KEY)).toBeUndefined();
+    expect(holder(OTHER_KEY)).toBe(A);
+  });
+
+  it('treats reversed conflict-key order as the same lease set', async () => {
+    expect(await acquire([KEY, OTHER_KEY], A)).toBe(true);
+    expect(holder(KEY)).toBe(A);
+    expect(holder(OTHER_KEY)).toBe(A);
+
+    expect(await acquire([OTHER_KEY, KEY], B)).toBe(false);
+    await release([OTHER_KEY, KEY], A);
+    expect(holder(KEY)).toBeUndefined();
+    expect(holder(OTHER_KEY)).toBeUndefined();
   });
 
   // The same ride on two days is two reservations.
@@ -291,6 +310,31 @@ describe('the operation lease', () => {
       expect(await acquire(KEY, B)).toBe(true);
     });
 
+    it('stores one swap doubt that blocks both victim and gained attraction', async () => {
+      await acquire([KEY, OTHER_KEY], A);
+      await quarantine(
+        KEY,
+        { ...swapDoubt, blockingKeys: [KEY, OTHER_KEY] },
+        RAISED
+      );
+
+      expect(holder(KEY)).toBeUndefined();
+      expect(holder(OTHER_KEY)).toBeUndefined();
+      expect(quarantinedAt(KEY)).toBe(RAISED);
+      expect(quarantinedAt(OTHER_KEY)).toBe(RAISED);
+      expect(quarantinedMutations()).toEqual([
+        expect.objectContaining({
+          id: swapDoubt.id,
+          key: KEY,
+          blockingKeys: expect.arrayContaining([KEY, OTHER_KEY]),
+        }),
+      ]);
+      expect(await acquire(OTHER_KEY, B)).toBe(false);
+
+      await resolveDoubt(KEY, swapDoubt.id);
+      expect(await acquire([KEY, OTHER_KEY], B)).toBe(true);
+    });
+
     it('does not expire the way a lease does', async () => {
       await quarantine(KEY, modifyDoubt, RAISED);
       expect(await acquire(KEY, A, RAISED + LEASE_TTL_MS * 10)).toBe(false);
@@ -437,6 +481,20 @@ describe('the operation lease', () => {
       expect(await acquire(KEY, B, 2000)).toBe(false);
     });
 
+    it('retains every swap conflict key after a definitive late success', async () => {
+      await quarantine(
+        KEY,
+        { ...swapDoubt, blockingKeys: [KEY, OTHER_KEY] },
+        RAISED
+      );
+      expect(
+        await resolveDoubtAndAcquire([KEY, OTHER_KEY], swapDoubt.id, A, 2000)
+      ).toBe(true);
+      expect(holder(KEY, 2000)).toBe(A);
+      expect(holder(OTHER_KEY, 2000)).toBe(A);
+      expect(await acquire(OTHER_KEY, B, 2000)).toBe(false);
+    });
+
     it('keeps the doubt when late-success reacquisition is refused', async () => {
       await quarantine(KEY, modifyDoubt, RAISED);
       // Represents a competing context in a browser without Web Locks, or a
@@ -524,6 +582,20 @@ describe('the operation lease', () => {
         '2026-99-99:bad-date': { ...modifyDoubt, at: RAISED },
       });
       expect(quarantinedMutations()).toEqual([]);
+    });
+
+    it('ignores malformed blocking keys without dropping the primary doubt', async () => {
+      kvdb.set(QUARANTINE_KEY, {
+        [KEY]: {
+          ...modifyDoubt,
+          at: RAISED,
+          blockingKeys: { unexpected: true },
+        },
+      });
+
+      expect(quarantinedAt(KEY)).toBe(RAISED);
+      expect(quarantinedAt(OTHER_KEY)).toBeUndefined();
+      expect(await acquire(KEY, A)).toBe(false);
     });
   });
 
@@ -703,6 +775,17 @@ describe('the operation lease', () => {
         started: false,
       });
       expect(authorize).toHaveBeenCalledTimes(1);
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('refuses a group dispatch when any conflict key was lost', async () => {
+      await acquire([KEY, OTHER_KEY], A);
+      await release(OTHER_KEY, A);
+      const send = jest.fn(async () => 'sent');
+
+      expect(
+        await startWhileHeld([KEY, OTHER_KEY], A, () => true, send)
+      ).toEqual({ started: false });
       expect(send).not.toHaveBeenCalled();
     });
 

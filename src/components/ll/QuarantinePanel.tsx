@@ -91,8 +91,9 @@ export default function QuarantinePanel({
       </h3>
       <p className="mt-1">
         Disney did not return a definite answer. {APP_NAME} will not
-        automatically move or swap these reservations until Plans can match the
-        exact reservation at the requested result or you confirm what happened.
+        automatically book, move, or swap the affected attractions until Plans
+        can match the exact reservation at the requested result or you confirm
+        what happened.
       </p>
       <ul className="mt-2 space-y-2">
         {doubts.map(doubt => (

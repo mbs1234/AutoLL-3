@@ -65,6 +65,24 @@ describe('Activity log', () => {
     expect(screen.getByText(/Request failed/)).toBeVisible();
   });
 
+  it('renders an unknown outcome as a warning to check Disney Plans', () => {
+    setup({
+      bookingLog: [
+        {
+          name: 'Big Thunder',
+          at: new ParkTime(9, 47),
+          status: 'unknown',
+          detail: 'Network request failed',
+        },
+      ],
+    });
+    expect(screen.getByText('no answer')).toBeVisible();
+    expect(screen.getByText(/check Disney Plans/)).toHaveTextContent(
+      'Big Thunder: Network request failed -- check Disney Plans'
+    );
+    expect(screen.queryByText('failed')).not.toBeInTheDocument();
+  });
+
   it('says when nothing has happened yet', () => {
     setup();
     expect(

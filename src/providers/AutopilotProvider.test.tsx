@@ -1226,6 +1226,86 @@ describe('AutopilotProvider swap', () => {
     ).toBe('w1');
   });
 
+  it('withdraws a rejected swap lock from other providers', async () => {
+    saveWatchList([{ experienceId: BZ, autoSwap: true }]);
+    const { book } = setupBooking({
+      offerHour: 11,
+      experiences: [available(BZ, new ParkTime(11), { priority: 1.0 })],
+      plans: fullOfWorse(),
+      bookErrors: [409],
+    });
+
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+
+    expect(loadLocks()).not.toContain(`${TODAY}:swap:${BZ}`);
+  });
+
+  it('does not swap while another actor is booking the gained attraction', async () => {
+    saveWatchList([{ experienceId: BZ, autoSwap: true }]);
+    await acquireLease(leaseKey(BZ, TODAY), OTHER_TAB);
+    const { book, offer } = setupBooking({
+      offerHour: 11,
+      experiences: [available(BZ, new ParkTime(11), { priority: 1.0 })],
+      plans: fullOfWorse(),
+    });
+
+    await enable();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(offer).not.toHaveBeenCalled();
+    expect(book).not.toHaveBeenCalled();
+    expect(screen.getByTestId('lastSkip')).toHaveTextContent(
+      'already-attempted'
+    );
+  });
+
+  it('continues to exclude two swaps giving up the same victim', async () => {
+    saveWatchList([{ experienceId: BZ, autoSwap: true }]);
+    await acquireLease(leaseKey('w1', TODAY), OTHER_TAB);
+    const { book } = setupBooking({
+      offerHour: 11,
+      experiences: [available(BZ, new ParkTime(11), { priority: 1.0 })],
+      plans: fullOfWorse(),
+    });
+
+    await enable();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(book).not.toHaveBeenCalled();
+  });
+
+  it('protects both sides when an abandoned swap never returns', async () => {
+    saveWatchList([{ experienceId: BZ, autoSwap: true }]);
+    const victim = leaseKey('w1', TODAY);
+    const gained = leaseKey(BZ, TODAY);
+    const { book } = setupBooking({
+      offerHour: 11,
+      experiences: [available(BZ, new ParkTime(11), { priority: 1.0 })],
+      plans: fullOfWorse(),
+      bookDelay: new Promise<void>(() => {}),
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(MAX_MUTATION_MS + 1);
+    });
+
+    expect(quarantinedAt(victim)).toBeDefined();
+    expect(quarantinedAt(gained)).toBe(quarantinedAt(victim));
+    expect(quarantinedMutations()).toEqual([
+      expect.objectContaining({
+        key: victim,
+        blockingKeys: expect.arrayContaining([victim, gained]),
+      }),
+    ]);
+  });
+
   // The tick that polls plans reads them through `currentPlans`, not through
   // the ref the last render captured -- so a reservation that has just been
   // cancelled, redeemed or converted is seen as gone straight away. Reading
@@ -2163,6 +2243,7 @@ describe('AutopilotProvider repeated moves', () => {
     });
     await enable();
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(loadLocks()).not.toContain(`${TODAY}:modify:${BZ}`);
     await runTicks(WAITED);
     expect(book).toHaveBeenCalledTimes(1);
   });
@@ -2796,6 +2877,7 @@ describe('AutopilotProvider unresolved reservations', () => {
     // reservation is not free, and will not be until plans say what happened.
     expect(leaseHolder(leaseKey(BZ, TODAY))).toBeUndefined();
     expect(await claim()).toBe('false');
+    expect(loadLocks()).toContain(`${TODAY}:modify:${BZ}`);
     await runTicks(2);
     expect(screen.getByTestId('lastSkip')).toHaveTextContent(
       new RegExp(`^${wdw.experience(BZ).name}: unresolved-change$`)
@@ -2961,13 +3043,17 @@ describe('AutopilotProvider unresolved reservations', () => {
       await enable();
       await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
       const raised = quarantinedAt(victim);
+      const gained = leaseKey(BZ, TODAY);
       expect(raised).toBeDefined();
+      expect(quarantinedAt(gained)).toBe(raised);
       expect(quarantinedMutations()).toEqual([
         expect.objectContaining({
           key: victim,
           reservationIds: ['ent-w1'],
+          blockingKeys: expect.arrayContaining([victim, gained]),
         }),
       ]);
+      expect(await acquireLease(gained, PROBE_OWNER)).toBe(false);
       return raised!;
     };
 
@@ -2987,6 +3073,7 @@ describe('AutopilotProvider unresolved reservations', () => {
         raised + 1
       );
       expect(quarantinedAt(victim)).toBeUndefined();
+      expect(quarantinedAt(leaseKey(BZ, TODAY))).toBeUndefined();
     });
   });
 });

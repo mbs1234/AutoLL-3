@@ -4,24 +4,24 @@ import kvdb from '@/kvdb';
 import { storageKey } from '@/storageNamespace';
 
 /**
- * Exclusive, expiring leases on one *reservation*.
+ * Exclusive, expiring leases on one mutation's conflict set.
  *
  * Separate from the ledger's attempt locks, and the separation is the point.
  * An attempt lock answers "has this instance already done action K to
  * attraction X today" -- anti-thrash, session-scoped, shared as a union, and
  * never given back for a modify. A lease answers a different question: "is
- * anybody changing this reservation *right now*". Conflating the two is what
- * made a foreground search defer to a marker for something that finished at
- * 9am, and then, once that was narrowed, made one provider able to take over
- * another's live operation.
+ * anybody acting *right now* on an attraction or reservation this mutation
+ * could affect?" Conflating the two is what made a foreground search defer to
+ * a marker for something that finished at 9am, and then, once that was
+ * narrowed, made one provider able to take over another's live operation.
  *
  * Three properties the attempt locks cannot offer:
  *
- * - **Exclusive.** Acquisition is serialised through the Web Locks API where
- *   the browser has it, so two instances cannot both believe they won. Read
- *   `available()` before relying on that; where it is missing this degrades to
- *   an unsynchronised read-modify-write, which is the old behaviour and is
- *   reported rather than hidden.
+ * - **Exclusive.** Acquisition of the whole conflict set is serialised through
+ *   the Web Locks API where the browser has it, so two instances cannot both
+ *   believe they won. Read `available()` before relying on that; where it is
+ *   missing this degrades to an unsynchronised read-modify-write, which is the
+ *   old behaviour and is reported rather than hidden.
  * - **Expiring.** A tab that is closed mid-request leaves its lease behind, and
  *   nothing will ever come back to release it. A lease older than
  *   `LEASE_TTL_MS` is therefore free to take. Holders renew while they work --
@@ -146,6 +146,14 @@ export interface Doubt {
    * legacy doubts require a person to resolve them.
    */
   reservationIds?: string[];
+  /**
+   * Every lease key this mutation makes unsafe.
+   *
+   * The quarantine is stored once under the reservation being changed, while a
+   * swap also blocks the attraction it may have gained. Older records omit this
+   * field and therefore block their own storage key only.
+   */
+  blockingKeys?: string[];
 }
 
 /**
@@ -299,6 +307,34 @@ function loadBlockingQuarantine(): Quarantine {
   );
 }
 
+function canonicalKeys(keys: Iterable<unknown>): string[] {
+  return [
+    ...new Set(
+      [...keys].filter(
+        (key): key is string => typeof key === 'string' && key.length > 0
+      )
+    ),
+  ].sort();
+}
+
+type LeaseKeys = string | readonly string[];
+
+function requiredLeaseKeys(value: LeaseKeys): string[] {
+  const keys = canonicalKeys(typeof value === 'string' ? [value] : value);
+  if (keys.length === 0) throw new Error('At least one lease key is required');
+  return keys;
+}
+
+function doubtKeys(primary: string, doubt: Doubt): string[] {
+  return canonicalKeys([primary, ...(doubt.blockingKeys ?? [])]);
+}
+
+function blocksKey(quarantine: Quarantine, key: string): boolean {
+  return Object.entries(quarantine).some(([primary, doubts]) =>
+    doubts.some(doubt => doubtKeys(primary, doubt).includes(key))
+  );
+}
+
 function rememberVolatile(key: string, doubt: Doubt): void {
   volatileQuarantine = mergeQuarantines(volatileQuarantine, {
     [key]: [doubt],
@@ -348,6 +384,9 @@ function parseDoubts(value: unknown): Doubt[] {
     const doubt = entry as Partial<Doubt>;
     if (typeof doubt?.at !== 'number') continue;
     const ids = reservationIds(doubt.reservationIds);
+    const blockingKeys = canonicalKeys(
+      Array.isArray(doubt.blockingKeys) ? doubt.blockingKeys : []
+    );
     out.push({
       id:
         typeof doubt.id === 'string' ? doubt.id : `legacy-${doubt.at}-${index}`,
@@ -359,6 +398,7 @@ function parseDoubts(value: unknown): Doubt[] {
       ...(typeof doubt.to === 'string' ? { to: doubt.to } : {}),
       ...(typeof doubt.gaining === 'string' ? { gaining: doubt.gaining } : {}),
       ...(ids.length ? { reservationIds: ids } : {}),
+      ...(blockingKeys.length ? { blockingKeys } : {}),
     });
   }
   return out;
@@ -421,11 +461,13 @@ export async function quarantine(
     to?: string;
     gaining?: string;
     reservationIds?: string[];
+    blockingKeys?: readonly string[];
   } = {},
   now = Date.now()
 ): Promise<QuarantineResult> {
   const id = was.id ?? mutationId('doubt');
   const ids = reservationIds(was.reservationIds);
+  const blockingKeys = canonicalKeys([key, ...(was.blockingKeys ?? [])]);
   const raised: Doubt = {
     id,
     at: now,
@@ -434,6 +476,7 @@ export async function quarantine(
     ...(was.to ? { to: was.to } : {}),
     ...(was.gaining ? { gaining: was.gaining } : {}),
     ...(ids.length ? { reservationIds: ids } : {}),
+    blockingKeys,
   };
   let persisted = false;
   let written: Quarantine | undefined;
@@ -462,9 +505,9 @@ export async function quarantine(
       // next renewal yet. A request it already sent is beyond recall; its own
       // mutation id will account for that outcome separately.
       const leases = load(Date.now());
-      if (leases[key]) {
+      if (blockingKeys.some(blocked => leases[blocked])) {
         const next = { ...leases };
-        delete next[key];
+        for (const blocked of blockingKeys) delete next[blocked];
         kvdb.set<Leases>(LEASE_KEY, next);
       }
     });
@@ -523,6 +566,7 @@ export function quarantinedMutations(): QuarantinedMutation[] {
       const localIds = new Set((local[key] ?? []).map(doubt => doubt.id));
       return doubts.map(doubt => ({
         ...doubt,
+        blockingKeys: doubtKeys(key, doubt),
         key,
         date,
         facilityId,
@@ -548,9 +592,12 @@ export function subscribeQuarantine(listener: () => void): () => void {
 
 /** Whether a reservation is in doubt, and since the oldest unsettled one. */
 export function quarantinedAt(key: string): number | undefined {
-  const doubts = loadQuarantine()[key];
-  if (!doubts?.length) return undefined;
-  return Math.min(...doubts.map(d => d.at));
+  const times = Object.entries(loadQuarantine()).flatMap(([primary, doubts]) =>
+    doubts
+      .filter(doubt => doubtKeys(primary, doubt).includes(key))
+      .map(doubt => doubt.at)
+  );
+  return times.length ? Math.min(...times) : undefined;
 }
 
 /**
@@ -653,7 +700,7 @@ export async function reconcile(
   }
 }
 
-/** Keyed by reservation and the day it belongs to, not by action. */
+/** Keyed by affected attraction and park day, not by action kind. */
 export function leaseKey(facilityId: string, date: string): string {
   return `${date}:${facilityId}`;
 }
@@ -706,36 +753,45 @@ async function exclusive<T>(body: () => T): Promise<T> {
  * search keeps one for the length of a run without it expiring underneath.
  */
 export async function acquire(
-  key: string,
+  target: LeaseKeys,
   owner: string,
   now?: number
 ): Promise<boolean> {
+  const keys = requiredLeaseKeys(target);
   return exclusive(() => {
     const at = now ?? Date.now();
     // Doubt outranks everything, including the instance that raised it: until
     // plans settle what happened, a second request is exactly what must not
     // occur.
-    if (loadBlockingQuarantine()[key]?.length) return false;
+    const quarantine = loadBlockingQuarantine();
+    if (keys.some(key => blocksKey(quarantine, key))) return false;
     const leases = load(at);
-    const held = leases[key];
-    if (held && held.owner !== owner) return false;
-    kvdb.set<Leases>(LEASE_KEY, { ...leases, [key]: { owner, at } });
+    if (keys.some(key => leases[key] && leases[key].owner !== owner)) {
+      return false;
+    }
+    const next = { ...leases };
+    for (const key of keys) next[key] = { owner, at };
+    kvdb.set<Leases>(LEASE_KEY, next);
     return true;
   });
 }
 
 /** Renew only a lease that remained continuously live for this owner. */
 async function renew(
-  key: string,
+  target: LeaseKeys,
   owner: string,
   now?: number
 ): Promise<boolean> {
+  const keys = requiredLeaseKeys(target);
   return exclusive(() => {
     const at = now ?? Date.now();
-    if (loadBlockingQuarantine()[key]?.length) return false;
+    const quarantine = loadBlockingQuarantine();
+    if (keys.some(key => blocksKey(quarantine, key))) return false;
     const leases = load(at);
-    if (leases[key]?.owner !== owner) return false;
-    kvdb.set<Leases>(LEASE_KEY, { ...leases, [key]: { owner, at } });
+    if (keys.some(key => leases[key]?.owner !== owner)) return false;
+    const next = { ...leases };
+    for (const key of keys) next[key] = { owner, at };
+    kvdb.set<Leases>(LEASE_KEY, next);
     return true;
   });
 }
@@ -752,22 +808,26 @@ export type LeaseStart<T> = { started: false } | { started: true; value: T };
  * trip.
  */
 export async function startWhileHeld<T>(
-  key: string,
+  target: LeaseKeys,
   owner: string,
   authorize: () => boolean,
   start: () => Promise<T>,
   now?: number
 ): Promise<LeaseStart<T>> {
+  const keys = requiredLeaseKeys(target);
   const begun = await exclusive(() => {
     const at = now ?? Date.now();
-    if (loadBlockingQuarantine()[key]?.length) {
+    const quarantine = loadBlockingQuarantine();
+    if (keys.some(key => blocksKey(quarantine, key))) {
       return { started: false } as const;
     }
     const leases = load(at);
-    if (leases[key]?.owner !== owner || !authorize()) {
+    if (keys.some(key => leases[key]?.owner !== owner) || !authorize()) {
       return { started: false } as const;
     }
-    kvdb.set<Leases>(LEASE_KEY, { ...leases, [key]: { owner, at } });
+    const next = { ...leases };
+    for (const key of keys) next[key] = { owner, at };
+    kvdb.set<Leases>(LEASE_KEY, next);
     return { started: true, promise: start() } as const;
   });
   if (!begun.started) return begun;
@@ -783,11 +843,14 @@ export async function startWhileHeld<T>(
  * reservation before the search starts settling the successful move in Plans.
  */
 export async function resolveDoubtAndAcquire(
-  key: string,
+  target: LeaseKeys,
   id: string,
   owner: string,
   now?: number
 ): Promise<boolean> {
+  const primary = typeof target === 'string' ? target : target[0];
+  if (!primary) throw new Error('At least one lease key is required');
+  const keys = requiredLeaseKeys(target);
   let changed = false;
   let written: Quarantine | undefined;
   const acquired = await exclusive(() => {
@@ -796,41 +859,45 @@ export async function resolveDoubtAndAcquire(
       loadPersistedQuarantine(),
       activeVolatileQuarantine()
     );
-    const doubts = current[key] ?? [];
+    const doubts = current[primary] ?? [];
     const rest = doubts.filter(doubt => doubt.id !== id);
     const found = rest.length !== doubts.length;
 
-    // A different unresolved mutation still blocks this reservation.
-    if (rest.length) {
+    const withoutResolved = { ...current };
+    if (rest.length) withoutResolved[primary] = rest;
+    else delete withoutResolved[primary];
+
+    // A different unresolved mutation still blocks one of the conflict keys.
+    if (keys.some(key => blocksKey(withoutResolved, key))) {
       if (found) {
-        const next = { ...current, [key]: rest };
-        kvdb.set<Quarantine>(QUARANTINE_KEY, next);
-        written = next;
+        kvdb.set<Quarantine>(QUARANTINE_KEY, withoutResolved);
+        written = withoutResolved;
         changed = true;
       }
       return false;
     }
     const leases = load(at);
-    const held = leases[key];
     // If somebody else already has live work, leave this operation's
     // quarantine in place. Clearing first created an unprotected gap whenever
     // reacquisition was refused or its storage write failed.
-    if (held && held.owner !== owner) return false;
-    kvdb.set<Leases>(LEASE_KEY, { ...leases, [key]: { owner, at } });
+    if (keys.some(key => leases[key] && leases[key].owner !== owner)) {
+      return false;
+    }
+    const nextLeases = { ...leases };
+    for (const key of keys) nextLeases[key] = { owner, at };
+    kvdb.set<Leases>(LEASE_KEY, nextLeases);
     if (found) {
-      const next = { ...current };
-      delete next[key];
-      kvdb.set<Quarantine>(QUARANTINE_KEY, next);
-      written = next;
+      kvdb.set<Quarantine>(QUARANTINE_KEY, withoutResolved);
+      written = withoutResolved;
       changed = true;
     }
     return true;
   });
   if (written) {
     forgetPersistedVolatile(written);
-    forgetVolatile(key, id);
+    forgetVolatile(primary, id);
   } else if (changed) {
-    forgetVolatile(key, id);
+    forgetVolatile(primary, id);
   }
   if (changed) publishQuarantineChange();
   return acquired;
@@ -863,16 +930,17 @@ export async function resolveDoubtAndAcquire(
  * done, so it does not report a loss.
  */
 export function keepAlive(
-  key: string,
+  target: LeaseKeys,
   owner: string,
   onLost?: (reason: LeaseLost) => void
 ): () => void {
+  const keys = requiredLeaseKeys(target);
   let live = true;
   let pending = false;
   const renewal = setInterval(() => {
     if (pending) return;
     pending = true;
-    void renew(key, owner)
+    void renew(keys, owner)
       .then(got => {
         if (!got) end('refused');
       })
@@ -901,15 +969,21 @@ export function keepAlive(
 
 /** Give it back. Only the holder can, so nobody withdraws another's cover. */
 export async function release(
-  key: string,
+  target: LeaseKeys,
   owner: string,
   now?: number
 ): Promise<void> {
+  const keys = requiredLeaseKeys(target);
   await exclusive(() => {
     const leases = load(now ?? Date.now());
-    if (leases[key]?.owner !== owner) return;
     const rest = { ...leases };
-    delete rest[key];
+    let changed = false;
+    for (const key of keys) {
+      if (rest[key]?.owner !== owner) continue;
+      delete rest[key];
+      changed = true;
+    }
+    if (!changed) return;
     kvdb.set<Leases>(LEASE_KEY, rest);
   });
 }

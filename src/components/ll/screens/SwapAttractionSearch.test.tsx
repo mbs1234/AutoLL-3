@@ -1,7 +1,10 @@
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 
 import { mk, wdw } from '@/__fixtures__/resort';
 import { LLMP } from '@/api/itinerary';
+import { acquire, leaseKey, release } from '@/autopilot/lease';
+import useTimeSearch from '@/autopilot/useTimeSearch';
+import type { TimeSearchDeps } from '@/autopilot/useTimeSearch';
 import { DateTime, ParkTime } from '@/datetime';
 import { TODAY } from '@/testing';
 
@@ -13,6 +16,31 @@ import {
   nonLLExperience,
   renderScreen,
 } from './screenTestSetup';
+
+jest.mock('@/autopilot/useTimeSearch');
+
+const mockedUseTimeSearch = jest.mocked(useTimeSearch);
+let capturedDeps: TimeSearchDeps;
+
+beforeEach(() => {
+  localStorage.clear();
+  mockedUseTimeSearch.mockImplementation(deps => {
+    capturedDeps = deps;
+    return {
+      running: false,
+      held: deps.booking.start.time,
+      cycles: 0,
+      moves: 0,
+      phase: 'idle',
+      start: jest.fn(),
+      accept: jest.fn(),
+      cancel: jest.fn(),
+      guard: { requested: undefined } as ReturnType<
+        typeof useTimeSearch
+      >['guard'],
+    };
+  });
+});
 
 /** The Multi Pass being given up. */
 function held(facilityId = BZ): LLMP {
@@ -79,5 +107,21 @@ describe('SwapAttractionSearch', () => {
   it('says it will always ask before replacing', () => {
     renderScreen(<SwapAttractionSearch booking={held()} />);
     expect(screen.getByText(/always ask before replacing/)).toBeInTheDocument();
+  });
+
+  it('claims both the victim and the attraction being gained', async () => {
+    renderScreen(<SwapAttractionSearch booking={held(BZ)} />, {
+      experiences: [llExperience(BZ), llExperience(DB)],
+    });
+    fireEvent.change(chooser(), { target: { value: DB } });
+    const victim = leaseKey(BZ, TODAY);
+    const gained = leaseKey(DB, TODAY);
+
+    await acquire(gained, 'background-book');
+    expect(await capturedDeps.claimCommit?.()).toBe(false);
+    await release(gained, 'background-book');
+
+    await acquire(victim, 'background-swap');
+    expect(await capturedDeps.claimCommit?.()).toBe(false);
   });
 });

@@ -71,6 +71,11 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
   const target = experiences.find(
     (exp): exp is Experience => exp.id === targetId && !!exp.flex
   );
+  const conflictKeys = useMemo(
+    () =>
+      targetId ? [reservation, leaseKey(targetId, bookingDate)] : [reservation],
+    [bookingDate, reservation, targetId]
+  );
   const choices = useMemo(
     () =>
       experiences
@@ -103,11 +108,12 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
     // taken through the *top-level* engine rather than the nearest provider:
     // this screen is reachable from inside NextLL, whose nested provider is a
     // short-lived search of its own.
-    claimCommit: () => acquireLease(reservation, searchOwner),
-    keepCommitAlive: onLost => keepLeaseAlive(reservation, searchOwner, onLost),
+    claimCommit: () => acquireLease(conflictKeys, searchOwner),
+    keepCommitAlive: onLost =>
+      keepLeaseAlive(conflictKeys, searchOwner, onLost),
     startCommit: async (authorize, send) => {
       const begun = await startWhileHeld(
-        reservation,
+        conflictKeys,
         searchOwner,
         authorize,
         send
@@ -117,7 +123,7 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
       }
       return begun.value;
     },
-    releaseCommit: () => releaseLease(reservation, searchOwner),
+    releaseCommit: () => releaseLease(conflictKeys, searchOwner),
     // The hook supplies the reservation's time at the commit boundary, and the
     // attraction being swapped in is what a later plans read must find to
     // settle the doubt. The victim merely being gone is not proof: a swap that
@@ -126,13 +132,13 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
     quarantineCommit: async (id, change, dispatchedAt) => {
       const result = await quarantineReservation(
         reservation,
-        { id, ...change },
+        { id, ...change, blockingKeys: conflictKeys },
         dispatchedAt
       );
       return result.durable;
     },
     resolveCommit: id => resolveDoubt(reservation, id),
-    retainCommit: id => resolveDoubtAndAcquire(reservation, id, searchOwner),
+    retainCommit: id => resolveDoubtAndAcquire(conflictKeys, id, searchOwner),
     mutationKind: 'swap',
     gainingFacility: () => target?.id,
     onCommitted: moved =>

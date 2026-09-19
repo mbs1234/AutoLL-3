@@ -1,6 +1,7 @@
 import { createContext } from 'react';
 
 import { AlertPermission } from '@/autopilot/alert';
+import { BookingLogStatus } from '@/autopilot/bookingStatus';
 import { DropSummary } from '@/autopilot/observe';
 import { NO_REFUSALS, RefusalState } from '@/autopilot/refusal';
 import { PollerStatus } from '@/autopilot/usePoller';
@@ -22,14 +23,7 @@ export interface BookingLogEntry {
    * differently on screen and why the engine holds the reservation in doubt
    * rather than retrying. `failed` means the action provably did not happen.
    */
-  status:
-    | 'booked'
-    | 'modified'
-    | 'swapped'
-    | 'failed'
-    | 'unknown'
-    | 'skipped'
-    | 'dry-run';
+  status: BookingLogStatus;
   /** Return time for a booking. */
   returnTime?: ParkTime;
   /** Previous return time, for a modification. */

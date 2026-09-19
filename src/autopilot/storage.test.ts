@@ -1,4 +1,8 @@
 import '@/autopilot/autobook';
+import {
+  BOOKING_LOG_STATUSES,
+  BookingLogStatus,
+} from '@/autopilot/bookingStatus';
 import { BookingLogEntry } from '@/contexts/AutopilotContext';
 import { ParkTime, parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
@@ -40,33 +44,58 @@ describe('booking log persistence', () => {
     // Newest first, as the provider builds it: `addLogEntry` prepends, and the
     // store now orders by time before applying the cap so a stale writer
     // cannot decide which rows survive by writing last.
-    const entries: BookingLogEntry[] = [
-      {
+    const byStatus: Record<BookingLogStatus, BookingLogEntry> = {
+      booked: {
+        name: 'A',
+        at: at(9, 45),
+        status: 'booked',
+        returnTime: at(11),
+      },
+      modified: {
+        name: 'B',
+        at: at(9, 46),
+        status: 'modified',
+        fromTime: at(19),
+        returnTime: at(11, 20),
+      },
+      swapped: {
+        name: 'C',
+        at: at(9, 47),
+        status: 'swapped',
+        replacedName: 'D',
+        fromTime: at(15),
+        returnTime: at(12),
+      },
+      failed: {
+        name: 'E',
+        at: at(9, 48),
+        status: 'failed',
+        detail: 'boom',
+      },
+      unknown: {
         name: 'F',
+        at: at(9, 49),
+        status: 'unknown',
+        detail: 'Network request failed',
+      },
+      skipped: {
+        name: 'G',
+        at: at(9, 50),
+        status: 'skipped',
+        detail: 'partial-party',
+      },
+      'dry-run': {
+        name: 'H',
         at: at(9, 51),
         status: 'dry-run',
         detail: 'book',
         returnTime: at(11),
         reason: 'rehearsed, nothing committed',
       },
-      { name: 'E', at: at(9, 50), status: 'failed', detail: 'boom' },
-      {
-        name: 'C',
-        at: at(9, 49),
-        status: 'swapped',
-        replacedName: 'D',
-        fromTime: at(15),
-        returnTime: at(12),
-      },
-      {
-        name: 'B',
-        at: at(9, 48),
-        status: 'modified',
-        fromTime: at(19),
-        returnTime: at(11, 20),
-      },
-      { name: 'A', at: at(9, 47), status: 'booked', returnTime: at(11) },
-    ];
+    };
+    const entries = [...BOOKING_LOG_STATUSES]
+      .reverse()
+      .map(status => byStatus[status]);
     saveBookingLog(entries);
     expect(loadBookingLog()).toEqual(entries);
   });

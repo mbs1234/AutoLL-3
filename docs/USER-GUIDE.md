@@ -211,11 +211,10 @@ At the top of Configure, applying to everything:
 |---|---|---|
 | **Dry run** | Off | Rehearsal. Every check runs and the log says what it *would* have done; nothing is booked |
 | **Whole party only** | Off | Refuses to act unless everyone in your party is eligible |
-| **Avoid clashes** | **On** | Refuses a return time that lands on top of something you already hold, dining included |
+| **Avoid clashes** | Off | Refuses a return time that lands on top of something you already hold, dining included |
 
-Avoid clashes is the only one that starts on, and only an explicit off turns it
-off. The other two start off, and only a literal stored `true` turns them on —
-the asymmetry follows the cost of guessing wrong.
+All three safeguards start off. Each turns on only when you explicitly enable
+it, and an existing installation keeps the value it already saved.
 
 Booking by hand only *warns* about an overlap and lets you book anyway. Here it
 skips instead, because there is nobody to warn.

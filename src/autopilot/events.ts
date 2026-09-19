@@ -71,53 +71,62 @@ export const RECENT_S = 120;
 
 const fmt = (time: ParkTime) => formatTime(time);
 
+function unhandledStatus(status: never): never {
+  throw new Error(`Unhandled booking-log status: ${String(status)}`);
+}
+
 function actionEvent(entry: BookingLogEntry): AutopilotEvent {
   const { name, at, returnTime, fromTime, detail } = entry;
   const forTime = returnTime ? ` for ${fmt(returnTime)}` : '';
-  if (entry.status === 'booked') {
-    return { at, level: 'info', text: `Booked ${name}${forTime}` };
+  const status = entry.status;
+  switch (status) {
+    case 'booked':
+      return { at, level: 'info', text: `Booked ${name}${forTime}` };
+    case 'modified': {
+      const span =
+        fromTime && returnTime
+          ? ` from ${fmt(fromTime)} to ${fmt(returnTime)}`
+          : '';
+      return { at, level: 'info', text: `Moved ${name}${span}` };
+    }
+    case 'swapped': {
+      const gaveUp = entry.replacedName ? ` for ${entry.replacedName}` : '';
+      return { at, level: 'info', text: `Swapped in ${name}${gaveUp}` };
+    }
+    case 'dry-run': {
+      const verb =
+        detail === 'modify'
+          ? 'moved'
+          : detail === 'swap'
+            ? 'swapped in'
+            : 'booked';
+      return {
+        at,
+        level: 'info',
+        text: `Would have ${verb} ${name}${forTime}`,
+      };
+    }
+    case 'skipped': {
+      const why = detail ? `: ${skipText(detail)}` : '';
+      return { at, level: 'info', text: `Skipped ${name}${why}` };
+    }
+    // A dispatched request that never came back is not a failure, and calling
+    // it one is the reading that gets a guest to try again.
+    case 'unknown': {
+      const why = detail ? `: ${detail}` : '';
+      return {
+        at,
+        level: 'warn',
+        text: `No answer for ${name}${why} -- check Disney Plans`,
+      };
+    }
+    case 'failed': {
+      const why = detail ? `: ${detail}` : '';
+      return { at, level: 'warn', text: `Failed on ${name}${why}` };
+    }
+    default:
+      return unhandledStatus(status);
   }
-  if (entry.status === 'modified') {
-    const span =
-      fromTime && returnTime
-        ? ` from ${fmt(fromTime)} to ${fmt(returnTime)}`
-        : '';
-    return { at, level: 'info', text: `Moved ${name}${span}` };
-  }
-  if (entry.status === 'swapped') {
-    const gaveUp = entry.replacedName ? ` for ${entry.replacedName}` : '';
-    return { at, level: 'info', text: `Swapped in ${name}${gaveUp}` };
-  }
-  if (entry.status === 'dry-run') {
-    const verb =
-      detail === 'modify'
-        ? 'moved'
-        : detail === 'swap'
-          ? 'swapped in'
-          : 'booked';
-    return { at, level: 'info', text: `Would have ${verb} ${name}${forTime}` };
-  }
-  if (entry.status === 'skipped') {
-    const why = detail ? `: ${skipText(detail)}` : '';
-    return { at, level: 'info', text: `Skipped ${name}${why}` };
-  }
-  // A dispatched request that never came back is not a failure, and calling it
-  // one is the reading that gets a guest to try again. `fetch.ts` says why in
-  // its own words: a dropped request and a refused one are collapsed to
-  // status 0 because "the request may have been acted on and the outcome is
-  // unknown". The engine already treats it that way -- it holds the
-  // reservation in doubt rather than retrying -- and this line was the last
-  // place still saying otherwise.
-  if (entry.status === 'unknown') {
-    const why = detail ? `: ${detail}` : '';
-    return {
-      at,
-      level: 'warn',
-      text: `No answer for ${name}${why} -- check Disney Plans`,
-    };
-  }
-  const why = detail ? `: ${detail}` : '';
-  return { at, level: 'warn', text: `Failed on ${name}${why}` };
 }
 
 function skipEvent(skip: Skip): AutopilotEvent {

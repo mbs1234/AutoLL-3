@@ -956,17 +956,15 @@
           <tbody>
             <tr><td>Dry run</td><td>Off</td><td>Rehearsal. Every check runs and the log says what it <em>would</em> have done; nothing is booked.</td></tr>
             <tr><td>Whole party only</td><td>Off</td><td>Refuses to act unless everyone in your party is eligible.</td></tr>
-            <tr><td>Avoid clashes</td><td><strong>On</strong></td><td>Refuses a return time that lands on top of something you already hold, dining included.</td></tr>
+            <tr><td>Avoid clashes</td><td>Off</td><td>Refuses a return time that lands on top of something you already hold, dining included.</td></tr>
           </tbody>
         </table>
       </div>
       <p>
-        Avoid clashes is the only one that starts on, and only an explicit off
-        turns it off. The other two start off, and only a literal stored
-        <code>true</code> turns them on — the asymmetry follows the cost of
-        guessing wrong. Booking by hand only <em>warns</em> about an overlap and
-        lets you book anyway; here it skips instead, because there is nobody to
-        warn.
+        All three safeguards start off. Each turns on only when you explicitly
+        enable it, and an existing installation keeps the value it already
+        saved. Booking by hand only <em>warns</em> about an overlap and lets you
+        book anyway; here it skips instead, because there is nobody to warn.
       </p>
 
       <h4>Colour means something</h4>

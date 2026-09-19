@@ -149,7 +149,7 @@ inventory that by then is gone.
 | done | **10** — the date-less attempt lock | completed in `15b2985`; action locks now include the booking date and all three action kinds have evidence-based release paths |
 | done | **5** — the checklist remembers the wrong date | completed: the acknowledgement now identifies the exact park, date, targets, settings and rendered verdict |
 | — | **1** — future-date burst, unattended | does **not** apply. The morning is attended, and Time Search already polls at 600ms on any date |
-| done | **2** — engine stopped touching a reservation | completed: Today shows every unresolved mutation; fresh bookings now also take a short-lived operation lease, while only changes to existing reservations can enter quarantine |
+| done | **2** — engine stopped touching a reservation | completed: Today shows every unresolved mutation; fresh bookings also take a short-lived operation lease, and an unresolved swap protects both the reservation given up and the attraction it may have gained |
 
 **The park days — 2026-10-18 to 20, walking around.** Here the original
 ranking holds, because it was always a park-day ranking:
@@ -242,8 +242,10 @@ all-date red count and explanation, and routes to Activity for the full details
 and explicit resolution controls. The provider now reports `unresolved-change`
 before the generic `already-attempted` explanation, including when lease
 acquisition is refused by quarantine. Component and provider regressions cover
-both the visible warning and the truthful skip reason. The diagnosis below is
-retained as the pre-fix record.
+both the visible warning and the truthful skip reason. While a doubt remains,
+automatic booking, moving and swapping are blocked for every attraction the
+mutation could have affected. The diagnosis below is retained as the pre-fix
+record.
 
 An unresolved change is the state where the engine has deliberately stopped
 acting and needs a human to open Disney's Plans. It is visible on Activity and

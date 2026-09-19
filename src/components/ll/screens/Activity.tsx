@@ -11,7 +11,7 @@ import Screen from '@/components/Screen';
 import { Time } from '@/components/Time';
 import ContextStrip from '@/components/ll/ContextStrip';
 import QuarantinePanel from '@/components/ll/QuarantinePanel';
-import AutopilotContext from '@/contexts/AutopilotContext';
+import AutopilotContext, { BookingLogEntry } from '@/contexts/AutopilotContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import ParkContext from '@/contexts/ParkContext';
 import ResortContext from '@/contexts/ResortContext';
@@ -29,6 +29,104 @@ export const ACTIVITY = 'Activity';
  */
 function hasOnlyNegativeEvidence(coveredDays: number, observedDays: number) {
   return coveredDays >= DEMOTION_MIN_COVERED_DAYS && observedDays === 0;
+}
+
+function unhandledStatus(status: never): never {
+  throw new Error(`Unhandled booking-log status: ${String(status)}`);
+}
+
+function BookingAction({ entry }: { entry: BookingLogEntry }) {
+  const status = entry.status;
+  switch (status) {
+    case 'booked':
+      return (
+        <>
+          booked <b>{entry.name}</b>
+          {entry.returnTime && (
+            <>
+              {' '}
+              for <Time time={entry.returnTime} />
+            </>
+          )}
+        </>
+      );
+    case 'dry-run':
+      return (
+        <>
+          <span className="text-yellow-700">would have</span>{' '}
+          {entry.detail === 'modify'
+            ? 'moved'
+            : entry.detail === 'swap'
+              ? 'swapped in'
+              : 'booked'}{' '}
+          <b>{entry.name}</b>
+          {entry.returnTime && (
+            <>
+              {' '}
+              for <Time time={entry.returnTime} />
+            </>
+          )}
+        </>
+      );
+    case 'swapped':
+      return (
+        <>
+          swapped in <b>{entry.name}</b>
+          {entry.replacedName && (
+            <>
+              {' '}
+              for <b>{entry.replacedName}</b>
+            </>
+          )}
+          {entry.returnTime && (
+            <>
+              {' '}
+              at <Time time={entry.returnTime} />
+            </>
+          )}
+        </>
+      );
+    case 'modified':
+      return (
+        <>
+          moved <b>{entry.name}</b>
+          {entry.fromTime && entry.returnTime && (
+            <>
+              {' '}
+              from <Time time={entry.fromTime} /> to{' '}
+              <Time time={entry.returnTime} />
+            </>
+          )}
+        </>
+      );
+    case 'unknown':
+      return (
+        <>
+          <span className="text-yellow-700">no answer</span> for{' '}
+          <b>{entry.name}</b>
+          {entry.detail ? `: ${entry.detail}` : ''} -- check Disney Plans
+        </>
+      );
+    case 'failed':
+      return (
+        <>
+          <span className="text-red-700">failed</span> on <b>{entry.name}</b>
+          {entry.detail ? `: ${entry.detail}` : ''}
+          {entry.repeated && entry.repeated > 1 ? (
+            <span className="text-gray-600"> &times;{entry.repeated}</span>
+          ) : null}
+        </>
+      );
+    case 'skipped':
+      return (
+        <>
+          skipped <b>{entry.name}</b>
+          {entry.detail ? `: ${SKIP_TEXT[entry.detail] ?? entry.detail}` : ''}
+        </>
+      );
+    default:
+      return unhandledStatus(status);
+  }
 }
 
 /**
@@ -69,73 +167,7 @@ export default function Activity() {
         <ul className="text-sm">
           {bookingLog.map((entry, i) => (
             <li key={`${entry.name}-${i}`} className="py-0.5">
-              <Time time={entry.at} />{' '}
-              {entry.status === 'booked' ? (
-                <>
-                  booked <b>{entry.name}</b>
-                  {entry.returnTime && (
-                    <>
-                      {' '}
-                      for <Time time={entry.returnTime} />
-                    </>
-                  )}
-                </>
-              ) : entry.status === 'dry-run' ? (
-                <>
-                  <span className="text-yellow-700">would have</span>{' '}
-                  {entry.detail === 'modify'
-                    ? 'moved'
-                    : entry.detail === 'swap'
-                      ? 'swapped in'
-                      : 'booked'}{' '}
-                  <b>{entry.name}</b>
-                  {entry.returnTime && (
-                    <>
-                      {' '}
-                      for <Time time={entry.returnTime} />
-                    </>
-                  )}
-                </>
-              ) : entry.status === 'swapped' ? (
-                <>
-                  swapped in <b>{entry.name}</b>
-                  {entry.replacedName && (
-                    <>
-                      {' '}
-                      for <b>{entry.replacedName}</b>
-                    </>
-                  )}
-                  {entry.returnTime && (
-                    <>
-                      {' '}
-                      at <Time time={entry.returnTime} />
-                    </>
-                  )}
-                </>
-              ) : entry.status === 'modified' ? (
-                <>
-                  moved <b>{entry.name}</b>
-                  {entry.fromTime && entry.returnTime && (
-                    <>
-                      {' '}
-                      from <Time time={entry.fromTime} /> to{' '}
-                      <Time time={entry.returnTime} />
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  <span className="text-red-700">failed</span> on{' '}
-                  <b>{entry.name}</b>
-                  {entry.detail ? `: ${entry.detail}` : ''}
-                  {entry.repeated && entry.repeated > 1 ? (
-                    <span className="text-gray-600">
-                      {' '}
-                      &times;{entry.repeated}
-                    </span>
-                  ) : null}
-                </>
-              )}
+              <Time time={entry.at} /> <BookingAction entry={entry} />
               {entry.reason && (
                 <span className="text-gray-600"> &mdash; {entry.reason}</span>
               )}
