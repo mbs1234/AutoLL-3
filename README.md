@@ -302,9 +302,23 @@ it before a park day and confirm the build on your phone is the one the
 repository says it is — or read the revision off the Settings menu, which names
 the commit the bundle was built from.
 
-A tagged release is that pair of files together with the tag. Re-running the
-deploy workflow against a tag rebuilds the same site, which is what makes a
-rollback a one-command operation rather than a rebuild from memory.
+A tagged release is that pair of files together with the tag, and both are
+attached to the
+[release](https://github.com/mbs1234/AutoLL-3/releases/tag/autoll3-v1.0.0)
+as well as served from the site. Re-running the deploy workflow against a tag
+rebuilds the same site, which is what makes a rollback a one-command operation
+rather than a rebuild from memory:
+
+```bash
+gh workflow run deploy.yml --ref autoll3-v1.0.0
+```
+
+That needs one repository setting that is easy to miss, because nothing in this
+tree records it: the `github-pages` environment has a deployment branch policy,
+and it permitted `main` only. A workflow dispatched against a tag therefore
+built correctly and was then refused at the deploy step, with no steps recorded
+and nothing naming the cause. A `tag: autoll3-v*` policy was added beside the
+branch one. Anything forking this to a new repository has to add it again.
 
 `main` is protected: a pull request, a passing `check` run, linear history, no
 force-pushes. The deploy gates independently on typecheck and the full test
