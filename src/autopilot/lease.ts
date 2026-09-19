@@ -250,7 +250,7 @@ function loadPersistedQuarantine(): Quarantine {
     }
     // The day is over: there is no reservation left to protect.
     if (date < today) continue;
-    const doubts = parseDoubts(value);
+    const doubts = parseDoubts(key, value);
     if (doubts.length) out[key] = doubts;
   }
   return out;
@@ -375,7 +375,7 @@ function reservationIds(value: unknown): string[] {
 }
 
 /** One stored entry, which is a list but may be a single doubt from an older build. */
-function parseDoubts(value: unknown): Doubt[] {
+function parseDoubts(primaryKey: string, value: unknown): Doubt[] {
   const out: Doubt[] = [];
   for (const [index, entry] of (Array.isArray(value)
     ? value
@@ -384,19 +384,31 @@ function parseDoubts(value: unknown): Doubt[] {
     const doubt = entry as Partial<Doubt>;
     if (typeof doubt?.at !== 'number') continue;
     const ids = reservationIds(doubt.reservationIds);
-    const blockingKeys = canonicalKeys(
+    const kind =
+      doubt.kind === 'modify' || doubt.kind === 'swap' ? doubt.kind : undefined;
+    const gaining =
+      typeof doubt.gaining === 'string' ? doubt.gaining : undefined;
+    let blockingKeys = canonicalKeys(
       Array.isArray(doubt.blockingKeys) ? doubt.blockingKeys : []
     );
+    // Builds before conflict-set leasing stored a swap's victim as the primary
+    // key and its gained attraction only as evidence. Those doubts are durable
+    // across upgrades, so reconstruct the target alias instead of reopening
+    // the original book-vs-swap race after a reload.
+    if (blockingKeys.length === 0 && kind === 'swap' && gaining) {
+      blockingKeys = canonicalKeys([
+        primaryKey,
+        leaseKey(gaining, leaseParts(primaryKey).date),
+      ]);
+    }
     out.push({
       id:
         typeof doubt.id === 'string' ? doubt.id : `legacy-${doubt.at}-${index}`,
       at: doubt.at,
-      ...(doubt.kind === 'modify' || doubt.kind === 'swap'
-        ? { kind: doubt.kind }
-        : {}),
+      ...(kind ? { kind } : {}),
       ...(typeof doubt.from === 'string' ? { from: doubt.from } : {}),
       ...(typeof doubt.to === 'string' ? { to: doubt.to } : {}),
-      ...(typeof doubt.gaining === 'string' ? { gaining: doubt.gaining } : {}),
+      ...(gaining !== undefined ? { gaining } : {}),
       ...(ids.length ? { reservationIds: ids } : {}),
       ...(blockingKeys.length ? { blockingKeys } : {}),
     });

@@ -1262,6 +1262,31 @@ describe('AutopilotProvider swap', () => {
     );
   });
 
+  it('reports an unresolved change when the gained attraction is quarantined', async () => {
+    saveWatchList([{ experienceId: BZ, autoSwap: true }]);
+    await quarantine(
+      leaseKey(BZ, TODAY),
+      { id: 'target-doubt', kind: 'modify', to: '11:00:00' },
+      Date.now()
+    );
+    const { book, offer } = setupBooking({
+      offerHour: 11,
+      experiences: [available(BZ, new ParkTime(11), { priority: 1.0 })],
+      plans: fullOfWorse(),
+    });
+
+    await enable();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(offer).not.toHaveBeenCalled();
+    expect(book).not.toHaveBeenCalled();
+    expect(screen.getByTestId('lastSkip')).toHaveTextContent(
+      'unresolved-change'
+    );
+  });
+
   it('continues to exclude two swaps giving up the same victim', async () => {
     saveWatchList([{ experienceId: BZ, autoSwap: true }]);
     await acquireLease(leaseKey('w1', TODAY), OTHER_TAB);
@@ -1457,6 +1482,20 @@ describe('AutopilotProvider persistence and diagnostics', () => {
     await waitFor(() => expect(loadBookingLog()).toHaveLength(1));
     expect(loadBookingLog()[0]).toMatchObject({ status: 'booked' });
     expect(screen.getByTestId('sessionLog')).toHaveTextContent('1');
+  });
+
+  it('stores an unknown outcome without a second Plans instruction', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { book } = setupBooking({ bookErrors: ['no-response'] });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(loadBookingLog()).toHaveLength(1));
+
+    expect(loadBookingLog()[0]).toMatchObject({
+      name: wdw.experience(BZ).name,
+      status: 'unknown',
+    });
+    expect(loadBookingLog()[0]).not.toHaveProperty('detail');
   });
 
   it('exposes why nothing was booked', async () => {

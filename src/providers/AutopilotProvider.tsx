@@ -578,12 +578,12 @@ export default function AutopilotProvider({
                     returnTime: outcome.returnTime,
                   }
                 : outcome.status === 'failed'
-                  ? {
-                      status: outcome.unknown
-                        ? ('unknown' as const)
-                        : ('failed' as const),
-                      detail: describeFailure(outcome),
-                    }
+                  ? outcome.unknown
+                    ? { status: 'unknown' as const }
+                    : {
+                        status: 'failed' as const,
+                        detail: describeFailure(outcome),
+                      }
                   : {
                       status: 'skipped' as const,
                       detail: outcome.reason,
@@ -1447,17 +1447,16 @@ export default function AutopilotProvider({
           const actionLeaseKeys = [
             ...new Set([actionLeaseKey, leaseKey(experience.id, date)]),
           ];
+          const leaseBlockReason = () =>
+            actionLeaseKeys.some(key => quarantinedAt(key) !== undefined)
+              ? ('unresolved-change' as const)
+              : ('already-attempted' as const);
           const got = await acquireLease(actionLeaseKeys, owner);
           if (!got || operation.abandoned) {
             operation.settle();
             if (got) await releaseLease(actionLeaseKeys, owner);
             await operation.waitForAbandonment();
-            bumpSkip(
-              quarantinedAt(actionLeaseKey) === undefined
-                ? 'already-attempted'
-                : 'unresolved-change',
-              experience.name
-            );
+            bumpSkip(leaseBlockReason(), experience.name);
             continue;
           }
           acting = {
@@ -1538,12 +1537,7 @@ export default function AutopilotProvider({
             // Somebody else is changing one of these right now -- a foreground
             // search, or another tab. Skipping costs one tick; acting would
             // cost an entitlement.
-            bumpSkip(
-              quarantinedAt(actionLeaseKey) === undefined
-                ? 'already-attempted'
-                : 'unresolved-change',
-              experience.name
-            );
+            bumpSkip(leaseBlockReason(), experience.name);
             continue;
           }
           if (kind === 'swap') {

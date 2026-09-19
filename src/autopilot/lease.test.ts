@@ -535,6 +535,33 @@ describe('the operation lease', () => {
      * reached Disney. Dropping the old day-scoped wrapper would have the deploy
      * itself unprotect a reservation.
      */
+    it.each(['plain', 'day-scoped'] as const)(
+      'backfills both swap conflict keys from a legacy %s store',
+      async shape => {
+        const stored = { [KEY]: { ...swapDoubt, at: RAISED } };
+        kvdb.set(
+          QUARANTINE_KEY,
+          shape === 'plain' ? stored : { date: parkDate(), value: stored }
+        );
+
+        expect(quarantinedAt(KEY)).toBe(RAISED);
+        expect(quarantinedAt(OTHER_KEY)).toBe(RAISED);
+        expect(quarantinedMutations()).toEqual([
+          expect.objectContaining({
+            id: swapDoubt.id,
+            key: KEY,
+            blockingKeys: expect.arrayContaining([KEY, OTHER_KEY]),
+          }),
+        ]);
+        expect(await acquire(OTHER_KEY, A)).toBe(false);
+
+        await resolveDoubt(KEY, swapDoubt.id);
+        expect(quarantinedAt(KEY)).toBeUndefined();
+        expect(quarantinedAt(OTHER_KEY)).toBeUndefined();
+        expect(await acquire(OTHER_KEY, A)).toBe(true);
+      }
+    );
+
     it('still honours a doubt written in the old day-scoped shape', async () => {
       kvdb.set(QUARANTINE_KEY, {
         date: parkDate(),
