@@ -1,14 +1,21 @@
+import { ReactNode } from 'react';
+
 import { SKIP_TEXT } from '@/autopilot/events';
 import { TimeSearchState } from '@/autopilot/useTimeSearch';
 import Disclosure from '@/components/Disclosure';
 import { Time } from '@/components/Time';
 import { BookingLogEntry, Skip } from '@/contexts/AutopilotContext';
 
+function unhandledStatus(status: never): never {
+  throw new Error(`Unhandled booking-log status: ${String(status)}`);
+}
+
 function Action({ entry }: { entry: BookingLogEntry }) {
-  return (
-    <li className="py-0.5">
-      <Time time={entry.at} />{' '}
-      {entry.status === 'booked' ? (
+  const status = entry.status;
+  let description: ReactNode;
+  switch (status) {
+    case 'booked':
+      description = (
         <>
           booked <b>{entry.name}</b>
           {entry.returnTime && (
@@ -18,7 +25,10 @@ function Action({ entry }: { entry: BookingLogEntry }) {
             </>
           )}
         </>
-      ) : entry.status === 'modified' ? (
+      );
+      break;
+    case 'modified':
+      description = (
         <>
           moved <b>{entry.name}</b>
           {entry.fromTime && entry.returnTime && (
@@ -29,7 +39,10 @@ function Action({ entry }: { entry: BookingLogEntry }) {
             </>
           )}
         </>
-      ) : entry.status === 'swapped' ? (
+      );
+      break;
+    case 'swapped':
+      description = (
         <>
           swapped in <b>{entry.name}</b>
           {entry.replacedName ? (
@@ -39,12 +52,27 @@ function Action({ entry }: { entry: BookingLogEntry }) {
             </>
           ) : null}
         </>
-      ) : entry.status === 'failed' ? (
+      );
+      break;
+    case 'unknown':
+      description = (
+        <>
+          <span className="text-yellow-700">no answer</span> for{' '}
+          <b>{entry.name}</b>
+          {entry.detail ? `: ${entry.detail}` : ''} -- check Disney Plans
+        </>
+      );
+      break;
+    case 'failed':
+      description = (
         <>
           <span className="text-red-700">failed</span> on <b>{entry.name}</b>
           {entry.detail ? `: ${entry.detail}` : ''}
         </>
-      ) : entry.status === 'dry-run' ? (
+      );
+      break;
+    case 'dry-run':
+      description = (
         <>
           would have{' '}
           {entry.detail === 'modify'
@@ -54,12 +82,22 @@ function Action({ entry }: { entry: BookingLogEntry }) {
               : 'booked'}{' '}
           <b>{entry.name}</b>
         </>
-      ) : (
+      );
+      break;
+    case 'skipped':
+      description = (
         <>
           skipped <b>{entry.name}</b>
           {entry.detail ? `: ${SKIP_TEXT[entry.detail] ?? entry.detail}` : ''}
         </>
-      )}
+      );
+      break;
+    default:
+      return unhandledStatus(status);
+  }
+  return (
+    <li className="py-0.5">
+      <Time time={entry.at} /> {description}
     </li>
   );
 }

@@ -1026,6 +1026,18 @@ describe('AutoBookLedger.resolveRejected()', () => {
     expect(ledger.hasAttempted(BZ)).toBe(true);
   });
 
+  it.each(['modify', 'swap'] as const)(
+    'keeps a rejected %s locally but removes it from the publishable set',
+    kind => {
+      const ledger = new AutoBookLedger(DATE);
+      ledger.markAttempted(BZ, kind);
+      ledger.resolveRejected(BZ, kind);
+
+      expect(ledger.hasAttempted(BZ, kind)).toBe(true);
+      expect(ledger.publishableKeys()).not.toContain(`${DATE}:${kind}:${BZ}`);
+    }
+  );
+
   it('does nothing for an attraction with no hold', () => {
     const ledger = new AutoBookLedger(DATE);
     ledger.resolveRejected(BZ);

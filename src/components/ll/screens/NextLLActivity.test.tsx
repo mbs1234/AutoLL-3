@@ -3,7 +3,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { ParkTime } from '@/datetime';
 
-import { NextLLTimeSearchActivity } from './NextLLActivity';
+import {
+  NextLLBookingActivity,
+  NextLLTimeSearchActivity,
+} from './NextLLActivity';
 
 const idle = {
   running: false,
@@ -11,6 +14,33 @@ const idle = {
   moves: 0,
   phase: 'idle' as const,
 };
+
+describe('NextLL booking activity', () => {
+  it('renders an unknown outcome as a warning to check Disney Plans', () => {
+    render(
+      <NextLLBookingActivity
+        active
+        polls={1}
+        entries={[
+          {
+            name: 'Big Thunder',
+            at: new ParkTime(9, 47),
+            status: 'unknown',
+            detail: 'Network request failed',
+          },
+        ]}
+        skipCounts={{}}
+      />
+    );
+    fireEvent.click(screen.getByText('Activity'));
+    expect(screen.getByText('no answer')).toBeVisible();
+    expect(screen.getByText(/check Disney Plans/)).toHaveTextContent(
+      'Big Thunder: Network request failed -- check Disney Plans'
+    );
+    expect(screen.queryByText('failed')).not.toBeInTheDocument();
+    expect(screen.queryByText(/skipped Big Thunder/)).not.toBeInTheDocument();
+  });
+});
 
 describe('NextLL held-reservation activity', () => {
   it('stays out of the setup screen before a search starts', () => {

@@ -1232,7 +1232,12 @@ export default function AutopilotProvider({
         let eligibilityFailed = false;
         let operation: MutationOperation | undefined;
         let acting:
-          | { key: string; owner: string; stopRenewal: () => void }
+          | {
+              key: string;
+              keys: readonly string[];
+              owner: string;
+              stopRenewal: () => void;
+            }
           | undefined;
         let changesExistingReservation = false;
         let pageOnlyProtection = false;
@@ -1366,12 +1371,11 @@ export default function AutopilotProvider({
               : undefined;
           const changing = kind === 'swap' ? victim : existing;
           changesExistingReservation = !!changing;
-          // Fresh bookings need the same exclusive dispatch lane as changes.
-          // Without it, the two providers routinely mounted in one app can
-          // both pass the shared-ledger check, generate offers, and publish the
-          // same action lock immediately before sending two requests. A book
-          // leases the attraction it is about to create; a modify/swap leases
-          // the reservation it is replacing.
+          // Every mutation needs an exclusive dispatch lane. Without it, the
+          // two providers routinely mounted in one app can both pass the
+          // shared-ledger check, generate offers, and publish the same action
+          // lock immediately before sending two requests. Book and modify
+          // claim their target; swap claims both its victim and its target.
           const leaseFacility = changing?.facilityId ?? experience.id;
           const changingReservationIds = changing
             ? [
@@ -1398,6 +1402,7 @@ export default function AutopilotProvider({
                     {
                       id: abandoned.id,
                       ...(abandoned.evidence ?? {}),
+                      blockingKeys: lease.keys,
                     },
                     abandoned.dispatchedAt
                   );
@@ -1423,7 +1428,7 @@ export default function AutopilotProvider({
                 lease.stopRenewal();
                 if (!pageOnlyProtection) {
                   try {
-                    await releaseLease(lease.key, lease.owner);
+                    await releaseLease(lease.keys, lease.owner);
                   } catch (error) {
                     // A quarantine, when one was needed, is already durable.
                     // Otherwise expiry remains a conservative fallback.
@@ -1435,10 +1440,17 @@ export default function AutopilotProvider({
           });
 
           const actionLeaseKey = leaseKey(leaseFacility, date);
-          const got = await acquireLease(actionLeaseKey, owner);
+          // A swap changes Y and may create X, so both are one conflict set.
+          // Book and modify collapse to the single target key. Taking exactly
+          // these keys avoids the old over-broad approach that leased every held
+          // reservation and made unrelated searches contend.
+          const actionLeaseKeys = [
+            ...new Set([actionLeaseKey, leaseKey(experience.id, date)]),
+          ];
+          const got = await acquireLease(actionLeaseKeys, owner);
           if (!got || operation.abandoned) {
             operation.settle();
-            if (got) await releaseLease(actionLeaseKey, owner);
+            if (got) await releaseLease(actionLeaseKeys, owner);
             await operation.waitForAbandonment();
             bumpSkip(
               quarantinedAt(actionLeaseKey) === undefined
@@ -1448,8 +1460,13 @@ export default function AutopilotProvider({
             );
             continue;
           }
-          acting = { key: actionLeaseKey, owner, stopRenewal: () => undefined };
-          acting.stopRenewal = keepLeaseAlive(actionLeaseKey, owner, () =>
+          acting = {
+            key: actionLeaseKey,
+            keys: actionLeaseKeys,
+            owner,
+            stopRenewal: () => undefined,
+          };
+          acting.stopRenewal = keepLeaseAlive(actionLeaseKeys, owner, () =>
             operation?.abandon('lease-refused')
           );
 
@@ -1495,7 +1512,7 @@ export default function AutopilotProvider({
                   return send();
                 }
                 const begun = await startWhileHeld(
-                  acting.key,
+                  acting.keys,
                   acting.owner,
                   authorize,
                   send
@@ -1627,8 +1644,8 @@ export default function AutopilotProvider({
               // so a future callback cannot skip classification and release.
               console.error(error);
             }
-            // Computed before the lease branch because the log needs it too,
-            // and a fresh booking reaches here with no reservation to lease.
+            // Computed before the quarantine branch because the log needs it
+            // too, including for a fresh booking that is not quarantined.
             // Dispatched and not provably refused is the definition the
             // quarantine already used; the screen was the only place still
             // calling it a failure.
@@ -1644,7 +1661,11 @@ export default function AutopilotProvider({
                 if (unknown && changesExistingReservation) {
                   const protection = await quarantine(
                     lease.key,
-                    { id: current.id, ...(current.evidence ?? {}) },
+                    {
+                      id: current.id,
+                      ...(current.evidence ?? {}),
+                      blockingKeys: lease.keys,
+                    },
                     current.dispatchedAt
                   );
                   pageOnlyProtection = !protection.durable;
@@ -1676,7 +1697,7 @@ export default function AutopilotProvider({
               lease.stopRenewal();
               if (!pageOnlyProtection) {
                 try {
-                  await releaseLease(lease.key, lease.owner);
+                  await releaseLease(lease.keys, lease.owner);
                 } catch (error) {
                   console.error(error);
                 }
@@ -1735,13 +1756,11 @@ export default function AutopilotProvider({
         // doubt-hold on a booking that may well exist. That inverts the rule
         // the ledger is built on -- mark before the request goes out, because a
         // timed-out request may have succeeded.
-        // A booking the request provably never made must not keep its charge on
-        // the day. `rejected` is exactly that proof -- Disney refusing the call,
-        // or our own limiter never sending it -- and the hold is only warranted
-        // while the outcome is unknown. Left on, a lost race spent a tenth of
-        // the default allowance on a booking that does not exist. Only `book`
-        // takes a hold, and the attempt lock stays: autopilot keeps one action
-        // per attraction per session either way.
+        // A request that provably changed nothing must not leave its action lock
+        // in the shared store. Keeping it locally is Autopilot's anti-thrash
+        // rule; sharing it would make every other provider skip an action that
+        // is known not to have happened. For a booking this also clears the
+        // doubt-hold that charges the day's allowance.
         //
         // Both asked on this tick's date. This is the tail of a tick that may
         // have been abandoned mid-request, so the ledger can already be on the
@@ -1749,14 +1768,15 @@ export default function AutopilotProvider({
         // 18th withdrawing the 19th's doubt-hold is how the 19th gets booked
         // twice.
         if (
-          kind === 'book' &&
           outcome.status === 'failed' &&
           outcome.rejected &&
           onBookingDate(() =>
             ledgerRef.current.hasAttempted(experience.id, kind)
           )
         ) {
-          onBookingDate(() => ledgerRef.current.resolveRejected(experience.id));
+          onBookingDate(() =>
+            ledgerRef.current.resolveRejected(experience.id, kind)
+          );
         }
 
         if (

@@ -204,7 +204,9 @@ describe('Today', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       '1 unresolved Lightning Lane change needs review.'
     );
-    expect(screen.getByText(/has stopped changing/)).toBeVisible();
+    expect(
+      screen.getByText(/stopped automatically booking, moving, or swapping/)
+    ).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Review protection' }));
     expect(nav.goTo.mock.calls[0]?.[0].type).toBe(Activity);
   });

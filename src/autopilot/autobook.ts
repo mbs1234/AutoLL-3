@@ -843,9 +843,9 @@ export class AutoBookLedger {
   }
 
   /**
-   * Settle a book attempt that provably never landed.
+   * Settle an action that provably never landed.
    *
-   * The doubt exists because the lock is taken *before* the request goes out:
+   * A booking's doubt exists because the lock is taken *before* the request goes out:
    * a timed-out booking may have succeeded server-side, so until a plans poll
    * says otherwise the attempt is neither a booking nor a non-booking. Disney
    * refusing the call outright, or our own limiter never sending it,
@@ -857,9 +857,9 @@ export class AutoBookLedger {
    * `releaseAttempt` for that. This resolves the doubt without giving back the
    * action.
    */
-  resolveRejected(experienceId: string): void {
-    const key = this.key('book', experienceId);
-    this.unresolved.delete(key);
+  resolveRejected(experienceId: string, kind: LockKind = 'book'): void {
+    const key = this.key(kind, experienceId);
+    if (kind === 'book') this.unresolved.delete(key);
     // The lock stays here and leaves the shared copy. Keeping it locally is
     // the anti-thrash rule above; keeping it *shared* would hand a permanent
     // skip to every other instance, since only the instance that owns a lock
