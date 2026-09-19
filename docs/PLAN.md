@@ -873,14 +873,38 @@ cannot be answered on the trip at all.
   when an assumption can be replaced by a measurement; they must not decide what
   the app does. Nothing in the build is keyed to a date somebody typed here.
 
-  Two consequences worth having written down. The booking-date picker offers
-  today plus twenty-one days (`NUM_BOOKING_DAYS = 22`), so December 22 becomes
-  selectable on December 1 and December 28 on December 7 — every day of the trip
-  arrives before a two-week freeze starting around December 8, so the plan can be
-  built in the picker during that first week. And October is the first park day
-  available to answer the questions in §10 that no amount of desk work can:
-  itinerary propagation time, the expiry grace period, per-guest tier release,
-  and what the booking-window endpoint returns for a date not yet open.
+- **On-site for both trips, recorded 2026-09-19.** This is a scheduling fact
+  with more consequence than the trip dates themselves, because it selects the
+  resort rule above: booking opens 7:00am ET **seven days before check-in, for
+  the whole stay**. Both stays are inside the fourteen-day cap, so each trip is
+  won or lost in a single morning, at home, before anyone travels:
+
+  | trip | check-in | park days | booking morning |
+  |---|---|---|---|
+  | October | 2026-10-18 | Oct 18–20 (3) | **2026-10-11**, 7:00am ET |
+  | December | 2026-12-22 | Dec 22–28 (7) | **2026-12-15**, 7:00am ET |
+
+  The engineering deadline is therefore the booking morning, not the trip. For
+  October that moves it a week earlier than this file previously assumed.
+
+  The booking-date picker offers today plus twenty-one days
+  (`NUM_BOOKING_DAYS = 22`). On 2026-10-11 all three October dates are inside
+  it; on 2026-12-15 all seven December dates are. December 22 becomes selectable
+  on December 1 and December 28 on December 7, so a December plan can be built
+  in the picker during that first week, before the booking morning.
+
+  **A correction, because this paragraph carried a false claim into the
+  roadmap.** It used to list "what the booking-window endpoint returns for a
+  date not yet open" among the questions that no amount of desk work can answer,
+  beside itinerary propagation time, the expiry grace period and per-guest tier
+  release. Those three do need a park day. The fourth does not, and believing it
+  did is what ranked the future-date burst work first in `ROADMAP.md` for a
+  month. The tipboard is fetched for the *selected* date
+  (`ExperiencesProvider.tsx:68`) and `ll.nextBookTimes` is reassigned from
+  `bookWindows(data.eligibility, date)` on every poll (`ll.ts:330`), so moving
+  the date picker forward and reading the eligibility block answers it from a
+  desk in twenty minutes. October is still the first park day available for the
+  other three.
 - **Party nights** truncate MK on 13 dates and HS on 7. On those MK dates
   daytime crowds are low and the 6pm close kills evening drops; on non-party
   dates crowds are displaced and drops run late.
