@@ -63,6 +63,7 @@ export type ModifySkipReason =
   | 'not-an-improvement'
   | 'offer-outside-window'
   | 'offer-not-an-improvement'
+  | 'ambiguous-existing-booking'
   | 'already-attempted'
   | 'no-eligible-guests'
   | 'partial-party'
@@ -156,20 +157,43 @@ export function shouldModify(
  *
  * The offer response carries Disney's own view at the moment the offer was
  * made, which is the freshest thing available and costs no extra request.
- * Matched on `facilityId` because `OfferItineraryItem` carries no entitlement
- * id. The clash check relies on this itinerary containing the reservation being
- * changed -- that is what it excludes by `release` -- so it is normally present.
+ * Matched first on the existing item's reservation/entitlement id. A single
+ * unidentified same-facility item remains a compatibility fallback for older
+ * payloads; identified mismatches or multiple rows are ambiguous because split
+ * parties can hold the same attraction at different times.
  *
  * Undefined when it is not. The decision may fall back to the caller's
  * snapshot, but the user-facing mutation record must not present a stale
  * snapshot as something the offer itself established.
  */
+function matchingOfferItems(
+  offer: Pick<Offer<LLMP>, 'itinerary'>,
+  held: Pick<LLMP, 'id' | 'facilityId' | 'guests'>
+) {
+  return offer.itinerary.filter(item => item.facilityId === held.facilityId);
+}
+
 export function offerBaseline(
   offer: Pick<Offer<LLMP>, 'itinerary'>,
-  held: Pick<LLMP, 'facilityId'>
+  held: Pick<LLMP, 'id' | 'facilityId' | 'guests'>
 ): ParkTime | undefined {
-  return offer.itinerary.find(item => item.facilityId === held.facilityId)
-    ?.startTime;
+  const matches = matchingOfferItems(offer, held);
+  const reservationIds = new Set([
+    held.id,
+    ...held.guests.map(guest => guest.entitlementId),
+  ]);
+  const identified = matches.find(
+    item => item.id !== undefined && reservationIds.has(item.id)
+  );
+  if (identified) return identified.startTime;
+  // A single *unidentified* same-attraction row is the compatibility fallback
+  // for older payloads. An identified row belonging to somebody else is not:
+  // it proves a split-party reservation is present without identifying the
+  // one being changed. With either that case or two rows, guessing would let
+  // one reservation stand in for the other in the "never trade down" check.
+  return matches.length === 1 && matches[0]!.id === undefined
+    ? matches[0]!.startTime
+    : undefined;
 }
 
 /**
@@ -196,9 +220,17 @@ export function offerBaseline(
  */
 export function commitBaseline(
   offer: Pick<Offer<LLMP>, 'itinerary'>,
-  held: Pick<LLMP, 'facilityId' | 'start'>
-): ParkTime {
-  return offerBaseline(offer, held) ?? held.start.time;
+  held: Pick<LLMP, 'id' | 'facilityId' | 'guests' | 'start'>
+): ParkTime | undefined {
+  const fromOffer = offerBaseline(offer, held);
+  if (fromOffer) return fromOffer;
+  // No same-attraction row can mean Disney omitted the reservation under
+  // change, so retain the established snapshot fallback. A same-attraction row
+  // that could not be matched is different: it proves a split-party ambiguity,
+  // and the snapshot is exactly what this second check exists to distrust.
+  return matchingOfferItems(offer, held).length === 0
+    ? held.start.time
+    : undefined;
 }
 
 export interface AutoModifyDeps {
@@ -322,6 +354,9 @@ export async function attemptAutoModify(
     // The decision baseline. The mutation record below separately reports only
     // the offer's own view, so its explanation never invents a `from` value.
     const from = commitBaseline(offer, allowed.existing);
+    if (!from) {
+      return { status: 'skipped', reason: 'ambiguous-existing-booking' };
+    }
 
     if (offer.guests.eligible.length === 0) {
       return { status: 'skipped', reason: 'no-eligible-guests' };

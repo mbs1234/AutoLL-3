@@ -266,8 +266,10 @@ These and everything else still outstanding are listed in
 what order, before the December freeze.
 
 **It depends on the AutoLL-2 repository to publish.** The installer pages and
-the runtime module both come from that repo at deploy time. AutoLL-2 must stay
-public for AutoLL-3 to build a site.
+the runtime module both come from immutable AutoLL-2 revisions pinned in the
+deploy workflow. AutoLL-2 must stay public for AutoLL-3 to build a site; moving
+those pins is an explicit reviewed release change rather than an implicit branch
+update.
 
 ## Verifying a build
 

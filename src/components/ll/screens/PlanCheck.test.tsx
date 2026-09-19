@@ -29,6 +29,7 @@ function setup({
     async (): Promise<Guests> => ({ eligible: [], ineligible: [] })
   ),
   pollExperiences = jest.fn(async () => []),
+  onReviewed = jest.fn(),
   bookingDate = TODAY,
   ...state
 }: Partial<AutopilotState> & {
@@ -36,6 +37,7 @@ function setup({
   experiences?: (typeof hm)[];
   guests?: jest.Mock;
   pollExperiences?: jest.Mock;
+  onReviewed?: jest.Mock;
   bookingDate?: string;
 } = {}) {
   render(
@@ -73,7 +75,7 @@ function setup({
                     } as unknown as AutopilotState
                   }
                 >
-                  <PlanCheck />
+                  <PlanCheck onReviewed={onReviewed} />
                 </AutopilotContext>
               </PlansContext>
             </ExperiencesContext>
@@ -82,7 +84,7 @@ function setup({
       </ParkContext>
     </NavContext>
   );
-  return { guests, pollExperiences };
+  return { guests, pollExperiences, onReviewed };
 }
 
 const tapCheck = async () => {
@@ -112,6 +114,22 @@ describe('PlanCheck', () => {
     expect(
       screen.getByText('Ready to run within the current safeguards.')
     ).toBeVisible();
+  });
+
+  it('acknowledges the result only after Plan Check rendered it', async () => {
+    const { onReviewed } = setup();
+    await waitFor(() => expect(onReviewed).toHaveBeenCalledTimes(1));
+    expect(onReviewed).toHaveBeenCalledWith(
+      expect.objectContaining({ blockers: 0, key: expect.any(String) })
+    );
+  });
+
+  it('reports blockers instead of certifying the plan as ready', async () => {
+    const { onReviewed } = setup({ experiences: [jc] });
+    await waitFor(() => expect(onReviewed).toHaveBeenCalledTimes(1));
+    expect(onReviewed).toHaveBeenCalledWith(
+      expect.objectContaining({ blockers: 1 })
+    );
   });
 
   // The screen's central safety claim, and the one thing no unit test of the

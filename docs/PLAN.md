@@ -21,9 +21,9 @@ This plan was written for the `mbs1234/bg1` fork. That work now lands in
 **AutoLL-3** ([mbs1234/AutoLL-3](https://github.com/mbs1234/AutoLL-3)), which
 is AutoLL-2's `main` at `650a108` plus everything since. **AutoLL-2** is the
 stable base: AutoLL-3's deploy builds `main` from this repository and overlays
-the static site from `mbs1234/AutoLL-2@goofy` and the runtime module from
-`mbs1234/AutoLL-2@gh-pages` (`.github/workflows/deploy.yml`). **AutoLL** is
-frozen at v1.0. The inherited reason Lightning Lane booking works at all is
+the static site and runtime module from immutable AutoLL-2 commits pinned in
+`.github/workflows/deploy.yml` (currently `a3531c6` and `0926bc8`). **AutoLL**
+is frozen at v1.0. The inherited reason Lightning Lane booking works at all is
 unchanged; see FORK.md, "Booking". Section numbers below are unchanged.
 
 _2026-09-14._ **P1.8's day allowance was removed outright**, on the owner's

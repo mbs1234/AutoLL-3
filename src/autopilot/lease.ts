@@ -514,7 +514,7 @@ export async function resolveDoubt(key: string, id: string): Promise<void> {
   }
 }
 
-/** Every unresolved mutation, for Plan Check and Activity. */
+/** Every unresolved mutation, for Today, Plan Check and Activity. */
 export function quarantinedMutations(): QuarantinedMutation[] {
   const local = activeVolatileQuarantine();
   return Object.entries(loadQuarantine())

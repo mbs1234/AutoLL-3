@@ -68,11 +68,12 @@ function offerWithHeld(
   time: ParkTime,
   heldAt: ParkTime,
   facilityId = BZ,
-  guests = party()
+  guests = party(),
+  id = 'ent-1'
 ) {
   return {
     ...offerAt(time, guests),
-    itinerary: [{ facilityId, startTime: heldAt, overlap: 'NONE' }],
+    itinerary: [{ id, facilityId, startTime: heldAt, overlap: 'NONE' }],
   } as unknown as Offer<LLMP>;
 }
 
@@ -605,6 +606,129 @@ describe('a targeted modify', () => {
  * any more. The offer response carries Disney's own view as of the offer.
  */
 describe('attemptAutoModify() against the offer itinerary', () => {
+  it('uses the exact split-party reservation rather than the first same-ride item', async () => {
+    const existing = existingLL(at(19), { id: 'ent-target' });
+    const outcome = await attemptAutoModify(
+      target(),
+      experience,
+      existing,
+      at(16, 40),
+      deps({
+        createModifyOffer: jest.fn(
+          async () =>
+            ({
+              ...offerAt(at(16, 40)),
+              itinerary: [
+                {
+                  id: 'ent-other',
+                  facilityId: BZ,
+                  startTime: at(20),
+                  overlap: 'NONE',
+                },
+                {
+                  id: 'ent-target',
+                  facilityId: BZ,
+                  startTime: at(13, 15),
+                  overlap: 'NONE',
+                },
+              ],
+            }) as unknown as Offer<LLMP>
+        ),
+      })
+    );
+
+    // Plans said 19:00 and the other half holds 20:00, but the reservation
+    // actually being changed is already at 13:15. Moving it to 16:40 is a
+    // downgrade and must be refused.
+    expect(outcome).toEqual({
+      status: 'skipped',
+      reason: 'offer-not-an-improvement',
+    });
+  });
+
+  it('matches the offer item through a guest entitlement id', async () => {
+    const existing = existingLL(at(19), {
+      id: 'booking-target',
+      guests: [{ id: 'a', name: 'A', entitlementId: 'ent-target' }],
+    });
+    const outcome = await attemptAutoModify(
+      target(),
+      experience,
+      existing,
+      at(16, 40),
+      deps({
+        createModifyOffer: jest.fn(
+          async () =>
+            ({
+              ...offerAt(at(16, 40)),
+              itinerary: [
+                {
+                  id: 'ent-other',
+                  facilityId: BZ,
+                  startTime: at(20),
+                  overlap: 'NONE',
+                },
+                {
+                  id: 'ent-target',
+                  facilityId: BZ,
+                  startTime: at(13, 15),
+                  overlap: 'NONE',
+                },
+              ],
+            }) as unknown as Offer<LLMP>
+        ),
+      })
+    );
+
+    expect(outcome).toEqual({
+      status: 'skipped',
+      reason: 'offer-not-an-improvement',
+    });
+  });
+
+  it('refuses an unidentified split-party baseline instead of guessing', async () => {
+    const outcome = await attemptAutoModify(
+      target(),
+      experience,
+      existingLL(at(19), { id: 'ent-target' }),
+      at(16, 40),
+      deps({
+        createModifyOffer: jest.fn(
+          async () =>
+            ({
+              ...offerAt(at(16, 40)),
+              itinerary: [
+                { facilityId: BZ, startTime: at(20), overlap: 'NONE' },
+                { facilityId: BZ, startTime: at(13, 15), overlap: 'NONE' },
+              ],
+            }) as unknown as Offer<LLMP>
+        ),
+      })
+    );
+    expect(outcome).toEqual({
+      status: 'skipped',
+      reason: 'ambiguous-existing-booking',
+    });
+  });
+
+  it('refuses a same-ride item identified as the other split reservation', async () => {
+    const outcome = await attemptAutoModify(
+      target(),
+      experience,
+      existingLL(at(19), { id: 'ent-target' }),
+      at(16, 40),
+      deps({
+        createModifyOffer: jest.fn(async () =>
+          offerWithHeld(at(16, 40), at(20), BZ, party(), 'ent-other')
+        ),
+      })
+    );
+    expect(outcome).toEqual({
+      status: 'skipped',
+      reason: 'ambiguous-existing-booking',
+    });
+  });
+
   // The snapshot says 19:00 and 16:40 looks like a two-hour gain. Disney says
   // the reservation is already at 13:15, which makes 16:40 three hours worse.
   it('refuses an offer that is worse than the reservation actually held', async () => {

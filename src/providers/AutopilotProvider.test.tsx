@@ -2047,6 +2047,55 @@ describe('AutopilotProvider repeated moves', () => {
     expect(book).toHaveBeenCalledTimes(1);
   });
 
+  it('retires a retry token when plans release the lock it belonged to', async () => {
+    saveWatchList([{ experienceId: BZ, bookThenMove: true }]);
+    const { book, setPolledPlans } = setupBooking({
+      repeatMoves: true,
+      // L1 is rejected and gets a retry token. L2 later reaches Disney but
+      // never answers, so its doubt-hold must not inherit that token.
+      bookErrors: [410, 'no-response'],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+
+    // Keep the rejected token from being consumed normally while plans first
+    // see this attraction held (for example, booked by hand), then cancelled.
+    await act(async () => screen.getByText('pause BZ').click());
+    setPolledPlans([heldAt(11)]);
+    await runTicks(PLANS_EVERY_N_TICKS + 2);
+    setPolledPlans([]);
+    await runTicks(RELEASE_TICKS);
+    expect(loadLocks()).toEqual([]);
+
+    // Reuse the same date/action/experience key. The second response is lost;
+    // an orphaned token from L1 would expire, release L2, and send a third
+    // booking on the next tick.
+    await act(async () => screen.getByText('pause BZ').click());
+    await runTicks(2);
+    expect(book).toHaveBeenCalledTimes(2);
+    await runTicks(WAITED);
+    expect(book).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let a retry token supersede a newer shared lock', async () => {
+    saveWatchList([{ experienceId: BZ, bookThenMove: true }]);
+    const { book } = setupBooking({
+      repeatMoves: true,
+      bookErrors: [410],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+
+    // The rejection withdrew this provider's lock from shared storage while
+    // retaining it locally for the paced retry. Another provider then took the
+    // same action. When the old token expires it must not release through that
+    // newer owner's lock and send a duplicate request.
+    saveLocks(OTHER_TAB, [`${TODAY}:book:${BZ}`]);
+    await runTicks(WAITED);
+    expect(book).toHaveBeenCalledTimes(1);
+    expect(loadLocks()).toEqual([`${TODAY}:book:${BZ}`]);
+  });
+
   // The booking leg of book-then-move, which is what NextLL runs while
   // nothing is held. A lost race at 7am used to retire the attraction for the
   // day under copy promising it would take the first Lightning Lane it could
@@ -2601,6 +2650,54 @@ describe('AutopilotProvider operation lease', () => {
     await act(async () => releaseOffer());
   });
 
+  it('also excludes a second actor while a fresh booking offer is in flight', async () => {
+    let releaseOffer = () => {};
+    const offerDelay = new Promise<void>(resolve => {
+      releaseOffer = resolve;
+    });
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { offer } = setupBooking({ offerDelay });
+    await enable();
+    await waitFor(() => expect(offer).toHaveBeenCalledTimes(1));
+
+    // Fresh bookings used to skip the reservation lease entirely. Both the
+    // all-day provider and NextLL could then reach their dispatch boundary and
+    // send the same booking before either saw the other's action lock.
+    expect(await claim()).toBe('false');
+    await act(async () => releaseOffer());
+  });
+
+  it('rechecks shared action locks after waiting to enter the lease', async () => {
+    let releaseGuests!: (value: typeof party) => void;
+    const delayedGuests = new Promise<typeof party>(resolve => {
+      releaseGuests = resolve;
+    });
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { guests, offer, book } = setupBooking({
+      guestsResult: delayedGuests,
+    });
+    await enable();
+    await waitFor(() => expect(guests).toHaveBeenCalledTimes(1));
+
+    // This provider passed its first lock check before eligibility returned.
+    // Another provider then completed the action and published the lock. The
+    // operation lease serialises the two, but the waiter also has to re-read
+    // that result after it gets the lease or it will send a second booking.
+    saveLocks(OTHER_TAB, [`${TODAY}:book:${BZ}`]);
+    await act(async () => {
+      releaseGuests(party);
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('lastSkip')).toHaveTextContent(
+        'already-attempted'
+      )
+    );
+    expect(offer).not.toHaveBeenCalled();
+    expect(book).not.toHaveBeenCalled();
+  });
+
   // And the engine gives it back once a definite result has returned. An
   // unknown result is transferred to quarantine; retaining the live-work lease
   // for historical doubt is what used to lock a ride until the 4am rollover.
@@ -2697,6 +2794,10 @@ describe('AutopilotProvider unresolved reservations', () => {
     // reservation is not free, and will not be until plans say what happened.
     expect(leaseHolder(leaseKey(BZ, TODAY))).toBeUndefined();
     expect(await claim()).toBe('false');
+    await runTicks(2);
+    expect(screen.getByTestId('lastSkip')).toHaveTextContent(
+      new RegExp(`^${wdw.experience(BZ).name}: unresolved-change$`)
+    );
   });
 
   it('uses visible page-local quarantine when durable storage fails', async () => {
