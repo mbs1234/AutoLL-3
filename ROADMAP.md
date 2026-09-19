@@ -94,12 +94,13 @@ workflow that works today.
 
 ## The three themes
 
-**1. Never lose something silently.** Four places where the engine acts,
+**1. Never lose something silently.** Five places where the engine acts,
 declines to act, or stops acting, and the screen in your hand does not say so.
-That is the failure mode this project rates worst. Items 2, 3, 4 and 8 are
-instances of it. Two are small; the other two turned out larger than this
-document first priced them, and the pricing was wrong because it assumed screen
-work where the honest fix reaches into the provider.
+That is the failure mode this project rates worst. Items 2, 3, 4, 8 and 10 are
+instances of it. Two are small; two turned out larger than this document first
+priced them, because the pricing assumed screen work where the honest fix
+reaches into the provider. Item 10 is the only one of the five that is a defect
+rather than a gap, and it is the only one that goes wrong at a desk.
 
 **2. Be there when inventory appears.** On the 7:00 a.m. morning a *future*
 park date's booking window opens, the unattended poller idles at forty-five
@@ -126,21 +127,111 @@ text. Where a claim in the old version was simply false it has been deleted
 rather than softened.
 
 Numbers are kept as stable identifiers, because they are referenced across
-these items, in `docs/` and in commit messages. They are no longer priority
-order. Priority order is:
+these items, in `docs/` and in commit messages. They are not priority order.
+
+**There are two priorities, not one, and the first revision of this table
+conflated them.** It ranked everything for three days walking around a park.
+Then the on-site answer arrived on 2026-09-19 and moved the deadline: the whole
+October trip is booked on the morning of **2026-10-11**, at a desk, a week
+before anyone travels. A booking morning and a park day fail in different ways,
+and an item can matter enormously on one and not at all on the other.
+
+**The booking morning — 2026-10-11, at a desk.** What is at stake is nine
+sequential searches across three park days, with the date picker changed
+between them on a different screen. The failure that cannot be undone is a
+Multi Pass booked for the wrong day: it cannot be moved, only cancelled, into
+inventory that by then is gone.
 
 | order | item | why here |
 |---|---|---|
-| 1 | **2** — engine stopped touching a reservation | the only one that is pure gain: under an hour, no unknowns, and it removes a screen that actively misleads |
-| 2 | **3** — warn before a held pass lapses | half already shipped; the predicate it needs already exists |
-| 2 | **5** — pre-trip checklist over-claims | a checklist that says ready when it has not checked is worse than none |
-| 4 | **1** — future-date burst, unattended | demoted: the attended case already ships. Blocked on one reading |
-| 4 | **4** — name the Tier 1 hold's attraction | re-priced _medium_; provider work, no October deadline |
-| 6 | **8** — the drop the engine is bursting for | re-priced _medium_. Its cheap honesty half is worth taking alone |
-| 7 | **9** — the housekeeping evening | (b)(c)(d) are one evening; (a) needs a decision first |
-| 8 | **7** — late-November data check | calendar-blocked until ~Nov 27; nothing to do before then |
+| 1 | **10** — the date-less attempt lock | new, found 2026-09-19. Bites on this morning and essentially no other day of the year |
+| 2 | **5** — the checklist remembers the wrong date | `planChecked` never resets on a date change, so it vouches for a day it never checked. ~20 minutes for that half alone |
+| — | **1** — future-date burst, unattended | does **not** apply. The morning is attended, and Time Search already polls at 600ms on any date |
+| — | **2** — engine stopped touching a reservation | does **not** apply. Both `quarantine()` call sites are lease-guarded and a fresh booking never takes a lease, so the count reads zero all morning |
 
-Item 6 has moved to *After the trip*.
+**The park days — 2026-10-18 to 20, walking around.** Here the original
+ranking holds, because it was always a park-day ranking:
+
+| order | item | why here |
+|---|---|---|
+| 1 | **2** — engine stopped touching a reservation | pure gain: under an hour, no unknowns, and it removes a screen that actively misleads. Modifies and swaps *do* take leases, so the count is real here |
+| 2 | **3** — warn before a held pass lapses | half already shipped; the predicate it needs already exists |
+| 3 | **4** — name the Tier 1 hold's attraction | re-priced _medium_; provider work |
+| 4 | **8** — the drop the engine is bursting for | re-priced _medium_. Its cheap honesty half is worth taking alone |
+
+**Neither deadline.** Item **1** (blocked on one reading, and the attended case
+already ships), item **9** ((b)(c)(d) are one evening; (a) needs a decision
+first), item **7** (calendar-blocked until roughly Nov 27). Item **6** has
+moved to *After the trip*.
+
+**The schedule this implies.** Last change on `main` lands **2026-10-04**;
+merge AutoLL-3 → AutoLL-4 on **2026-10-06**, leaving five days of soak; hard
+freeze **2026-10-05 through 2026-10-11**. The freeze is on **pushes, not on
+code**: `.github/workflows/deploy.yml` triggers on every push to `main` with no
+`paths` filter anywhere in it, so a documentation commit on October 9 rebuilds
+and republishes the exact bundle that has to work on the 11th. There is a
+second window between the booking morning and the trip, but nothing currently
+needs it.
+
+### 10. Give the attempt lock a date, as every other store already has — _small_
+
+Found 2026-09-19, while working out what the on-site booking rule changes. It
+is not a refinement of anything above; it is a defect, and it is the only one
+in this file that bites hardest on a morning nobody will be in a park.
+
+**The asymmetry.** `AutoBookLedger` keys every action lock by kind and
+experience and nothing else — `` `${kind}:${experienceId}` `` at
+`autobook.ts:349` — and publishes that same date-less key to the shared
+cross-instance store. The settle loop that releases those locks asks a
+date-scoped question: `findExistingLL(settled, id, date)` at
+`AutopilotProvider.tsx:815`. A date-less lock settled against a date-scoped
+fact is the whole of it.
+
+The contrast is inside this repository and is not subtle. `leaseKey` is
+`` `${date}:${facilityId}` `` with a comment saying "Keyed by reservation and
+the day it belongs to, not by action" (`lease.ts:657`). Commit records are
+date-stamped, with a comment explaining that a second instance working the same
+future date needs it. `PendingSearch` carries a `bookingDate`. The ledger is
+the one store that missed the memo.
+
+**What it does.** Book an attraction for October 18, move the picker to October
+19, and that attraction is skipped as `already-attempted` — the lock says the
+work is done while the evidence says the reservation is not held on the 19th.
+In the ordinary case it self-heals after `CONFIRM_ABSENT_POLLS` = 2 plans
+polls, which is about twelve seconds inside a rapid Time Search and about
+fifteen minutes in the background engine on a future date.
+
+In one case it never heals for the session. If the date is switched before a
+plans poll has once seen the new reservation, the lock is owned but not yet
+confirmed, and `resolveBook` returns at `autobook.ts:565`, on the early exit
+for a lock this instance owns but has never seen held, before reaching the
+absence counter that would clear it. That is the lost-response case, which is
+exactly what a 7:00 a.m. rush produces.
+
+Worse and simpler: `modify:` and `swap:` locks have no release path at all.
+The settle loop sweeps `book:` locks only (`AutopilotProvider.tsx:823`). A move
+performed for October 18 blocks that action on that attraction for the 19th and
+the 20th for the rest of the session.
+
+**It does not reach the manual booking path, and that is the mitigation for
+October.** The ledger is confined to `src/autopilot/` and `AutopilotProvider`;
+no screen imports it. Booking from the LL tab by hand takes none of these
+locks. Until this is fixed, that is what to do on a booking morning, and it is
+a better answer than the workaround that suggests itself — toggling autopilot
+off and on calls `ledger.reset()`, but Time Search mounts a provider of its own
+and `reset()` withdraws only locks that ledger *owns*, so with two ledgers
+sharing one store it is not reliably the thing you want.
+
+**Done means.** A test in `autobook.test.ts` that fails on HEAD: take a `book`
+lock for an experience with one booking date, ask `hasAttempted` for the same
+experience with a different date, and require `false`. It cannot be written
+against today's signature at all, which is the point — `hasAttempted` takes no
+date. The fix is to key by date the way `leaseKey` already does, and to give
+`modify:` and `swap:` the release path `book:` has. Check what the shared store
+does with old-shaped keys written by an instance that has not been updated.
+
+**Where.** `src/autopilot/autobook.ts`, `src/providers/AutopilotProvider.tsx`,
+`src/autopilot/storage.ts`.
 
 ### 2. Say on Today when the engine has stopped touching a reservation — and stop it saying the opposite — _small_
 
