@@ -72,8 +72,13 @@ function setup({
   targets: initialTargets = [] as WatchTarget[],
   plans = [] as Booking[],
   chooser = false,
+  bookingDate = TODAY,
   ...rest
-}: Partial<AutopilotState> & { plans?: Booking[]; chooser?: boolean } = {}) {
+}: Partial<AutopilotState> & {
+  plans?: Booking[];
+  chooser?: boolean;
+  bookingDate?: string;
+} = {}) {
   const setEnabled = jest.fn();
   const addTarget = jest.fn();
   const removeTarget = jest.fn();
@@ -133,9 +138,7 @@ function setup({
         }}
       >
         <ParkContext value={{ park: mk, setPark: () => {} }}>
-          <BookingDateContext
-            value={{ bookingDate: TODAY, setBookingDate: () => {} }}
-          >
+          <BookingDateContext value={{ bookingDate, setBookingDate: () => {} }}>
             <PlansContext
               value={{
                 plans,
@@ -625,5 +628,29 @@ describe('NextLL aiming at a particular time', () => {
     expect(replaceTargets).toHaveBeenCalledWith([
       { experienceId: BZ, bookThenMove: true },
     ]);
+  });
+});
+
+/**
+ * The one screen in the build that books, and it never said for which day.
+ *
+ * This matters on exactly one morning a year. An on-site stay's whole trip
+ * unlocks at 7:00am seven days before check-in, so the booking morning is a
+ * run of sequential searches across every park day at once, with the date
+ * picker -- which lives on Today and the LL list, never here -- changed in
+ * between. The screen showed the date only after "Find it" was pressed, in
+ * the running search's own status line. A Multi Pass booked for the wrong day
+ * cannot be moved to the right one; it can only be cancelled back into
+ * inventory that by then is gone.
+ */
+describe('the booking date is on screen before anything is booked', () => {
+  it('names the date on the chooser', () => {
+    setup({ chooser: true, bookingDate: TOMORROW });
+    expect(screen.getByText('October 2')).toBeInTheDocument();
+  });
+
+  it('names the date on the search screen', () => {
+    setup({ bookingDate: TOMORROW });
+    expect(screen.getByText('October 2')).toBeInTheDocument();
   });
 });

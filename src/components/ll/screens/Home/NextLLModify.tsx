@@ -5,6 +5,7 @@ import Button from '@/components/Button';
 import Screen from '@/components/Screen';
 import Tab from '@/components/Tab';
 import BookingListing from '@/components/ll/BookingListing';
+import ContextStrip from '@/components/ll/ContextStrip';
 import BookingDateContext from '@/contexts/BookingDateContext';
 import NavContext from '@/contexts/NavContext';
 import PlansContext from '@/contexts/PlansContext';
@@ -34,6 +35,7 @@ export function NextLLModifyPicker({
       title="NextLL"
       ref={ref}
       buttons={<RefreshButton name="Plans" onClick={refreshPlans} />}
+      subhead={<ContextStrip />}
     >
       <Button type="small" onClick={onBack}>
         Choose another action
@@ -93,7 +95,11 @@ export function NextLLModifyPicker({
 export function NextLLModifyActions({ booking }: { booking: LLMP }) {
   const { goBack, goTo } = use(NavContext);
   return (
-    <Screen title="Modify Lightning Lane" theme={booking.park.theme}>
+    <Screen
+      title="Modify Lightning Lane"
+      theme={booking.park.theme}
+      subhead={<ContextStrip />}
+    >
       <h2>{booking.name}</h2>
       <p className="mt-2 text-sm text-gray-600">
         Choose how to change this held Lightning Lane.
