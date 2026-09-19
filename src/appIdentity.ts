@@ -65,6 +65,27 @@ export const APP_ICON = '🧪';
  */
 export const PAGES_BASE = `https://mbs1234.github.io/${APP_NAME}`;
 
+declare const __BUILD_REV__: string | undefined;
+
+/**
+ * The commit this bundle was built from, short form.
+ *
+ * Replaced literally by Vite's `define`, so the published bundle carries the
+ * revision as a string rather than reading anything at runtime. Under jest and
+ * the harness the identifier does not exist, which `typeof` handles without
+ * throwing -- those builds are working copies and `dev` is the honest answer.
+ *
+ * It exists so the answer to "which build is on this phone" does not require a
+ * laptop. Compare it against the `sourceRevision` field of the release
+ * manifest the deploy publishes beside the bundle to confirm a phone is
+ * running what was released. The manifest's filename is not written out here
+ * on purpose: it begins with the notification-tag namespace, and the guard in
+ * `storageNamespace.test.ts` reads any quoted occurrence of that prefix as a
+ * handwritten key bypassing `storageKey()`.
+ */
+export const BUILD_REV =
+  typeof __BUILD_REV__ === 'string' ? __BUILD_REV__ : 'dev';
+
 function iconHref(glyph: string): string {
   // `text` with a `dy` rather than a centred `dominant-baseline`: baseline
   // handling differs enough between engines that the glyph lands off-canvas

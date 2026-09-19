@@ -101,6 +101,21 @@ function actionEvent(entry: BookingLogEntry): AutopilotEvent {
     const why = detail ? `: ${skipText(detail)}` : '';
     return { at, level: 'info', text: `Skipped ${name}${why}` };
   }
+  // A dispatched request that never came back is not a failure, and calling it
+  // one is the reading that gets a guest to try again. `fetch.ts` says why in
+  // its own words: a dropped request and a refused one are collapsed to
+  // status 0 because "the request may have been acted on and the outcome is
+  // unknown". The engine already treats it that way -- it holds the
+  // reservation in doubt rather than retrying -- and this line was the last
+  // place still saying otherwise.
+  if (entry.status === 'unknown') {
+    const why = detail ? `: ${detail}` : '';
+    return {
+      at,
+      level: 'warn',
+      text: `No answer for ${name}${why} -- check Disney Plans`,
+    };
+  }
   const why = detail ? `: ${detail}` : '';
   return { at, level: 'warn', text: `Failed on ${name}${why}` };
 }

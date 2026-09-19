@@ -16,7 +16,20 @@ export interface AutopilotHit {
 export interface BookingLogEntry {
   name: string;
   at: ParkTime;
-  status: 'booked' | 'modified' | 'swapped' | 'failed' | 'skipped' | 'dry-run';
+  /**
+   * `unknown` is not a softer `failed`. The request went out and no answer came
+   * back, so Disney may well have acted on it -- which is why it reads
+   * differently on screen and why the engine holds the reservation in doubt
+   * rather than retrying. `failed` means the action provably did not happen.
+   */
+  status:
+    | 'booked'
+    | 'modified'
+    | 'swapped'
+    | 'failed'
+    | 'unknown'
+    | 'skipped'
+    | 'dry-run';
   /** Return time for a booking. */
   returnTime?: ParkTime;
   /** Previous return time, for a modification. */

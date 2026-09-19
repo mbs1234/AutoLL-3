@@ -686,6 +686,47 @@ describe('attemptAutoModify() against the offer itinerary', () => {
     });
   });
 
+  // Disney decorates ids -- `411504498;entityType=Attraction` -- and the three
+  // that meet in `offerBaseline` do not arrive in the same shape: a booking's
+  // own id is stripped by `itinerary.ts`, while entitlement ids and the
+  // offerset's `EXISTING_ITEM.id` are passed through raw. Comparing a bare id
+  // against a decorated one matches nothing, and because the check is
+  // fail-closed that silently refuses EVERY move. A fixture with bare ids on
+  // both sides cannot see it, which is why this one decorates Disney's side.
+  it('matches an offer item whose id still carries its entity type', async () => {
+    const existing = existingLL(at(19), { id: 'booking-target' });
+    const outcome = await attemptAutoModify(
+      target(),
+      experience,
+      existing,
+      at(16, 40),
+      deps({
+        createModifyOffer: jest.fn(
+          async () =>
+            ({
+              ...offerAt(at(16, 40)),
+              itinerary: [
+                {
+                  id: 'booking-target;entityType=Attraction',
+                  facilityId: BZ,
+                  startTime: at(13, 15),
+                  overlap: 'NONE',
+                },
+              ],
+            }) as unknown as Offer<LLMP>
+        ),
+      })
+    );
+
+    // The reservation being changed is already at 13:15, so 16:40 is a
+    // downgrade and must be refused for that reason -- not skipped as
+    // unidentifiable, which is what an unnormalised comparison produces.
+    expect(outcome).toEqual({
+      status: 'skipped',
+      reason: 'offer-not-an-improvement',
+    });
+  });
+
   it('refuses an unidentified split-party baseline instead of guessing', async () => {
     const outcome = await attemptAutoModify(
       target(),

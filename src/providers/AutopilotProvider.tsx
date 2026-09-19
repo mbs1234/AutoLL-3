@@ -579,7 +579,9 @@ export default function AutopilotProvider({
                   }
                 : outcome.status === 'failed'
                   ? {
-                      status: 'failed' as const,
+                      status: outcome.unknown
+                        ? ('unknown' as const)
+                        : ('failed' as const),
                       detail: describeFailure(outcome),
                     }
                   : {
@@ -1625,11 +1627,19 @@ export default function AutopilotProvider({
               // so a future callback cannot skip classification and release.
               console.error(error);
             }
+            // Computed before the lease branch because the log needs it too,
+            // and a fresh booking reaches here with no reservation to lease.
+            // Dispatched and not provably refused is the definition the
+            // quarantine already used; the screen was the only place still
+            // calling it a failure.
+            const unknown =
+              current.dispatched &&
+              outcome?.status === 'failed' &&
+              !outcome.rejected;
+            if (unknown && outcome?.status === 'failed') {
+              outcome = { ...outcome, unknown: true };
+            }
             if (lease) {
-              const unknown =
-                current.dispatched &&
-                outcome?.status === 'failed' &&
-                !outcome.rejected;
               try {
                 if (unknown && changesExistingReservation) {
                   const protection = await quarantine(
