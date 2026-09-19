@@ -18,6 +18,27 @@ endorsed by Disney, it can stop working the day Disney changes an endpoint, and
 it comes with no warranty. Keep Disney's own app as the source of truth for what
 you actually hold.
 
+## 1.0.0 — the first stable release
+
+Tagged `autoll3-v1.0.0`. "Stable" here means something narrow and checkable: the
+booking path has been through four rounds of adversarial review, the mutual
+exclusion that stops two copies acting on one reservation is atomic over the
+whole set of attractions an action can touch, and an outcome nobody learned is
+recorded as unknown rather than as a failure — so nothing on screen invites you
+to retry a request Disney may already have acted on.
+
+It does not mean feature-complete, and it does not mean it will keep working.
+[ROADMAP.md](ROADMAP.md) lists what is deliberately still open.
+
+Every release is a tag plus the two files the deploy publishes beside the
+bundle, and any tagged build can be rebuilt from them unchanged. See
+[Verifying a build](#verifying-a-build).
+
+> **A note on version numbers.** Throughout this README, **v1.0** means
+> [AutoLL v1.0](https://github.com/mbs1234/AutoLL), the frozen predecessor this
+> line descends from — not this release. Where the distinction matters the
+> predecessor is named in full.
+
 ## Install
 
 Open the [setup page](https://mbs1234.github.io/AutoLL-3/) on the phone you will
@@ -40,7 +61,7 @@ Three things worth knowing before you do:
   `disneyworld.disney.go.com/vas/`, so with both installed they will fight over
   the page. The bookmarklets are fine — those only run when you tap one.
 
-## What AutoLL-3 does that v1.0 did not
+## What AutoLL-3 does that AutoLL v1.0 did not
 
 ### Before the trip
 
@@ -265,24 +286,29 @@ These and everything else still outstanding are listed in
 [ROADMAP.md](ROADMAP.md) is the shorter argument about what to do next, and in
 what order, before the December freeze.
 
-**It depends on the AutoLL-2 repository to publish.** The installer pages and
-the runtime module both come from immutable AutoLL-2 revisions pinned in the
-deploy workflow. AutoLL-2 must stay public for AutoLL-3 to build a site; moving
-those pins is an explicit reviewed release change rather than an implicit branch
-update.
+**It depends on the AutoLL-2 repository to publish.** The inherited assets the
+published site is assembled from come from immutable AutoLL-2 revisions pinned
+in the deploy workflow. AutoLL-2 must stay public for AutoLL-3 to build a site;
+moving those pins is an explicit reviewed release change rather than an implicit
+branch update.
 
 ## Verifying a build
 
 Every deploy writes
 [`autoll3-release.json`](https://mbs1234.github.io/AutoLL-3/autoll3-release.json)
-and `autoll3-files.sha256` into the published site: the three source revisions
-the site is assembled from, plus a SHA-256 of every file served. Point a
-browser at it before a park day and confirm the build on your phone is the one
-the repository says it is.
+and `autoll3-files.sha256` into the published site: the exact revisions the
+site is assembled from, plus a SHA-256 of every file served. Point a browser at
+it before a park day and confirm the build on your phone is the one the
+repository says it is — or read the revision off the Settings menu, which names
+the commit the bundle was built from.
+
+A tagged release is that pair of files together with the tag. Re-running the
+deploy workflow against a tag rebuilds the same site, which is what makes a
+rollback a one-command operation rather than a rebuild from memory.
 
 `main` is protected: a pull request, a passing `check` run, linear history, no
 force-pushes. The deploy gates independently on typecheck and the full test
-suite — 114 suites, 1540 tests — and if either fails, the publish is skipped and
+suite — 114 suites, 1559 tests — and if either fails, the publish is skipped and
 Pages keeps serving the build already on your phone.
 
 ## Development
