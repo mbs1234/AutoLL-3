@@ -196,7 +196,7 @@ export default createContext<AutopilotState>({
   setRequireWholeParty: () => undefined,
   dryRun: false,
   setDryRun: () => undefined,
-  avoidOverlaps: true,
+  avoidOverlaps: false,
   setAvoidOverlaps: () => undefined,
   skipCounts: {},
   refusals: NO_REFUSALS,

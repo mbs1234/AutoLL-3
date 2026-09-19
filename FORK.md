@@ -169,7 +169,7 @@ that the suite in question was one of the known-broken ones, and dispatched with
 
 | Command | Scope | Status |
 | --- | --- | --- |
-| `npm run test:ci` | everything, CI reporter | **green** (114 suites / 1539 tests) |
+| `npm run test:ci` | everything, CI reporter | **green** (114 suites / 1540 tests) |
 | `npm test` | the same tests | **green** |
 | `npm run lint` | | green |
 | `npm run typecheck` | | green |
@@ -279,9 +279,11 @@ Design rules that hold throughout, and that a future change should keep:
   the offer's own itinerary rather than the plans snapshot the tick began with.
 - **Mark attempts before the request goes out.** A timed-out request may have
   succeeded server-side; retrying is the dangerous option.
-- **Only a literal `true` arms anything** when reading persisted flags. The one
-  exception is `avoidOverlaps`, which defaults on and so needs a literal
-  `false` -- the asymmetry follows the cost of guessing wrong.
+- **Only a literal `true` arms anything** when reading persisted flags, with no
+  exceptions. `avoidOverlaps` was one until 2026-09, when it was changed to
+  default off: it read `!== false`, so absence meant on. Both halves had to
+  move together -- flipping the default alone would have changed nothing,
+  because `undefined !== false` is still true.
 - **Resort data is checked, not assumed.** `src/api/resortData.test.ts` scans
   each entry against both halves of the `// <Park> - <Type>` section it is
   declared under, pins the facility ids that went stale in 2026, requires every
