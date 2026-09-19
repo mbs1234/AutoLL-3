@@ -1,5 +1,5 @@
 import { AUTH_PERSISTENCE_KEY } from '@/api/auth';
-import { APP_NAME } from '@/appIdentity';
+import { APP_NAME, BUILD_REV } from '@/appIdentity';
 import kvdb from '@/kvdb';
 import { act, fireEvent, render, screen } from '@/testing';
 
@@ -13,17 +13,28 @@ describe('SettingsButton', () => {
   it('names the build in its menu', () => {
     render(<SettingsButton />);
     fireEvent.click(screen.getByTitle('Settings Menu'));
-    expect(screen.getByLabelText(`Build: ${APP_NAME}`)).toHaveTextContent(
-      APP_NAME
-    );
+    expect(
+      screen.getByLabelText(`Build: ${APP_NAME} ${BUILD_REV}`)
+    ).toHaveTextContent(APP_NAME);
+  });
+
+  // The name alone cannot answer "is this the build we tested?", which is the
+  // question a phone gets asked on a park morning. The revision is what makes
+  // the answer checkable against `sourceRevision` in the release manifest.
+  it('says which revision it is, so the phone can be matched to a release', () => {
+    render(<SettingsButton />);
+    fireEvent.click(screen.getByTitle('Settings Menu'));
+    expect(
+      screen.getByLabelText(`Build: ${APP_NAME} ${BUILD_REV}`)
+    ).toHaveTextContent(BUILD_REV);
   });
 
   it('keeps the name out of the way of the actions', () => {
     render(<SettingsButton />);
     fireEvent.click(screen.getByTitle('Settings Menu'));
-    expect(screen.getByLabelText(`Build: ${APP_NAME}`).closest('button')).toBe(
-      null
-    );
+    expect(
+      screen.getByLabelText(`Build: ${APP_NAME} ${BUILD_REV}`).closest('button')
+    ).toBe(null);
     expect(screen.getByText('Party Selection')).toBeInTheDocument();
     expect(screen.getByText('Log Out')).toBeInTheDocument();
   });

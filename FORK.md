@@ -169,7 +169,7 @@ that the suite in question was one of the known-broken ones, and dispatched with
 
 | Command | Scope | Status |
 | --- | --- | --- |
-| `npm run test:ci` | everything, CI reporter | **green** (114 suites / 1516 tests) |
+| `npm run test:ci` | everything, CI reporter | **green** (114 suites / 1539 tests) |
 | `npm test` | the same tests | **green** |
 | `npm run lint` | | green |
 | `npm run typecheck` | | green |

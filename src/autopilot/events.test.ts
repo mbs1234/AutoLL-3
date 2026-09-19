@@ -190,6 +190,41 @@ describe('latestActivity', () => {
  * exactly the moment a user is asking why nothing is booking. Three more were
  * unlabelled beside it.
  */
+/**
+ * Status 0 means the request may have been acted on, which `fetch.ts` states in
+ * its own comment. Reporting that as a failure invites a second attempt at a
+ * reservation Disney may already hold.
+ */
+describe('an outcome nobody learned', () => {
+  const at = new ParkTime(9, 30);
+  const entry = (extra: Partial<BookingLogEntry> = {}): BookingLogEntry => ({
+    name: 'Space Mountain',
+    at,
+    status: 'unknown',
+    ...extra,
+  });
+
+  it('is not reported as a failure', () => {
+    const event = latestActivity({
+      bookingLog: [entry({ detail: 'Network request failed' })],
+    });
+    expect(event?.text).not.toMatch(/failed on/i);
+    expect(event?.text).toContain('No answer for Space Mountain');
+    expect(event?.text).toContain('check Disney Plans');
+  });
+
+  it('still asks for attention, because the reservation may have moved', () => {
+    expect(latestActivity({ bookingLog: [entry()] })?.level).toBe('warn');
+  });
+
+  it('keeps calling a provably refused action a failure', () => {
+    const event = latestActivity({
+      bookingLog: [entry({ status: 'failed', detail: 'declined' })],
+    });
+    expect(event?.text).toContain('Failed on Space Mountain');
+  });
+});
+
 describe('SKIP_TEXT', () => {
   const union = (file: string, name: string): string[] => {
     const source = readFileSync(

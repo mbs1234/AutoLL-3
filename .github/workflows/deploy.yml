@@ -7,7 +7,7 @@ name: Build and deploy AutoLL-3
 #            bg1.css, responder.html and their chunks (see the
 #            rollupOptions.input list in vite.config.mts).
 #   AutoLL-2 installer revision - upstream's published Pages output. It is the
-#            surrounding site exists: index.html (which generates the
+#            only place the surrounding site exists: index.html (which generates the
 #            bookmarklet), start.html, news.html, contact.html,
 #            autoloader.user.js, icon.png, index.css.
 #
@@ -19,6 +19,15 @@ name: Build and deploy AutoLL-3
 on:
   push:
     branches: [main]
+    # Nothing under `docs/` that reaches the published site is markdown -- the
+    # guide ships as `user-guide.html` and its images -- so a prose commit
+    # cannot change the artifact and must not rebuild it. This matters most
+    # during a pre-trip freeze, when correcting a roadmap would otherwise
+    # republish the exact bundle the freeze exists to leave alone. A commit
+    # touching both prose and code still deploys: the filter skips a run only
+    # when every changed path matches.
+    paths-ignore:
+      - '**.md'
   workflow_dispatch:
     inputs:
       skip_checks:
@@ -169,7 +178,7 @@ jobs:
           # the import rejects with an error carrying no HTTP status, so
           # `useDataLoader` falls through to "Unknown error occurred" and every
           # booking fails for a reason the message does not name. Taken from
-          # The runtime pin rather than the installer pin on purpose -- see the
+          # the runtime pin rather than the installer pin on purpose -- see the
           # checkout steps above.
           if [ -f "base-static/sensor-data.js" ]; then
             cp "base-static/sensor-data.js" "dist/sensor-data.js"

@@ -51,6 +51,8 @@ export type AutoBookOutcome =
       /** The HTTP status, when there was one. */ httpStatus?: number;
       /** Whether nothing was booked, so trying again is safe. */
       rejected?: boolean;
+      /** Dispatched, and no answer came back. Set by the provider, not here. */
+      unknown?: boolean;
     };
 
 /**

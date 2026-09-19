@@ -1,7 +1,7 @@
 import { use, useMemo, useRef, useState } from 'react';
 
 import { authStore } from '@/api/auth';
-import { APP_NAME } from '@/appIdentity';
+import { APP_NAME, BUILD_REV } from '@/appIdentity';
 import Overlay from '@/components/Overlay';
 import NavContext from '@/contexts/NavContext';
 // import News from '@/components/screens/News';
@@ -102,9 +102,9 @@ export default function SettingsButton() {
                 where five tabs no longer leave it room. */}
             <li
               className="px-4 text-center text-sm text-gray-500"
-              aria-label={`Build: ${APP_NAME}`}
+              aria-label={`Build: ${APP_NAME} ${BUILD_REV}`}
             >
-              {APP_NAME}
+              {APP_NAME} · {BUILD_REV}
             </li>
           </ul>
         </Overlay>

@@ -1,5 +1,5 @@
 import type { RequestControl } from '@/api/client';
-import { Booking, LLMP, isLLMP } from '@/api/itinerary';
+import { Booking, LLMP, isLLMP, typelessId } from '@/api/itinerary';
 import { Guest, Guests, Offer, OfferError, OfferExperience } from '@/api/ll';
 import { ParkTime, parkDate } from '@/datetime';
 
@@ -78,6 +78,8 @@ export type ModifyOutcome =
       /** The HTTP status, when there was one. */ httpStatus?: number;
       /** Whether the reservation certainly did not move, so a retry is safe. */
       rejected?: boolean;
+      /** Dispatched, and no answer came back. Set by the provider, not here. */
+      unknown?: boolean;
     };
 
 /**
@@ -178,12 +180,23 @@ export function offerBaseline(
   held: Pick<LLMP, 'id' | 'facilityId' | 'guests'>
 ): ParkTime | undefined {
   const matches = matchingOfferItems(offer, held);
-  const reservationIds = new Set([
-    held.id,
-    ...held.guests.map(guest => guest.entitlementId),
-  ]);
+  // Every id is stripped before it is compared, on both sides. The three that
+  // meet here arrive in different shapes from different services: `held.id` is
+  // already bare (`itinerary.ts` strips what it publishes), `entitlementId` is
+  // passed through raw, and the offerset's `EXISTING_ITEM.id` is raw too. A
+  // decorated id on either side could therefore never equal a bare one, and
+  // because the check below is fail-closed, that silently refuses every move
+  // while every test that uses a bare fixture id still passes.
+  // Filtered before stripping, and not only for the types' sake: a swap victim
+  // reaches here with guests carrying no entitlement id at all, and the set
+  // this replaced tolerated `undefined` because it never touched what it held.
+  const reservationIds = new Set(
+    [held.id, ...held.guests.map(guest => guest.entitlementId)]
+      .filter((id): id is string => typeof id === 'string')
+      .map(typelessId)
+  );
   const identified = matches.find(
-    item => item.id !== undefined && reservationIds.has(item.id)
+    item => item.id !== undefined && reservationIds.has(typelessId(item.id))
   );
   if (identified) return identified.startTime;
   // A single *unidentified* same-attraction row is the compatibility fallback

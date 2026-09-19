@@ -208,7 +208,17 @@ export const FALLBACK_EXPS = {
 
 const RES_TYPES = new Set(['ACTIVITY', 'DINING']);
 
-const typelessId = (id: string) => id.split(';')[0]!;
+/**
+ * Disney's ids arrive decorated -- `411504498;entityType=Attraction` -- and the
+ * same reservation is spelled differently by different services. Everything
+ * this module publishes is stripped to the bare id, so anything comparing an id
+ * against one of ours has to strip its side too.
+ *
+ * Exported for exactly that: `offerBaseline` joins the offerset's
+ * `EXISTING_ITEM.id` against a reservation's id and its guests' entitlement
+ * ids, and those three do not all arrive in the same shape.
+ */
+export const typelessId = (id: string) => id.split(';')[0]!;
 
 export class ItineraryClient extends ApiClient {
   onRefresh: (bookings: Booking[]) => void = () => {};
