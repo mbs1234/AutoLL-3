@@ -49,11 +49,12 @@ of code. Do that before ranking anything, because an empty block settles item 1'
 design on its own.
 
 There is also a second, earlier date that this file previously missed entirely:
-the October **booking** morning — 7:00 a.m. ET seven days before check-in for
-resort guests, or three days before each park day for everyone else
-(`docs/PLAN.md:269-271`). Which applies here is an open owner question. That
-morning, not the trip, is the only pre-December chance to watch a window actually
-open, and it happens from home.
+the October **booking** morning. The party is on-site (recorded 2026-09-19), so
+the resort rule applies: 7:00 a.m. ET seven days before check-in, for the whole
+stay (`docs/PLAN.md:269-271`). That is **2026-10-11**, and it books all three
+October park days at once. That morning, not the trip, is both the only
+pre-December chance to watch a window actually open and the moment the trip's
+headliners are actually won — and it happens from home.
 
 A correction, because the first of those was written here badly. This file
 originally named `DOUBT_SETTLE_MS`, "still 120 seconds, reasoned rather than
@@ -573,9 +574,9 @@ The gap is inert during October 18-20: on those days `bookingDate === parkDate()
 this at all. The date-pressured moment is the October *booking* morning, from
 home — 7:00am ET seven days before check-in for resort guests, or three days
 before each park day for everyone else (`docs/PLAN.md:269-271`). Which of those
-applies here is an open owner question, and this item does not need it answered:
-whichever morning it is, it is before the trip and the feature is about any
-future park date. The one observation no amount of effort buys early is what the
+rule applies here was settled on 2026-09-19: on-site, so the morning is
+2026-10-11. This item does not turn on it — that morning is before the trip
+either way, and the feature is about any future park date. The one observation no amount of effort buys early is what the
 response looks like at the instant a window actually opens, which requires
 watching on a morning one does.
 
@@ -725,7 +726,7 @@ first drop of the day, not a next anything — while `AutopilotProvider.tsx:1797
 passes `dropTimes: watchingToday ? effectiveDropTimes : undefined` for exactly
 that case. The screen names a "Next drop" for a date the engine will never burst
 for at all. That is flatly false rather than merely stale, and it is what Today
-shows on the October booking morning — 10-11 or 10-15, whichever rule turns out
+shows on the October booking morning — 2026-10-11, now the rule is settled —
 to apply — when the booking date is 10-18 and the real work is happening on
 Time Search, which renders no `AutopilotStatus` at all: the component is
 imported only by `Today.tsx:13`. Two lines fix it, independently of everything
@@ -1096,15 +1097,17 @@ reconsidered and rejected again, so the next pass does not rediscover them:
 
 ## Questions only the owner can answer
 
-**Is the October party staying on-site or off-site?** This is the most
-time-pressured question in the file and it is not an engineering one. Resort
-guests book from 7:00 a.m. ET seven days before check-in; everyone else books
-from 7:00 a.m. ET three days before each park day (`docs/PLAN.md:269-271`). For
-an October 18 arrival that is **2026-10-11** or **2026-10-15**, and the answer
-sets three things: which morning is the one chance before December to watch a
-booking window open, when the pre-trip freeze has to start, and therefore the
-last safe date to merge anything into either build. Until it is answered, treat
-the earlier date as binding and freeze from 2026-10-10.
+**~~Is the October party staying on-site or off-site?~~** Answered 2026-09-19:
+**on-site, for both trips.** That selects the resort rule — 7:00 a.m. ET seven
+days before check-in, for the whole stay (`docs/PLAN.md:269-271`) — and both
+stays are inside the fourteen-day cap. So each trip is booked in one morning,
+from home: **2026-10-11** for Oct 18–20, and **2026-12-15** for Dec 22–28.
+
+The consequence is larger than a date. The engineering deadline is the booking
+morning, not the trip, which moves October's a week earlier than this file
+assumed throughout. It also means the highest-stakes moment of the year happens
+at a desk rather than in a park, which is a different set of failure modes than
+the ones most of these items address.
 
 
 **~~What are the actual December 2026 trip dates?~~** Answered 2026-09-17:
