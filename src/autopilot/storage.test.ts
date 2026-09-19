@@ -241,12 +241,26 @@ describe('settings persistence', () => {
 
   // The opposite default to the other two, and so the opposite parse: this one
   // costs a wasted slot when wrongly off, not a booking when wrongly on.
-  it('defaults to avoiding clashes, and only a literal false turns it off', () => {
-    expect(DEFAULT_SETTINGS.avoidOverlaps).toBe(true);
-    kvdb.set(SETTINGS_KEY, { avoidOverlaps: 0 });
-    expect(loadSettings().avoidOverlaps).toBe(true);
-    kvdb.set(SETTINGS_KEY, { avoidOverlaps: false });
+  // Changed in 2026-09 from defaulting on. Both halves have to agree: while
+  // `loadSettings` read this as `!== false`, absence meant on no matter what
+  // DEFAULT_SETTINGS said, so a flip of one alone would have been a no-op that
+  // still read as a deliberate change in the diff.
+  it('defaults to allowing clashes, and only a literal true avoids them', () => {
+    expect(DEFAULT_SETTINGS.avoidOverlaps).toBe(false);
     expect(loadSettings().avoidOverlaps).toBe(false);
+    kvdb.set(SETTINGS_KEY, { avoidOverlaps: 1 });
+    expect(loadSettings().avoidOverlaps).toBe(false);
+    kvdb.set(SETTINGS_KEY, { avoidOverlaps: true });
+    expect(loadSettings().avoidOverlaps).toBe(true);
+  });
+
+  // A phone that has already saved this setting keeps what it saved. The
+  // provider persists settings in an effect that runs on mount, so almost
+  // every existing install has a value stored whether or not anyone chose it
+  // -- and a new default must not reach in and change one.
+  it('leaves an already-stored preference alone', () => {
+    kvdb.set(SETTINGS_KEY, { avoidOverlaps: true });
+    expect(loadSettings().avoidOverlaps).toBe(true);
   });
 
   it('treats a non-boolean dry-run value as off', () => {

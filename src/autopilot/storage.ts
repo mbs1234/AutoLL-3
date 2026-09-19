@@ -199,10 +199,15 @@ export interface AutopilotSettings {
    *
    * The manual booking screen shows an "Overlapping Plans" warning and lets
    * you book anyway; autopilot has nobody to warn, so it skips instead. That
-   * is stricter than the warning it models, which is why it can be turned off
-   * -- but a December day with a Candlelight Processional dining package is
-   * exactly the case where a slot spent on top of dinner is a slot wasted, so
-   * it defaults on.
+   * is stricter than the warning it models, and it is the reason this defaults
+   * OFF: a guard with no way to ask costs a Lightning Lane every time it is
+   * wrong, and it is wrong whenever the clash was one the owner would have
+   * accepted. A dining package on a December evening is the case for turning
+   * it on, and it is a case the owner knows about in advance and can switch on
+   * for that day.
+   *
+   * Changed from defaulting on in 2026-09. Anything already stored still
+   * wins -- a phone that has saved this setting keeps whatever it saved.
    */
   avoidOverlaps: boolean;
 }
@@ -210,7 +215,7 @@ export interface AutopilotSettings {
 export const DEFAULT_SETTINGS: AutopilotSettings = {
   requireWholeParty: false,
   dryRun: false,
-  avoidOverlaps: true,
+  avoidOverlaps: false,
 };
 
 /** Not day-scoped: a preference about the party, not about a visit. */
@@ -221,10 +226,11 @@ export function loadSettings(): AutopilotSettings {
     // Only a literal true enables it; anything else stored reads as off.
     requireWholeParty: stored?.requireWholeParty === true,
     dryRun: stored?.dryRun === true,
-    // Defaults on, so only a literal false turns it off. The asymmetry is
-    // deliberate: the two above cost bookings when wrongly on, this one costs
-    // a wasted slot when wrongly off.
-    avoidOverlaps: stored?.avoidOverlaps !== false,
+    // Read the same way as the two above, which it was not until 2026-09: it
+    // used to be `!== false`, so absence meant on. Both halves have to agree
+    // -- flipping DEFAULT_SETTINGS alone would have changed nothing, because
+    // `undefined !== false` is still true.
+    avoidOverlaps: stored?.avoidOverlaps === true,
   };
 }
 

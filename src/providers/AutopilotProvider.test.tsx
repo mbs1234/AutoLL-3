@@ -688,6 +688,7 @@ describe('AutopilotProvider auto-booking', () => {
   // about a clash. Autopilot has nobody to warn, so it declines -- and it does
   // so before the offer, which keeps a doomed round trip out of a drop.
   it('will not book on top of an existing reservation', async () => {
+    saveSettings({ ...DEFAULT_SETTINGS, avoidOverlaps: true });
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
     const { offer, book } = setupBooking({ plans: [diningAt(11)] });
     await enable();
@@ -701,6 +702,7 @@ describe('AutopilotProvider auto-booking', () => {
   // The advertised time can clear the clash while the offer that comes back
   // does not, so the real time is checked again before anything is committed.
   it('declines an offer that comes back on top of a reservation', async () => {
+    saveSettings({ ...DEFAULT_SETTINGS, avoidOverlaps: true });
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
     const { offer, book } = setupBooking({
       experiences: [available(BZ, new ParkTime(9))],
@@ -3390,7 +3392,14 @@ describe('AutopilotProvider park-day rollover', () => {
  * the outcome the setting exists to prevent.
  */
 describe('AutopilotProvider cross-instance overlaps', () => {
-  beforeEach(() => setTime('09:00'));
+  // Stated rather than inherited. `avoidOverlaps` defaults OFF since 2026-09,
+  // and every test below exists to exercise it -- relying on a default to
+  // switch on the behaviour under test is how a default change turns a suite
+  // green while deleting its subject.
+  beforeEach(() => {
+    setTime('09:00');
+    saveSettings({ ...DEFAULT_SETTINGS, avoidOverlaps: true });
+  });
 
   it('publishes the return time it commits', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
