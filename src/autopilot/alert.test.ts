@@ -274,6 +274,20 @@ describe('audioStatus()', () => {
 });
 
 describe('rearmAudio()', () => {
+  // `resume()` alone is what left this channel silently dead through v1.2.3.
+  // WebKit wants a source to have been started before it will let a context
+  // sound, and one that was resumed but never fed reports `running` while
+  // playing nothing -- which `audioStatus` would then call "armed".
+  it('feeds the context as well as resuming it', () => {
+    const { ctx, unlocks } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    unlocks.length = 0;
+    rearmAudio();
+    expect(unlocks).toHaveLength(1);
+  });
+
   it('coalesces background recovery only inside the bounded reuse window', () => {
     let now = 1_000;
     jest.spyOn(Date, 'now').mockImplementation(() => now);
@@ -355,6 +369,46 @@ describe('rearmAudio()', () => {
 });
 
 describe('soundCheck()', () => {
+  /**
+   * A press the guard refuses used to destroy a queued find and play nothing
+   * in its place, so the find passed in silence while the screen still read
+   * "armed". A press that sounds stands in for the replay; one that does not
+   * must leave it alone.
+   */
+  it('leaves a pending find alone when the guard refuses the press', async () => {
+    let now = 50_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { ctx, started } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    await soundCheck();
+    expect(started).toHaveLength(CHIME_NOTES);
+
+    ctx.state = 'interrupted';
+    chime();
+    now += 100;
+    ctx.state = 'running';
+    await soundCheck();
+    await Promise.resolve();
+    expect(started).toHaveLength(CHIME_NOTES * 2);
+  });
+
+  // A backwards wall-clock step must not leave the only way to test the only
+  // alert channel silently dead for the length of the correction.
+  it('ignores a guard left in the future by a backwards clock step', async () => {
+    let now = 50_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { ctx, started } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    await soundCheck();
+    expect(started).toHaveLength(CHIME_NOTES);
+
+    now -= 600_000;
+    await soundCheck();
+    expect(started).toHaveLength(CHIME_NOTES * 2);
+  });
+
   // The button exists because the only way to discover a dead alert channel
   // was to wait for a real find and notice the silence.
   it('wakes a sleeping context and then plays', async () => {
