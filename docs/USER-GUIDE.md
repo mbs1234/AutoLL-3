@@ -384,15 +384,18 @@ anything already available gets re-alerted.
 Today says whether the alert sound is armed, with a **Test sound** button next
 to it. On iOS the chime is not one channel of three — notifications need the
 page installed to your Home Screen, and vibration is unimplemented — so if the
-sound is not armed, nothing can reach you. Tap **Test sound** once after
-turning Autopilot on. If you hear two notes, the channel works.
+sound is not armed during a run, nothing can reach you. While Autopilot is off,
+Today presents this as a neutral pre-flight check rather than a fault. Tap
+**Test sound** before starting, and again after any interruption if you want to
+verify it manually. If you hear two notes, the channel works.
 
 > **Autopilot only runs while the page is open and in front of you.** Lock the
 > phone or switch apps and the browser throttles its timers to minutes. The
 > screen wake lock exists to prevent exactly this, and it is best-effort.
 > Today says **Screen is being kept awake** while it is held and warns
 > **Screen may sleep** when the browser supports the lock but has not granted
-> one.
+> one. That row appears only while Autopilot is on, because an idle wake lock is
+> expected when no checks are running.
 
 ### Put the running phone in your pocket
 

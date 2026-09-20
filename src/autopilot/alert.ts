@@ -9,17 +9,31 @@ const PEAK_GAIN = 0.3;
 /** Attack/release ramp. Gating a sine abruptly produces an audible click. */
 const RAMP_S = 0.01;
 const VIBRATE_MS = [120, 60, 120];
+/** How long background callers may share one in-flight resume attempt. */
+export const BACKGROUND_RESUME_REUSE_MS = 3_000;
 /** A later chime would sound like a new find even though the offer is stale. */
 export const RESUME_REPLAY_MS = 3_000;
+/** A diagnostic must answer even when WebKit leaves `resume()` pending. */
+export const SOUND_CHECK_TIMEOUT_MS = 3_000;
+/** Derived from the actual notes, so a changed chime cannot outgrow its guard. */
+export const TEST_CHIME_GUARD_MS = CHIME_HZ.length * NOTE_S * 1_000;
 
 type AudioContextCtor = typeof AudioContext;
 type StatusListener = () => void;
 
 let audioCtx: AudioContext | undefined;
 let detachAudioState: (() => void) | undefined;
-let pendingResume: { ctx: AudioContext; promise: Promise<boolean> } | undefined;
+let pendingBackgroundResume:
+  | {
+      ctx: AudioContext;
+      startedAt: number;
+      promise: Promise<boolean>;
+    }
+  | undefined;
 /** Newest alert waiting for one shared resume; concurrent finds make one chime. */
 let pendingChimeAt: number | undefined;
+let soundCheckGeneration = 0;
+let testChimeBlockedUntil = -Infinity;
 const audioStatusListeners = new Set<StatusListener>();
 let lastAudioStatus: AudioStatus | undefined;
 
@@ -39,14 +53,46 @@ function publishAudioStatus(): void {
   for (const listener of audioStatusListeners) listener();
 }
 
+/**
+ * Claim a pending automatic alert before inspecting it.
+ *
+ * Both the context's `statechange` event and a resolving resume promise arrive
+ * here. Clearing first makes those two witnesses idempotent: whichever sees a
+ * usable context first owns the one possible replay.
+ */
+function deliverPendingChime(ctx: AudioContext): void {
+  if (audioCtx !== ctx || ctx.state !== 'running') return;
+  const requestedAt = pendingChimeAt;
+  pendingChimeAt = undefined;
+  if (requestedAt === undefined) return;
+  if (Date.now() - requestedAt > RESUME_REPLAY_MS) return;
+  playChime(ctx);
+}
+
+function observeAudioState(ctx: AudioContext): boolean {
+  const running = audioCtx === ctx && ctx.state === 'running';
+  if (running) {
+    // A real running state supersedes every request for this same context,
+    // including one whose promise WebKit has left pending.
+    if (pendingBackgroundResume?.ctx === ctx) {
+      pendingBackgroundResume = undefined;
+    }
+    deliverPendingChime(ctx);
+  }
+  publishAudioStatus();
+  return running;
+}
+
 function setAudioContext(next: AudioContext | undefined): void {
   detachAudioState?.();
   detachAudioState = undefined;
   audioCtx = next;
-  pendingResume = undefined;
+  pendingBackgroundResume = undefined;
   pendingChimeAt = undefined;
+  ++soundCheckGeneration;
+  testChimeBlockedUntil = -Infinity;
   if (next) {
-    const changed = () => publishAudioStatus();
+    const changed = () => observeAudioState(next);
     next.addEventListener?.('statechange', changed);
     detachAudioState = () => next.removeEventListener?.('statechange', changed);
   }
@@ -54,18 +100,23 @@ function setAudioContext(next: AudioContext | undefined): void {
 }
 
 /**
- * Ask one context to wake once, however many callers notice it sleeping.
+ * Ask one context to wake for an automatic alert or foreground rearm.
  *
- * The boolean is deliberately about the state after the promise settles: Web
- * Audio implementations can resolve without becoming usable, and callers must
- * not announce or schedule sound merely because `resume()` fulfilled.
+ * Calls share an attempt only briefly. WebKit may keep a resume promise pending
+ * for minutes, so the promise itself cannot own the channel indefinitely.
  */
-function resumeAudio(ctx: AudioContext): Promise<boolean> {
+function resumeAudioInBackground(ctx: AudioContext): Promise<boolean> {
   if (ctx.state === 'running') {
-    publishAudioStatus();
+    observeAudioState(ctx);
     return Promise.resolve(true);
   }
-  if (pendingResume?.ctx === ctx) return pendingResume.promise;
+  const at = Date.now();
+  if (
+    pendingBackgroundResume?.ctx === ctx &&
+    at - pendingBackgroundResume.startedAt <= BACKGROUND_RESUME_REUSE_MS
+  ) {
+    return pendingBackgroundResume.promise;
+  }
 
   let resumed: Promise<void>;
   try {
@@ -76,20 +127,72 @@ function resumeAudio(ctx: AudioContext): Promise<boolean> {
   }
   const promise = resumed
     .then(
-      () => {
-        publishAudioStatus();
-        return ctx.state === 'running';
-      },
+      () => observeAudioState(ctx),
       () => {
         publishAudioStatus();
         return false;
       }
     )
     .finally(() => {
-      if (pendingResume?.promise === promise) pendingResume = undefined;
+      if (pendingBackgroundResume?.promise === promise) {
+        pendingBackgroundResume = undefined;
+      }
     });
-  pendingResume = { ctx, promise };
+  pendingBackgroundResume = { ctx, startedAt: at, promise };
   return promise;
+}
+
+/**
+ * A resume begun inside a user gesture must never inherit a background wait.
+ * Each call is independent so another tap can recover a promise WebKit wedged.
+ */
+function resumeAudioFromGesture(ctx: AudioContext): Promise<boolean> {
+  if (pendingBackgroundResume?.ctx === ctx) {
+    pendingBackgroundResume = undefined;
+  }
+  let resumed: Promise<void>;
+  try {
+    resumed = ctx.resume();
+  } catch {
+    publishAudioStatus();
+    return Promise.resolve(false);
+  }
+  return resumed.then(
+    () => observeAudioState(ctx),
+    () => {
+      publishAudioStatus();
+      return false;
+    }
+  );
+}
+
+function settleWithin(
+  ctx: AudioContext,
+  attempt: Promise<boolean>,
+  timeoutMs: number
+): Promise<boolean> {
+  return new Promise(resolve => {
+    let finished = false;
+    const changed = () => {
+      if (ctx.state === 'running') finish(true);
+    };
+    const finish = (result: boolean) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      ctx.removeEventListener?.('statechange', changed);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      finish(false);
+    }, timeoutMs);
+    ctx.addEventListener?.('statechange', changed);
+    if (ctx.state === 'running') {
+      finish(true);
+      return;
+    }
+    void attempt.then(finish);
+  });
 }
 
 export function alertPermission(): AlertPermission {
@@ -135,6 +238,19 @@ function unlockOutput(ctx: AudioContext): void {
   }
 }
 
+/** Create the one context used by both real alerts and the diagnostic. */
+function ensureAudioContext(): AudioContext | undefined {
+  if (audioCtx) return audioCtx;
+  const Ctor = audioContextCtor();
+  if (!Ctor) return undefined;
+  try {
+    setAudioContext(new Ctor());
+  } catch {
+    setAudioContext(undefined);
+  }
+  return audioCtx;
+}
+
 /**
  * Create and unlock the AudioContext.
  *
@@ -150,18 +266,24 @@ function unlockOutput(ctx: AudioContext): void {
  * run would go mute for good the first time a notification interrupted it.
  */
 export function primeAudio(): void {
-  const Ctor = audioContextCtor();
-  if (!Ctor) return;
-  try {
-    if (!audioCtx) setAudioContext(new Ctor());
-    const ctx = audioCtx;
-    if (!ctx) return;
-    if (ctx.state !== 'running') void resumeAudio(ctx);
-    unlockOutput(ctx);
-    publishAudioStatus();
-  } catch {
-    setAudioContext(undefined);
+  const ctx = ensureAudioContext();
+  if (!ctx) return;
+  // A deliberate user gesture supersedes every automatic or diagnostic wait.
+  pendingChimeAt = undefined;
+  ++soundCheckGeneration;
+  if (pendingBackgroundResume?.ctx === ctx) {
+    pendingBackgroundResume = undefined;
   }
+  if (ctx.state !== 'running') void resumeAudioFromGesture(ctx);
+  unlockOutput(ctx);
+  publishAudioStatus();
+}
+
+/** Best-effort foreground recovery; unlike `primeAudio`, no gesture is assumed. */
+export function rearmAudio(): void {
+  const ctx = audioCtx;
+  if (!ctx) return;
+  void resumeAudioInBackground(ctx);
 }
 
 export function audioReady(): boolean {
@@ -232,17 +354,7 @@ export function chime(): void {
   // Keep the newest request. `fireAlert` can call this several times in one
   // poll, and waking into several overlapping two-note chimes is cacophony.
   pendingChimeAt = Date.now();
-  void resumeAudio(ctx).then(running => {
-    if (audioCtx !== ctx) return;
-    const requestedAt = pendingChimeAt;
-    pendingChimeAt = undefined;
-    if (!running || requestedAt === undefined) return;
-    // A resume that only lands when the page is foregrounded means the user
-    // is already looking. Sounding then would announce a find that may be
-    // minutes stale, which is worse than dropping it.
-    if (Date.now() - requestedAt > RESUME_REPLAY_MS) return;
-    playChime(ctx);
-  });
+  void resumeAudioInBackground(ctx).then(() => deliverPendingChime(ctx));
 }
 
 /**
@@ -258,15 +370,33 @@ export function chime(): void {
  * context that had not woken up yet and play nothing.
  */
 export async function soundCheck(): Promise<AudioStatus> {
-  primeAudio();
-  const ctx = audioCtx;
+  const ctx = ensureAudioContext();
+  const generation = ++soundCheckGeneration;
   // This deliberate sound supersedes an automatic replay that may be waiting
   // on the same resume, so the user hears one chime rather than two.
   pendingChimeAt = undefined;
-  if (ctx && ctx.state !== 'running') {
-    await resumeAudio(ctx);
+  if (!ctx) return audioStatus();
+
+  // This function is called from a button. Every press must make a fresh
+  // gesture-scoped attempt: sharing a background promise can permanently
+  // disarm the diagnostic on WebKit when that promise never settles.
+  const attempt = resumeAudioFromGesture(ctx);
+  unlockOutput(ctx);
+  const running = await settleWithin(ctx, attempt, SOUND_CHECK_TIMEOUT_MS);
+
+  // Only the newest unresolved press owns playback. The small guard applies
+  // only to this diagnostic; real alerts deliberately retain their existing
+  // scheduling, including simultaneous alerts while the context is running.
+  const now = Date.now();
+  if (
+    running &&
+    audioCtx === ctx &&
+    generation === soundCheckGeneration &&
+    now >= testChimeBlockedUntil
+  ) {
+    testChimeBlockedUntil = now + TEST_CHIME_GUARD_MS;
+    playChime(ctx);
   }
-  if (ctx?.state === 'running') playChime(ctx);
   publishAudioStatus();
   return audioStatus();
 }
