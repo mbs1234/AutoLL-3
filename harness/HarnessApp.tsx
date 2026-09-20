@@ -13,7 +13,9 @@ import ExperiencesProvider from '@/providers/ExperiencesProvider';
 import NavProvider from '@/providers/NavProvider';
 import ParkProvider from '@/providers/ParkProvider';
 import PlansProvider from '@/providers/PlansProvider';
+import PocketShieldProvider from '@/providers/PocketShieldProvider';
 import RebookingProvider from '@/providers/RebookingProvider';
+import TopAutopilotProvider from '@/providers/TopAutopilotProvider';
 
 import { bridge } from './bridge';
 import { World, wdw } from './fakes/world';
@@ -107,5 +109,18 @@ function HarnessRoot({
     nav.goTo(screen);
   }, [plansLoaded, scenario, world, nav]);
 
-  return <Home tabName={Home.getSavedTabName()} />;
+  // The shield sits beside Home in `Merlock` for the same reason it does here:
+  // it has to cover every screen and outlive the one that raised it. This file
+  // mirrors that provider tree by hand, so anything added there has to be
+  // added here too or the harness quietly exercises a different app.
+  // `TopAutopilotProvider` as well, which this tree was missing: without it the
+  // shield read the default context and reported "Off" while the engine beside
+  // it said "Watching".
+  return (
+    <TopAutopilotProvider>
+      <PocketShieldProvider>
+        <Home tabName={Home.getSavedTabName()} />
+      </PocketShieldProvider>
+    </TopAutopilotProvider>
+  );
 }
