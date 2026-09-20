@@ -297,6 +297,16 @@ Design rules that hold throughout, and that a future change should keep:
   bundles every `.ts` in that directory.
 - **On/off never persists;** per-attraction arming does. That asymmetry is
   what makes persisted arming safe.
+- **Autopilot is the unattended surface; Time Search is the attended one.**
+  Decided 2026-09-20, when the pocket shield forced the question. Autopilot
+  polls slowly, runs all day, retires an attraction after one refusal and is
+  expected to work with nobody watching. Time Search polls at 600ms, watches a
+  single attraction, retries a refusal, and assumes somebody is looking at it.
+  The shield therefore reports Autopilot and not Time Search: a search is
+  something you are watching, and pocketing the phone in the middle of one is
+  not a case to design for. Anything that blurs the two -- a background Time
+  Search, an attended Autopilot mode -- should be argued against this line
+  first.
 
 A structural limit worth knowing before anyone tries to fix it: background
 operation via a service worker is impossible, not hard. BG1 runs injected into
