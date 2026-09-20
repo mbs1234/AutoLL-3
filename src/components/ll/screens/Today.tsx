@@ -23,6 +23,7 @@ import ExperiencesContext from '@/contexts/ExperiencesContext';
 import NavContext from '@/contexts/NavContext';
 import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
+import PocketShieldContext from '@/contexts/PocketShieldContext';
 import TabsContext from '@/contexts/TabContext';
 import { parkDate, upcomingTimes } from '@/datetime';
 import { PARTY_IDS_KEY } from '@/hooks/useSavedParty';
@@ -88,6 +89,7 @@ export default function Today({ ref }: HomeTabProps) {
   const { bookingDate } = use(BookingDateContext);
   const { ll } = use(ClientsContext);
   const { goTo } = use(NavContext);
+  const { setShielded } = use(PocketShieldContext);
   const { changeTab } = use(TabsContext);
   const [reviewedPlan, setReviewedPlan] = useState<PlanReview | undefined>(() =>
     kvdb.get<PlanReview>(PLAN_CHECK_REVIEW_KEY)
@@ -250,6 +252,14 @@ export default function Today({ ref }: HomeTabProps) {
         <Button type="small" onClick={() => goTo(<Activity />)}>
           Activity
         </Button>
+        {/* Offered only while the engine is running, which is the only time
+            the wake lock holds the screen on and the glass stays live in a
+            pocket. */}
+        {enabled && (
+          <Button type="small" onClick={() => setShielded(true)}>
+            Pocket it
+          </Button>
+        )}
       </div>
 
       {doubts.length > 0 && (
