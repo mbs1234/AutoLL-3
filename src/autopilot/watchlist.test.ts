@@ -10,6 +10,7 @@ import {
   matchWatchList,
   saveWatchList,
   selectNewAlerts,
+  targetActs,
   targetApplies,
 } from './watchlist';
 
@@ -39,6 +40,19 @@ const at = (h: number, m = 0) => new ParkTime(h, m);
 const target = (experienceId: string, rest: Partial<WatchTarget> = {}) => ({
   experienceId,
   ...rest,
+});
+
+describe('targetActs()', () => {
+  it.each(['autoBook', 'autoModify', 'bookThenMove', 'autoSwap'] as const)(
+    'recognises %s as an automatic action',
+    action => {
+      expect(targetActs({ [action]: true })).toBe(true);
+    }
+  );
+
+  it('keeps an alert-only target out of armed counts', () => {
+    expect(targetActs({})).toBe(false);
+  });
 });
 
 describe('inWindow()', () => {

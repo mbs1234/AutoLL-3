@@ -1,4 +1,4 @@
-import { WatchTarget } from './watchlist';
+import { WatchTarget, targetActs } from './watchlist';
 
 export interface ChecklistItem {
   done: boolean;
@@ -22,14 +22,7 @@ export function checklist({
   /** Blocking findings in that current result. */
   planBlockers: number;
 }): ChecklistItem[] {
-  const actions = targets.some(
-    target =>
-      !target.paused &&
-      (target.autoBook ||
-        target.autoModify ||
-        target.autoSwap ||
-        target.bookThenMove)
-  );
+  const actions = targets.some(target => !target.paused && targetActs(target));
   return [
     {
       done: partySize > 0,

@@ -1,13 +1,17 @@
 import {
   BOX_POSITIONS,
   INITIAL,
+  INITIAL_TOUCH_GESTURE,
   MAX_FINGER_RADIUS_PX,
+  MAX_TAP_SEQUENCE_MS,
+  MAX_TAP_TRAVEL_PX,
   MIN_TAP_GAP_MS,
   TAPS_REQUIRED,
   isDeliberateTouch,
   nextPosition,
   onHit,
   onMiss,
+  reduceTouchGesture,
 } from './pocketGuard';
 
 /** Deterministic: always the next position round. */
@@ -34,6 +38,142 @@ describe('what counts as a deliberate touch', () => {
   it('accepts a touch whose radius cannot be read', () => {
     expect(isDeliberateTouch(1)).toBe(true);
     expect(isDeliberateTouch(1, 0)).toBe(true);
+  });
+});
+
+describe('one complete touch gesture', () => {
+  it('credits one narrow contact that starts and ends on the target', () => {
+    const started = reduceTouchGesture(INITIAL_TOUCH_GESTURE, {
+      phase: 'start',
+      touches: 1,
+      changedTouches: 1,
+      maxRadius: 12,
+      onTarget: true,
+    });
+    expect(started.outcome).toBe('pending');
+    expect(
+      reduceTouchGesture(started.state, {
+        phase: 'end',
+        touches: 0,
+        changedTouches: 1,
+        maxRadius: 12,
+        onTarget: true,
+      }).outcome
+    ).toBe('hit');
+  });
+
+  it('resets as soon as a broad target contact is visible', () => {
+    const started = reduceTouchGesture(INITIAL_TOUCH_GESTURE, {
+      phase: 'start',
+      touches: 1,
+      changedTouches: 1,
+      maxRadius: MAX_FINGER_RADIUS_PX + 1,
+      onTarget: true,
+    });
+    expect(started.outcome).toBe('reset');
+    expect(
+      reduceTouchGesture(started.state, {
+        phase: 'end',
+        touches: 0,
+        changedTouches: 1,
+        maxRadius: 10,
+        onTarget: true,
+      }).outcome
+    ).not.toBe('hit');
+  });
+
+  it('keeps a staggered two-finger release invalid until both are up', () => {
+    const first = reduceTouchGesture(INITIAL_TOUCH_GESTURE, {
+      phase: 'start',
+      touches: 1,
+      changedTouches: 1,
+      maxRadius: 12,
+      onTarget: true,
+    });
+    const second = reduceTouchGesture(first.state, {
+      phase: 'start',
+      touches: 2,
+      changedTouches: 1,
+      maxRadius: 12,
+      onTarget: false,
+    });
+    expect(second.outcome).toBe('reset');
+
+    const oneLeft = reduceTouchGesture(second.state, {
+      phase: 'end',
+      touches: 1,
+      changedTouches: 1,
+      maxRadius: 12,
+      onTarget: true,
+    });
+    expect(oneLeft.state.maxContacts).toBe(2);
+    expect(oneLeft.outcome).toBe('pending');
+    expect(
+      reduceTouchGesture(oneLeft.state, {
+        phase: 'end',
+        touches: 0,
+        changedTouches: 1,
+        maxRadius: 12,
+        onTarget: true,
+      }).outcome
+    ).not.toBe('hit');
+  });
+
+  it('remembers a contact that becomes broad during movement', () => {
+    const started = reduceTouchGesture(INITIAL_TOUCH_GESTURE, {
+      phase: 'start',
+      touches: 1,
+      changedTouches: 1,
+      maxRadius: 12,
+      onTarget: true,
+    });
+    const moved = reduceTouchGesture(started.state, {
+      phase: 'move',
+      touches: 1,
+      changedTouches: 1,
+      maxRadius: MAX_FINGER_RADIUS_PX + 1,
+      onTarget: true,
+    });
+    expect(moved.outcome).toBe('reset');
+    expect(moved.state.maxRadius).toBe(MAX_FINGER_RADIUS_PX + 1);
+  });
+
+  it('rejects a drag even when it remains a narrow single contact', () => {
+    const started = reduceTouchGesture(INITIAL_TOUCH_GESTURE, {
+      phase: 'start',
+      touches: 1,
+      changedTouches: 1,
+      maxRadius: 12,
+      point: { x: 10, y: 10 },
+      onTarget: true,
+    });
+    const moved = reduceTouchGesture(started.state, {
+      phase: 'move',
+      touches: 1,
+      changedTouches: 1,
+      maxRadius: 12,
+      point: { x: 10 + MAX_TAP_TRAVEL_PX + 1, y: 10 },
+      onTarget: true,
+    });
+    expect(moved.outcome).toBe('reset');
+    expect(moved.state.maxTravel).toBe(MAX_TAP_TRAVEL_PX + 1);
+  });
+
+  it('resets a cancelled gesture', () => {
+    const started = reduceTouchGesture(INITIAL_TOUCH_GESTURE, {
+      phase: 'start',
+      touches: 1,
+      changedTouches: 1,
+      onTarget: true,
+    });
+    expect(
+      reduceTouchGesture(started.state, {
+        phase: 'cancel',
+        touches: 0,
+        changedTouches: 1,
+        onTarget: true,
+      })
+    ).toEqual({ state: INITIAL_TOUCH_GESTURE, outcome: 'reset' });
   });
 });
 
@@ -64,6 +204,28 @@ describe('lifting the shield', () => {
     const tooSoon = onHit(first.state, 1000 + MIN_TAP_GAP_MS - 1, pick);
     expect(tooSoon.kind).toBe('ignored');
     expect(tooSoon.kind === 'ignored' && tooSoon.state.taps).toBe(1);
+  });
+
+  it('accepts all three taps at the sequence-window boundary', () => {
+    const first = onHit(INITIAL, 1000, pick);
+    if (first.kind !== 'progress') throw new Error('expected progress');
+    const second = onHit(first.state, 1000 + MIN_TAP_GAP_MS, pick);
+    if (second.kind !== 'progress') throw new Error('expected progress');
+    expect(onHit(second.state, 1000 + MAX_TAP_SEQUENCE_MS, pick).kind).toBe(
+      'unlocked'
+    );
+  });
+
+  it('starts over when the three taps exceed the sequence window', () => {
+    const first = onHit(INITIAL, 1000, pick);
+    if (first.kind !== 'progress') throw new Error('expected progress');
+    const second = onHit(first.state, 1000 + MIN_TAP_GAP_MS, pick);
+    if (second.kind !== 'progress') throw new Error('expected progress');
+    const expired = onHit(second.state, 1000 + MAX_TAP_SEQUENCE_MS + 1, pick);
+    expect(expired.kind).toBe('progress');
+    if (expired.kind !== 'progress') throw new Error('expected fresh progress');
+    expect(expired.state.taps).toBe(1);
+    expect(expired.state.firstTapAt).toBe(1000 + MAX_TAP_SEQUENCE_MS + 1);
   });
 });
 
