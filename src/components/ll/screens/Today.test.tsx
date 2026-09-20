@@ -552,6 +552,33 @@ describe('Today alert sound', () => {
     expect(screen.getByText(/Alert sound is not armed/)).toBeVisible();
   });
 
+  it('keeps the pre-flight sound check neutral while autopilot is off', () => {
+    fakeAudio('suspended');
+    setup({ enabled: false });
+    const status = screen.getByText(
+      'Test alert sound before starting Autopilot.'
+    );
+    expect(status).toBeVisible();
+    expect(status).toHaveClass('text-gray-600');
+    expect(status).not.toHaveClass('text-red-700');
+  });
+
+  it('warns whenever autopilot is enabled, including after it stops', () => {
+    fakeAudio('suspended');
+    setup({
+      enabled: true,
+      status: {
+        mode: 'stopped',
+        consecutiveFailures: 8,
+        polls: 20,
+        lastError: 'Request failed',
+      },
+    });
+    expect(screen.getByText(/Alert sound is not armed/)).toHaveClass(
+      'text-red-700'
+    );
+  });
+
   it('wakes the sound up on demand and says so', async () => {
     const ctx = fakeAudio('suspended');
     setup({ enabled: true });
@@ -626,6 +653,12 @@ describe('Today screen wake status', () => {
     installWakeLock();
     setup({ enabled: true });
     expect(screen.getByText(/Screen may sleep/)).toBeVisible();
+  });
+
+  it('omits an idle wake-lock warning while autopilot is off', () => {
+    installWakeLock();
+    setup({ enabled: false });
+    expect(screen.queryByText(/Screen may sleep/)).not.toBeInTheDocument();
   });
 
   it('shows a held lock and reacts when the browser releases it', async () => {

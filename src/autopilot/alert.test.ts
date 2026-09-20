@@ -1,13 +1,17 @@
 import { NOTIFICATION_TAG_NAMESPACE } from '@/storageNamespace';
 
 import {
+  BACKGROUND_RESUME_REUSE_MS,
   RESUME_REPLAY_MS,
+  SOUND_CHECK_TIMEOUT_MS,
+  TEST_CHIME_GUARD_MS,
   alertPermission,
   audioReady,
   audioStatus,
   chime,
   fireAlert,
   primeAudio,
+  rearmAudio,
   requestAlertPermission,
   resetAudioForTests,
   soundCheck,
@@ -113,6 +117,10 @@ beforeEach(() => {
   delete g.AudioContext;
   delete g.webkitAudioContext;
   jest.restoreAllMocks();
+});
+
+it('never reuses a background resume after an alert becomes stale', () => {
+  expect(BACKGROUND_RESUME_REUSE_MS).toBeLessThanOrEqual(RESUME_REPLAY_MS);
 });
 
 describe('alertPermission()', () => {
@@ -265,6 +273,87 @@ describe('audioStatus()', () => {
   });
 });
 
+describe('rearmAudio()', () => {
+  it('coalesces background recovery only inside the bounded reuse window', () => {
+    let now = 1_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { ctx } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    const first = deferred();
+    const second = deferred();
+    ctx.resume = jest
+      .fn<Promise<void>, []>()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+
+    rearmAudio();
+    now += BACKGROUND_RESUME_REUSE_MS;
+    rearmAudio();
+    expect(ctx.resume).toHaveBeenCalledTimes(1);
+
+    now += 1;
+    rearmAudio();
+    expect(ctx.resume).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets a provider visibility rearm replace a resume that never settles', () => {
+    let now = 2_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { ctx } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    ctx.resume = jest.fn(() => new Promise<void>(() => undefined));
+
+    rearmAudio();
+    now += BACKGROUND_RESUME_REUSE_MS + 1;
+    rearmAudio();
+
+    expect(ctx.resume).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let an old promise erase a newer background attempt', async () => {
+    let now = 3_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { ctx } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    const first = deferred();
+    const second = deferred();
+    ctx.resume = jest
+      .fn<Promise<void>, []>()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+
+    rearmAudio();
+    now += BACKGROUND_RESUME_REUSE_MS + 1;
+    rearmAudio();
+    first.resolve();
+    await settleResume();
+    rearmAudio();
+
+    expect(ctx.resume).toHaveBeenCalledTimes(2);
+  });
+
+  it('starts another recovery after a native self-recovery and interruption', () => {
+    const { ctx } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    ctx.resume = jest.fn(() => new Promise<void>(() => undefined));
+
+    rearmAudio();
+    ctx.setState('running');
+    ctx.setState('interrupted');
+    rearmAudio();
+
+    expect(ctx.resume).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('soundCheck()', () => {
   // The button exists because the only way to discover a dead alert channel
   // was to wait for a real find and notice the silence.
@@ -293,6 +382,112 @@ describe('soundCheck()', () => {
     });
     g.AudioContext = jest.fn(() => ctx);
     await expect(soundCheck()).resolves.toBe('idle');
+  });
+
+  it('does not inherit a wedged background recovery attempt', async () => {
+    jest.useFakeTimers();
+    try {
+      const { ctx } = fakeAudioContext('running');
+      g.AudioContext = jest.fn(() => ctx);
+      primeAudio();
+      ctx.state = 'interrupted';
+      ctx.resume = jest.fn(() => new Promise<void>(() => undefined));
+
+      rearmAudio();
+      const result = soundCheck();
+      expect(ctx.resume).toHaveBeenCalledTimes(2);
+      await jest.advanceTimersByTimeAsync(SOUND_CHECK_TIMEOUT_MS);
+      await result;
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('gives three pending presses fresh resumes but only the newest may play', async () => {
+    const { ctx, started } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    const attempts = [deferred(), deferred(), deferred()];
+    let next = 0;
+    ctx.resume = jest.fn(() => attempts[next++]!.promise);
+
+    const checks = [soundCheck(), soundCheck(), soundCheck()];
+    expect(ctx.resume).toHaveBeenCalledTimes(3);
+    ctx.state = 'running';
+    attempts[0]!.resolve();
+    await settleResume();
+    expect(started).toHaveLength(0);
+
+    ctx.state = 'interrupted';
+    attempts[1]!.resolve();
+    await settleResume();
+    expect(started).toHaveLength(0);
+
+    ctx.state = 'running';
+    attempts[2]!.resolve();
+    await Promise.all(checks);
+
+    expect(started).toHaveLength(CHIME_NOTES);
+  });
+
+  it('always resolves when WebKit leaves a gesture resume pending', async () => {
+    jest.useFakeTimers();
+    try {
+      const { ctx } = fakeAudioContext('running');
+      g.AudioContext = jest.fn(() => ctx);
+      primeAudio();
+      ctx.state = 'interrupted';
+      ctx.resume = jest.fn(() => new Promise<void>(() => undefined));
+
+      const result = soundCheck();
+      await jest.advanceTimersByTimeAsync(SOUND_CHECK_TIMEOUT_MS);
+
+      await expect(result).resolves.toBe('idle');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('publishes a late recovery without playing a delayed diagnostic', async () => {
+    jest.useFakeTimers();
+    try {
+      const { ctx, started } = fakeAudioContext('running');
+      g.AudioContext = jest.fn(() => ctx);
+      primeAudio();
+      ctx.state = 'interrupted';
+      const gate = deferred();
+      ctx.resume = jest.fn(() => gate.promise);
+
+      const result = soundCheck();
+      await jest.advanceTimersByTimeAsync(SOUND_CHECK_TIMEOUT_MS);
+      await expect(result).resolves.toBe('idle');
+
+      ctx.setState('running');
+      gate.resolve();
+      await settleResume();
+      expect(audioStatus()).toBe('armed');
+      expect(started).toHaveLength(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('guards only diagnostic playback for exactly the derived chime length', async () => {
+    let now = 5_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { ctx, started, resume } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+
+    await soundCheck();
+    await soundCheck();
+    expect(started).toHaveLength(CHIME_NOTES);
+
+    now += TEST_CHIME_GUARD_MS;
+    await soundCheck();
+    expect(resume).toHaveBeenCalledTimes(3);
+    expect(started).toHaveLength(CHIME_NOTES * 2);
   });
 });
 
@@ -332,6 +527,23 @@ describe('chime()', () => {
 
     gate.resolve();
     await gate.promise;
+    await settleResume();
+    expect(started).toHaveLength(CHIME_NOTES);
+  });
+
+  it('plays once when statechange wins and the original resume settles later', async () => {
+    const { ctx, started } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    const gate = deferred();
+    ctx.resume = jest.fn(() => gate.promise);
+
+    chime();
+    ctx.setState('running');
+    expect(started).toHaveLength(CHIME_NOTES);
+
+    gate.resolve();
     await settleResume();
     expect(started).toHaveLength(CHIME_NOTES);
   });
@@ -380,6 +592,22 @@ describe('chime()', () => {
     expect(ctx.resume).toHaveBeenCalledTimes(2);
   });
 
+  it('starts a fresh alert recovery after the background reuse window', () => {
+    let now = 1_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { ctx } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    ctx.resume = jest.fn(() => new Promise<void>(() => undefined));
+
+    chime();
+    now += BACKGROUND_RESUME_REUSE_MS + 1;
+    chime();
+
+    expect(ctx.resume).toHaveBeenCalledTimes(2);
+  });
+
   it('coalesces concurrent alerts and uses the newest request time', async () => {
     let now = 1_000;
     jest.spyOn(Date, 'now').mockImplementation(() => now);
@@ -394,9 +622,9 @@ describe('chime()', () => {
     });
 
     chime();
-    now += RESUME_REPLAY_MS + 1;
+    now += RESUME_REPLAY_MS - 1;
     chime();
-    now += 1;
+    now += 2;
     gate.resolve();
     await gate.promise;
     await settleResume();
@@ -413,6 +641,15 @@ describe('chime()', () => {
     expect(ctx.createOscillator).toHaveBeenCalledTimes(2);
     expect(started).toHaveLength(2);
     expect(started[1]!).toBeGreaterThan(started[0]!);
+  });
+
+  it('leaves already-running real alerts uncoalesced', () => {
+    const { ctx, started } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    chime();
+    chime();
+    expect(started).toHaveLength(CHIME_NOTES * 2);
   });
 });
 

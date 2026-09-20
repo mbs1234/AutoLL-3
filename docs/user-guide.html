@@ -552,7 +552,7 @@
       stops working.
     </p>
     <div class="masthead-meta">
-      <span>Version 1.2.5</span>
+      <span>Version 1.2.6</span>
       <span>Three parts · 23 sections</span>
       <span>Unofficial · not endorsed by Disney</span>
     </div>
@@ -1186,9 +1186,11 @@
         a <span class="ui">Test sound</span> button next to it. On iOS the chime
         is not one channel of three — notifications need the page installed to
         your Home Screen, and vibration is unimplemented — so if the sound is
-        not armed, nothing can reach you. Tap <span class="ui">Test sound</span>
-        once after turning Autopilot on. If you hear two notes, the channel
-        works.
+        not armed during a run, nothing can reach you. While Autopilot is off,
+        Today presents this as a neutral pre-flight check rather than a fault.
+        Tap <span class="ui">Test sound</span> before starting, and again after
+        any interruption if you want to verify it manually. If you hear two
+        notes, the channel works.
       </p>
       <div class="call stop">
         <span class="call-label">The one hard limit</span>
@@ -1199,7 +1201,8 @@
           this, and it is best-effort. Today says <strong>Screen is being kept
           awake</strong> while it is held and warns <strong>Screen may
           sleep</strong> when the browser supports the lock but has not granted
-          one.
+          one. That row appears only while Autopilot is on, because an idle
+          wake lock is expected when no checks are running.
         </p>
       </div>
       <h4>Put the running phone in your pocket</h4>

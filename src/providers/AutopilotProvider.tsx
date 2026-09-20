@@ -10,6 +10,7 @@ import {
   alertPermission,
   fireAlert,
   primeAudio,
+  rearmAudio,
   requestAlertPermission,
 } from '@/autopilot/alert';
 import {
@@ -487,8 +488,9 @@ export default function AutopilotProvider({
    *
    * iOS moves an AudioContext to `interrupted` when the screen locks, a call
    * arrives, or another app takes audio, and never leaves that state by
-   * itself. `primeAudio` runs once, inside the gesture that started the run,
-   * so before this the first interruption made the rest of the run silent.
+   * itself. `primeAudio` runs once, inside the gesture that started the run;
+   * later foreground events use the bounded, background-safe `rearmAudio`.
+   * Before this recovery path, the first interruption made the run silent.
    *
    * That is worse here than it sounds. On iOS Safari the chime is not one
    * channel of three: `Notification` is undefined outside an installed web
@@ -502,9 +504,8 @@ export default function AutopilotProvider({
   useEffect(() => {
     if (!enabled) return;
     const rearm = () => {
-      if (document.visibilityState === 'visible') primeAudio();
+      if (document.visibilityState === 'visible') rearmAudio();
     };
-    rearm();
     document.addEventListener('visibilitychange', rearm);
     window.addEventListener('focus', rearm);
     return () => {

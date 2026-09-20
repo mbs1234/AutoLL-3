@@ -386,21 +386,23 @@ export default function Today({ ref }: HomeTabProps) {
         <div className="mt-3 flex items-center justify-between gap-3">
           <span
             className={`text-sm ${
-              soundStatus === 'armed'
+              soundStatus === 'armed' || !enabled
                 ? 'text-gray-600'
                 : 'font-semibold text-red-700'
             }`}
           >
             {soundStatus === 'armed'
               ? 'Alert sound is armed.'
-              : 'Alert sound is not armed, so alerts would be silent.'}
+              : enabled
+                ? 'Alert sound is not armed, so alerts would be silent.'
+                : 'Test alert sound before starting Autopilot.'}
           </span>
           <Button type="small" onClick={checkSound}>
             Test sound
           </Button>
         </div>
       )}
-      {awakeStatus !== 'unsupported' && (
+      {enabled && awakeStatus !== 'unsupported' && (
         <p
           className={`mt-3 text-sm ${
             awakeStatus === 'held'

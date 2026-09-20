@@ -8,7 +8,7 @@ import { RequestError } from '@/api/client';
 import type { RequestControl } from '@/api/client';
 import { Booking } from '@/api/itinerary';
 import { Experience, FlexExperience } from '@/api/ll';
-import { fireAlert, primeAudio } from '@/autopilot/alert';
+import { fireAlert, primeAudio, rearmAudio } from '@/autopilot/alert';
 import { AutoBookLedger, CONFIRM_ABSENT_POLLS } from '@/autopilot/autobook';
 import {
   LEASE_TTL_MS,
@@ -84,6 +84,7 @@ jest.mock('@/autopilot/alert', () => ({
   alertPermission: jest.fn(() => 'granted'),
   requestAlertPermission: jest.fn(async () => 'granted'),
   primeAudio: jest.fn(),
+  rearmAudio: jest.fn(),
   fireAlert: jest.fn(),
 }));
 jest.mock('@/timesync');
@@ -2313,33 +2314,44 @@ describe('AutopilotProvider keeping the alert sound alive', () => {
   it('takes the audio context back when the page returns to the foreground', async () => {
     setup([]);
     await enable();
-    (primeAudio as jest.Mock).mockClear();
+    (rearmAudio as jest.Mock).mockClear();
     await act(async () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
-    expect(primeAudio).toHaveBeenCalled();
+    expect(rearmAudio).toHaveBeenCalled();
+  });
+
+  it('keeps issuing provider visibility rearms after an earlier request', async () => {
+    setup([]);
+    await enable();
+    (rearmAudio as jest.Mock).mockClear();
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(rearmAudio).toHaveBeenCalledTimes(2);
   });
 
   // A hidden page cannot resume audio, and asking would be noise.
   it('waits until the page is actually visible', async () => {
     setup([]);
     await enable();
-    (primeAudio as jest.Mock).mockClear();
+    (rearmAudio as jest.Mock).mockClear();
     visibility('hidden');
     await act(async () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
-    expect(primeAudio).not.toHaveBeenCalled();
+    expect(rearmAudio).not.toHaveBeenCalled();
   });
 
   it('leaves audio alone while autopilot is off', async () => {
     setup([]);
-    (primeAudio as jest.Mock).mockClear();
+    (rearmAudio as jest.Mock).mockClear();
     await act(async () => {
       document.dispatchEvent(new Event('visibilitychange'));
       window.dispatchEvent(new Event('focus'));
     });
-    expect(primeAudio).not.toHaveBeenCalled();
+    expect(rearmAudio).not.toHaveBeenCalled();
   });
 });
 

@@ -18,6 +18,16 @@ endorsed by Disney, it can stop working the day Disney changes an endpoint, and
 it comes with no warranty. Keep Disney's own app as the source of truth for what
 you actually hold.
 
+## 1.2.6 — interrupted audio remains recoverable
+
+Tagged `autoll3-v1.2.6`. A WebKit `resume()` promise that never settles can no
+longer monopolize the alert channel: background recovery is reused for only a
+short window, later foreground events may try again, and every **Test sound**
+press gets its own gesture-scoped attempt. Pending alerts still sound only when
+recovery is prompt, and either the native state event or the promise may deliver
+that one chime—but never both. Today keeps the pre-flight sound check neutral
+while Autopilot is off and shows screen-wake warnings only during a run.
+
 ## 1.2.5 — the shield reports whether alerts can reach you
 
 Tagged `autoll3-v1.2.5`. Pocket mode and Today now report both alert sound and
@@ -320,7 +330,7 @@ selections, one Tier 1 until somebody taps in, one booking per attraction per
 day. This build is faster and more attentive than you are at 7:00:02. That is
 the whole of its advantage.
 
-**Known rough edges, as of 1.2.5:**
+**Known rough edges, as of 1.2.6:**
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
@@ -351,13 +361,13 @@ the commit the bundle was built from.
 
 A tagged release is that pair of files together with the tag, and both are
 attached to the
-[release](https://github.com/mbs1234/AutoLL-3/releases/tag/autoll3-v1.2.5)
+[release](https://github.com/mbs1234/AutoLL-3/releases/tag/autoll3-v1.2.6)
 as well as served from the site. Re-running the deploy workflow against a tag
 rebuilds the same site, which is what makes a rollback a one-command operation
 rather than a rebuild from memory:
 
 ```bash
-gh workflow run deploy.yml --ref autoll3-v1.2.5
+gh workflow run deploy.yml --ref autoll3-v1.2.6
 ```
 
 The release is not complete until `gh release view` lists both manifest files;
@@ -372,7 +382,7 @@ branch one. Anything forking this to a new repository has to add it again.
 
 `main` is protected: a pull request, a passing `check` run, linear history, no
 force-pushes. The deploy gates independently on typecheck and the full test
-suite — 117 suites, 1653 tests — and if either fails, the publish is skipped and
+suite — 117 suites, 1685 tests — and if either fails, the publish is skipped and
 Pages keeps serving the build already on your phone.
 
 ## Development
