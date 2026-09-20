@@ -12,6 +12,7 @@ import {
   TAPS_REQUIRED,
   TouchGesturePhase,
   clearNormalProgress,
+  mayStillCompleteWideTouch,
   nextPosition,
   onHit,
   onMiss,
@@ -195,9 +196,13 @@ export default function PocketShield({
     gesture.current = result.state;
     if (result.outcome === 'reset') {
       clearOrdinaryProgress();
-      resetWide();
     }
     if (result.outcome === 'wide-reset') clearOrdinaryProgress();
+    // A gesture can lose wide eligibility after its first invalid event. Keep
+    // earlier escape credit only while the live gesture can still recover.
+    if (result.state.invalid && !mayStillCompleteWideTouch(result.state)) {
+      resetWide();
+    }
     if (result.completion === 'normal') {
       resetWide();
       advance(at);

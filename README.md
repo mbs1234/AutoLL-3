@@ -18,6 +18,14 @@ endorsed by Disney, it can stop working the day Disney changes an endpoint, and
 it comes with no warranty. Keep Disney's own app as the source of truth for what
 you actually hold.
 
+## 1.2.3 — wide progress survives a qualifying drag
+
+Tagged `autoll3-v1.2.3`. A wide-finger escape attempt can begin as a narrow
+drag before the contact broadens. That in-flight gesture now preserves earlier
+escape credit while it remains on-target, single-contact and inside the wider
+travel bound; misses, extra contacts, excessive travel and invalid completions
+still reset it immediately.
+
 ## 1.2.2 — credited attempts always move
 
 Tagged `autoll3-v1.2.2`. This patch makes the moving-target guarantee exact:
@@ -292,7 +300,7 @@ selections, one Tier 1 until somebody taps in, one booking per attraction per
 day. This build is faster and more attentive than you are at 7:00:02. That is
 the whole of its advantage.
 
-**Known rough edges, as of 1.2.2:**
+**Known rough edges, as of 1.2.3:**
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
@@ -323,13 +331,13 @@ the commit the bundle was built from.
 
 A tagged release is that pair of files together with the tag, and both are
 attached to the
-[release](https://github.com/mbs1234/AutoLL-3/releases/tag/autoll3-v1.2.2)
+[release](https://github.com/mbs1234/AutoLL-3/releases/tag/autoll3-v1.2.3)
 as well as served from the site. Re-running the deploy workflow against a tag
 rebuilds the same site, which is what makes a rollback a one-command operation
 rather than a rebuild from memory:
 
 ```bash
-gh workflow run deploy.yml --ref autoll3-v1.2.2
+gh workflow run deploy.yml --ref autoll3-v1.2.3
 ```
 
 That needs one repository setting that is easy to miss, because nothing in this
@@ -341,7 +349,7 @@ branch one. Anything forking this to a new repository has to add it again.
 
 `main` is protected: a pull request, a passing `check` run, linear history, no
 force-pushes. The deploy gates independently on typecheck and the full test
-suite — 117 suites, 1634 tests — and if either fails, the publish is skipped and
+suite — 117 suites, 1636 tests — and if either fails, the publish is skipped and
 Pages keeps serving the build already on your phone.
 
 ## Development
