@@ -191,6 +191,22 @@ export const INITIAL_TOUCH_GESTURE: TouchGestureState = {
   maxTravel: 0,
 };
 
+/**
+ * Whether an in-flight gesture can still finish as a wide attempt.
+ *
+ * Radius is deliberately absent: the contact may not have broadened yet. A
+ * miss, a second contact or travel beyond the wide bound can never recover,
+ * so those are safe points to discard earlier wide-touch progress.
+ */
+export function mayStillCompleteWideTouch(state: TouchGestureState): boolean {
+  return (
+    state.active &&
+    state.startedOnTarget &&
+    state.maxContacts === 1 &&
+    state.maxTravel <= MAX_WIDE_TOUCH_TRAVEL_PX
+  );
+}
+
 export type TouchGestureResult = {
   state: TouchGestureState;
   /** `reset` is emitted once, at the first evidence the gesture is invalid. */

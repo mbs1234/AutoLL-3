@@ -297,6 +297,58 @@ describe('the pocket shield', () => {
     expect(random).toHaveBeenCalledTimes(1);
   });
 
+  it('unlocks after three touches that drag before they broaden', () => {
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
+    const onLearnWideTouch = jest.fn();
+    const onExit = setup({}, { onLearnWideTouch });
+    const labels: (string | null)[] = [];
+    const exitCounts: number[] = [];
+
+    for (let attempt = 0; attempt < TAPS_REQUIRED; ++attempt) {
+      clock += MIN_TAP_GAP_MS;
+      const id = 50 + attempt;
+      const remaining = TAPS_REQUIRED - attempt;
+      const before = box().dataset.position;
+      const narrowStart = finger(id, 12, 10, 10);
+      const narrowDrag = finger(id, 12, 43, 10);
+      const broadDrag = finger(id, MAX_FINGER_RADIUS_PX + 1, 60, 10);
+
+      touchStart(box(), [narrowStart]);
+      expect(box()).toHaveAccessibleName(
+        new RegExp(`${remaining} more taps?`, 'i')
+      );
+      expect(box().dataset.position).toBe(before);
+
+      touchMove(box(), [narrowDrag]);
+      expect(box()).toHaveAccessibleName(
+        new RegExp(`${remaining} more taps?`, 'i')
+      );
+      expect(box().dataset.position).toBe(before);
+
+      touchMove(box(), [broadDrag]);
+      expect(box()).toHaveAccessibleName(
+        new RegExp(`${remaining} more taps?`, 'i')
+      );
+      expect(box().dataset.position).toBe(before);
+
+      touchEnd(box(), [broadDrag]);
+      expect(box().dataset.position).not.toBe(before);
+      expect(random).toHaveBeenCalledTimes(attempt + 1);
+      fireEvent.click(box());
+      expect(random).toHaveBeenCalledTimes(attempt + 1);
+      labels.push(box().getAttribute('aria-label'));
+      exitCounts.push(onExit.mock.calls.length);
+    }
+
+    expect(labels.slice(0, 2)).toEqual([
+      'Unlock the screen: 2 more taps needed',
+      'Unlock the screen: 1 more tap needed',
+    ]);
+    expect(exitCounts).toEqual([0, 0, 1]);
+    expect(onLearnWideTouch).toHaveBeenCalledTimes(1);
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
   it('unlocks through three broad moving-target touches with centroid drift', () => {
     const onLearnWideTouch = jest.fn();
     const onExit = setup({}, { onLearnWideTouch });
@@ -344,6 +396,7 @@ describe('the pocket shield', () => {
 
     clock += MIN_TAP_GAP_MS;
     touchStart(backdrop(), [broad]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
     touchEnd(backdrop(), [broad]);
     fireEvent.click(backdrop());
     expect(box()).toHaveAccessibleName(/3 more taps/i);
@@ -444,6 +497,7 @@ describe('the pocket shield', () => {
     touchStart(box(), [broad]);
     const dragged = finger(34, MAX_FINGER_RADIUS_PX + 1, 100, 10);
     touchMove(box(), [dragged]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
     touchEnd(box(), [dragged]);
     fireEvent.click(box());
     expect(box()).toHaveAccessibleName(/3 more taps/i);

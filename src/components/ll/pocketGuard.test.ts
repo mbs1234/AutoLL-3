@@ -12,6 +12,7 @@ import {
   TAPS_REQUIRED,
   clearNormalProgress,
   isDeliberateTouch,
+  mayStillCompleteWideTouch,
   nextPosition,
   onHit,
   onMiss,
@@ -69,6 +70,39 @@ describe('the reported touch ellipse', () => {
 });
 
 describe('one complete touch gesture', () => {
+  it('keeps only recoverable single-target drags eligible to become wide', () => {
+    const candidate = {
+      ...INITIAL_TOUCH_GESTURE,
+      active: true,
+      startedOnTarget: true,
+      invalid: true,
+      maxContacts: 1,
+      maxTravel: MAX_TAP_TRAVEL_PX + 1,
+    };
+    expect(mayStillCompleteWideTouch(candidate)).toBe(true);
+    expect(
+      mayStillCompleteWideTouch({
+        ...candidate,
+        maxTravel: MAX_WIDE_TOUCH_TRAVEL_PX,
+      })
+    ).toBe(true);
+    expect(mayStillCompleteWideTouch({ ...candidate, active: false })).toBe(
+      false
+    );
+    expect(
+      mayStillCompleteWideTouch({ ...candidate, startedOnTarget: false })
+    ).toBe(false);
+    expect(mayStillCompleteWideTouch({ ...candidate, maxContacts: 2 })).toBe(
+      false
+    );
+    expect(
+      mayStillCompleteWideTouch({
+        ...candidate,
+        maxTravel: MAX_WIDE_TOUCH_TRAVEL_PX + 1,
+      })
+    ).toBe(false);
+  });
+
   it('credits one narrow contact that starts and ends on the target', () => {
     const started = reduceTouchGesture(INITIAL_TOUCH_GESTURE, {
       phase: 'start',
