@@ -235,6 +235,23 @@ export default function Today({ ref }: HomeTabProps) {
         >
           {enabled ? 'Turn off autopilot' : 'Turn on autopilot'}
         </Button>
+        {/* Its own full-width row rather than a chip among the navigation
+            buttons below. Those four all go somewhere and come back; this one
+            changes what the screen will accept, which is a different kind of
+            action and reads as one at this size. Offered only while the engine
+            is running, because that is the only time the wake lock holds the
+            screen on and the glass stays live in a pocket. */}
+        {enabled && (
+          <div className="mt-2">
+            <Button
+              type="full"
+              color="bg-black text-white"
+              onClick={() => setShielded(true)}
+            >
+              Pocket it
+            </Button>
+          </div>
+        )}
         <LatestEvent event={activity} />
         <AutopilotStatus status={status} refusals={refusals ?? NO_REFUSALS} />
       </div>
@@ -252,14 +269,6 @@ export default function Today({ ref }: HomeTabProps) {
         <Button type="small" onClick={() => goTo(<Activity />)}>
           Activity
         </Button>
-        {/* Offered only while the engine is running, which is the only time
-            the wake lock holds the screen on and the glass stays live in a
-            pocket. */}
-        {enabled && (
-          <Button type="small" onClick={() => setShielded(true)}>
-            Pocket it
-          </Button>
-        )}
       </div>
 
       {doubts.length > 0 && (
