@@ -4376,6 +4376,40 @@ describe('AutopilotProvider ledger calls in a tick', () => {
 describe('AutopilotProvider given an unreadable booking date', () => {
   beforeEach(() => setTime('09:00'));
 
+  /**
+   * The one status change that has to reach somebody who is not looking.
+   *
+   * Every other alert announces something gained. This announces that nothing
+   * more will be -- and it fires on the same transition that releases the wake
+   * lock, so the screen the message would otherwise have appeared on goes dark
+   * a moment later.
+   */
+  it('says out loud that it has stopped, once per run', async () => {
+    const fired = jest.mocked(fireAlert);
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    const { setBookingDate } = setupBooking();
+    await enable();
+    await act(async () => setBookingDate(''));
+    for (let i = 0; i < MAX_CONSECUTIVE_FAILURES + 2; ++i) {
+      await runTicks(1, BACKOFF_BASE_MS * 2 ** MAX_CONSECUTIVE_FAILURES);
+    }
+    expect(screen.getByTestId('mode')).toHaveTextContent('stopped');
+
+    const stops = fired.mock.calls.filter(([options]) =>
+      String(options.tag ?? '').includes('stopped-')
+    );
+    expect(stops).toHaveLength(1);
+    expect(stops[0]?.[0].title).toContain('stopped');
+
+    // Still stopped on later ticks, and still only said once.
+    await runTicks(3, BACKOFF_BASE_MS * 2 ** MAX_CONSECUTIVE_FAILURES);
+    expect(
+      fired.mock.calls.filter(([options]) =>
+        String(options.tag ?? '').includes('stopped-')
+      )
+    ).toHaveLength(1);
+  });
+
   it('stops and says why, rather than acting on a date nobody chose', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
     const { book, setBookingDate } = setupBooking();
