@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+import PocketShield from '@/components/ll/PocketShield';
+import PocketShieldContext from '@/contexts/PocketShieldContext';
 import AutopilotProvider from '@/providers/AutopilotProvider';
 import BookingDateProvider from '@/providers/BookingDateProvider';
 import DasPartiesProvider from '@/providers/DasPartiesProvider';
@@ -14,6 +16,7 @@ import Home from './screens/Home';
 
 export default function Merlock() {
   const [tabName] = useState(Home.getSavedTabName);
+  const [shielded, setShielded] = useState(false);
   return (
     <DasPartiesProvider>
       <PlansProvider>
@@ -26,7 +29,15 @@ export default function Merlock() {
                 <TopAutopilotProvider>
                   <RebookingProvider>
                     <NavProvider>
-                      <Home tabName={tabName} />
+                      {/* Inside the providers so the shield can read the day
+                          plan, and outside NavProvider's stack so it covers
+                          every screen rather than being hidden with one. */}
+                      <PocketShieldContext value={{ shielded, setShielded }}>
+                        <Home tabName={tabName} />
+                        {shielded && (
+                          <PocketShield onExit={() => setShielded(false)} />
+                        )}
+                      </PocketShieldContext>
                     </NavProvider>
                   </RebookingProvider>
                 </TopAutopilotProvider>

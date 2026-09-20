@@ -2041,8 +2041,27 @@ export default function AutopilotProvider({
   // The poller gives up after repeated failures without touching `enabled`, so
   // the release in `setEnabled` never runs. Holding the screen awake for a loop
   // that has stopped drains the battery for nothing.
+  //
+  // Stopping is also the one status change that has to reach somebody who is
+  // not looking. Every other alert here announces something gained; this one
+  // announces that nothing more will be. Until it existed the engine could give
+  // up in a pocket and say so only on a screen nobody was reading, which is the
+  // failure this project rates worst -- and the wake lock released on the same
+  // line, so the screen it was saying it on went dark too.
+  //
+  // Once per transition, which the dependency array already gives: the effect
+  // re-runs only when the mode changes, and the poller does not leave
+  // `stopped` without a new run. A guarding ref was written for this and then
+  // removed -- mutating it out changed nothing, and a repeat carries the same
+  // `tag`, which collapses into the tray entry already there.
   useEffect(() => {
-    if (status.mode === 'stopped') void releaseScreenAwake(wakeLockOwner);
+    if (status.mode !== 'stopped') return;
+    void releaseScreenAwake(wakeLockOwner);
+    fireAlert({
+      title: `${APP_NAME} has stopped`,
+      body: 'Repeated errors, so it is no longer checking for Lightning Lanes. Open it and start it again.',
+      tag: `${NOTIFICATION_TAG_NAMESPACE}stopped-${parkDate()}`,
+    });
   }, [status.mode, wakeLockOwner]);
 
   // Kept in the provider so every permission entry point updates the one
