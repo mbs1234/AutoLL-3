@@ -389,8 +389,10 @@ turning Autopilot on. If you hear two notes, the channel works.
 
 > **Autopilot only runs while the page is open and in front of you.** Lock the
 > phone or switch apps and the browser throttles its timers to minutes. The
-> screen wake lock exists to prevent exactly this, and it is best-effort —
-> where the phone refuses, nothing on screen says so.
+> screen wake lock exists to prevent exactly this, and it is best-effort.
+> Today says **Screen is being kept awake** while it is held and warns
+> **Screen may sleep** when the browser supports the lock but has not granted
+> one.
 
 ### Put the running phone in your pocket
 
@@ -410,10 +412,13 @@ resets on a miss or second contact, and remembers your phone until the page is
 reloaded so re-pocketing does not make you repeat a separate setup.
 
 The guarded screen is also a status display. It shows the current checking
-pace, the number of targets that can actually act, and today's booking count.
-If Autopilot stops or the 4am rollover turns it off, the guard changes to a red
-warning. Lift it and deliberately start a new run; an off or stopped guard is
-not still checking.
+pace, the number of targets that can actually act, today's booking count, and a
+line such as **Sound on · Screen held**. A red **No sound** or **Screen may
+sleep** means to lift the guard and check the named channel; the status follows
+the browser directly rather than waiting for the next poll. If Autopilot stops
+or the 4am rollover turns it off, the guard changes to a red warning. Lift it
+and deliberately start a new run; an off or stopped guard is not still
+checking.
 
 ## 13. What the status words mean
 

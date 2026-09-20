@@ -18,6 +18,15 @@ endorsed by Disney, it can stop working the day Disney changes an endpoint, and
 it comes with no warranty. Keep Disney's own app as the source of truth for what
 you actually hold.
 
+## 1.2.5 — the shield reports whether alerts can reach you
+
+Tagged `autoll3-v1.2.5`. Pocket mode and Today now report both alert sound and
+the screen wake lock from live browser events, so silence is no longer evidence
+that either channel is healthy. An interrupted audio context rescues the current
+alert when it wakes promptly, coalesces overlapping finds into one chime, and
+stays silent if recovery takes more than three seconds rather than announcing a
+stale offer as though it just appeared.
+
 ## 1.2.4 — the alert sound can be trusted
 
 Tagged `autoll3-v1.2.4`. Sound is the only alert channel iOS Safari offers,
@@ -311,7 +320,7 @@ selections, one Tier 1 until somebody taps in, one booking per attraction per
 day. This build is faster and more attentive than you are at 7:00:02. That is
 the whole of its advantage.
 
-**Known rough edges, as of 1.2.4:**
+**Known rough edges, as of 1.2.5:**
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
@@ -342,14 +351,17 @@ the commit the bundle was built from.
 
 A tagged release is that pair of files together with the tag, and both are
 attached to the
-[release](https://github.com/mbs1234/AutoLL-3/releases/tag/autoll3-v1.2.4)
+[release](https://github.com/mbs1234/AutoLL-3/releases/tag/autoll3-v1.2.5)
 as well as served from the site. Re-running the deploy workflow against a tag
 rebuilds the same site, which is what makes a rollback a one-command operation
 rather than a rebuild from memory:
 
 ```bash
-gh workflow run deploy.yml --ref autoll3-v1.2.4
+gh workflow run deploy.yml --ref autoll3-v1.2.5
 ```
+
+The release is not complete until `gh release view` lists both manifest files;
+a pushed tag on its own does not satisfy the promise above.
 
 That needs one repository setting that is easy to miss, because nothing in this
 tree records it: the `github-pages` environment has a deployment branch policy,

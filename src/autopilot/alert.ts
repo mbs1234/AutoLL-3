@@ -9,10 +9,19 @@ const PEAK_GAIN = 0.3;
 /** Attack/release ramp. Gating a sine abruptly produces an audible click. */
 const RAMP_S = 0.01;
 const VIBRATE_MS = [120, 60, 120];
+/** A later chime would sound like a new find even though the offer is stale. */
+export const RESUME_REPLAY_MS = 3_000;
 
 type AudioContextCtor = typeof AudioContext;
+type StatusListener = () => void;
 
 let audioCtx: AudioContext | undefined;
+let detachAudioState: (() => void) | undefined;
+let pendingResume: { ctx: AudioContext; promise: Promise<boolean> } | undefined;
+/** Newest alert waiting for one shared resume; concurrent finds make one chime. */
+let pendingChimeAt: number | undefined;
+const audioStatusListeners = new Set<StatusListener>();
+let lastAudioStatus: AudioStatus | undefined;
 
 function audioContextCtor(): AudioContextCtor | undefined {
   const w = self as unknown as {
@@ -20,6 +29,67 @@ function audioContextCtor(): AudioContextCtor | undefined {
     webkitAudioContext?: AudioContextCtor;
   };
   return w.AudioContext ?? w.webkitAudioContext;
+}
+
+/** Tell React only when the primitive snapshot has actually changed. */
+function publishAudioStatus(): void {
+  const next = audioStatus();
+  if (next === lastAudioStatus) return;
+  lastAudioStatus = next;
+  for (const listener of audioStatusListeners) listener();
+}
+
+function setAudioContext(next: AudioContext | undefined): void {
+  detachAudioState?.();
+  detachAudioState = undefined;
+  audioCtx = next;
+  pendingResume = undefined;
+  pendingChimeAt = undefined;
+  if (next) {
+    const changed = () => publishAudioStatus();
+    next.addEventListener?.('statechange', changed);
+    detachAudioState = () => next.removeEventListener?.('statechange', changed);
+  }
+  publishAudioStatus();
+}
+
+/**
+ * Ask one context to wake once, however many callers notice it sleeping.
+ *
+ * The boolean is deliberately about the state after the promise settles: Web
+ * Audio implementations can resolve without becoming usable, and callers must
+ * not announce or schedule sound merely because `resume()` fulfilled.
+ */
+function resumeAudio(ctx: AudioContext): Promise<boolean> {
+  if (ctx.state === 'running') {
+    publishAudioStatus();
+    return Promise.resolve(true);
+  }
+  if (pendingResume?.ctx === ctx) return pendingResume.promise;
+
+  let resumed: Promise<void>;
+  try {
+    resumed = ctx.resume();
+  } catch {
+    publishAudioStatus();
+    return Promise.resolve(false);
+  }
+  const promise = resumed
+    .then(
+      () => {
+        publishAudioStatus();
+        return ctx.state === 'running';
+      },
+      () => {
+        publishAudioStatus();
+        return false;
+      }
+    )
+    .finally(() => {
+      if (pendingResume?.promise === promise) pendingResume = undefined;
+    });
+  pendingResume = { ctx, promise };
+  return promise;
 }
 
 export function alertPermission(): AlertPermission {
@@ -83,13 +153,14 @@ export function primeAudio(): void {
   const Ctor = audioContextCtor();
   if (!Ctor) return;
   try {
-    audioCtx ??= new Ctor();
-    if (audioCtx.state !== 'running') {
-      void audioCtx.resume().catch(() => undefined);
-    }
-    unlockOutput(audioCtx);
+    if (!audioCtx) setAudioContext(new Ctor());
+    const ctx = audioCtx;
+    if (!ctx) return;
+    if (ctx.state !== 'running') void resumeAudio(ctx);
+    unlockOutput(ctx);
+    publishAudioStatus();
   } catch {
-    audioCtx = undefined;
+    setAudioContext(undefined);
   }
 }
 
@@ -113,17 +184,19 @@ export function audioStatus(): AudioStatus {
   return audioCtx?.state === 'running' ? 'armed' : 'idle';
 }
 
-export function chime(): void {
-  const ctx = audioCtx;
-  // Only play when actually unlocked. Scheduling into a suspended context
-  // queues notes that all fire at once whenever it later resumes.
-  if (!ctx) return;
-  if (ctx.state !== 'running') {
-    // This alert is lost either way. Ask for the context back so the next one
-    // is not, rather than staying mute for the rest of the run.
-    void ctx.resume().catch(() => undefined);
-    return;
-  }
+/**
+ * Subscribe to the bare status string used by `useSyncExternalStore`.
+ *
+ * Keep `audioStatus()` a primitive snapshot. Returning a fresh object from a
+ * snapshot getter makes React see a change on every read and render forever.
+ */
+export function subscribeAudioStatus(listener: StatusListener): () => void {
+  audioStatusListeners.add(listener);
+  lastAudioStatus = audioStatus();
+  return () => audioStatusListeners.delete(listener);
+}
+
+function playChime(ctx: AudioContext): void {
   try {
     const start0 = ctx.currentTime;
     CHIME_HZ.forEach((hz, i) => {
@@ -145,6 +218,33 @@ export function chime(): void {
   }
 }
 
+export function chime(): void {
+  const ctx = audioCtx;
+  // Only play when actually unlocked. Scheduling into a suspended context
+  // queues notes that all fire at once whenever it later resumes.
+  if (!ctx) return;
+  if (ctx.state === 'running') {
+    pendingChimeAt = undefined;
+    playChime(ctx);
+    return;
+  }
+
+  // Keep the newest request. `fireAlert` can call this several times in one
+  // poll, and waking into several overlapping two-note chimes is cacophony.
+  pendingChimeAt = Date.now();
+  void resumeAudio(ctx).then(running => {
+    if (audioCtx !== ctx) return;
+    const requestedAt = pendingChimeAt;
+    pendingChimeAt = undefined;
+    if (!running || requestedAt === undefined) return;
+    // A resume that only lands when the page is foregrounded means the user
+    // is already looking. Sounding then would announce a find that may be
+    // minutes stale, which is worse than dropping it.
+    if (Date.now() - requestedAt > RESUME_REPLAY_MS) return;
+    playChime(ctx);
+  });
+}
+
 /**
  * Play the chime on purpose and report whether it could be heard.
  *
@@ -160,15 +260,14 @@ export function chime(): void {
 export async function soundCheck(): Promise<AudioStatus> {
   primeAudio();
   const ctx = audioCtx;
+  // This deliberate sound supersedes an automatic replay that may be waiting
+  // on the same resume, so the user hears one chime rather than two.
+  pendingChimeAt = undefined;
   if (ctx && ctx.state !== 'running') {
-    try {
-      await ctx.resume();
-    } catch {
-      // Reported through the returned status rather than thrown: the caller
-      // is a button, and "it did not work" is the whole answer it needs.
-    }
+    await resumeAudio(ctx);
   }
-  chime();
+  if (ctx?.state === 'running') playChime(ctx);
+  publishAudioStatus();
   return audioStatus();
 }
 
@@ -225,5 +324,5 @@ export function fireAlert({
 
 /** Test seam: drop the cached AudioContext. */
 export function resetAudioForTests(): void {
-  audioCtx = undefined;
+  setAudioContext(undefined);
 }
