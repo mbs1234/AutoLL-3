@@ -380,6 +380,13 @@ Turning it on starts a **fresh run**: the session log, skip counts, refusal
 state, per-run locks and the drop-detection baseline are all cleared, and
 anything already available gets re-alerted.
 
+**Check the sound before you rely on it.** Under the notification notices
+Today says whether the alert sound is armed, with a **Test sound** button next
+to it. On iOS the chime is not one channel of three — notifications need the
+page installed to your Home Screen, and vibration is unimplemented — so if the
+sound is not armed, nothing can reach you. Tap **Test sound** once after
+turning Autopilot on. If you hear two notes, the channel works.
+
 > **Autopilot only runs while the page is open and in front of you.** Lock the
 > phone or switch apps and the browser throttles its timers to minutes. The
 > screen wake lock exists to prevent exactly this, and it is best-effort —

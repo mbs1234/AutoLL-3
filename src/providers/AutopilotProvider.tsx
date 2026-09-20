@@ -482,6 +482,37 @@ export default function AutopilotProvider({
     };
   }, [disable]);
 
+  /**
+   * Take the audio context back whenever the page returns to the foreground.
+   *
+   * iOS moves an AudioContext to `interrupted` when the screen locks, a call
+   * arrives, or another app takes audio, and never leaves that state by
+   * itself. `primeAudio` runs once, inside the gesture that started the run,
+   * so before this the first interruption made the rest of the run silent.
+   *
+   * That is worse here than it sounds. On iOS Safari the chime is not one
+   * channel of three: `Notification` is undefined outside an installed web
+   * app and vibration is unimplemented, so losing sound leaves a run with no
+   * way to reach anybody -- including the alert saying it has stopped.
+   *
+   * Best-effort by design. Where the resume needs a gesture it will be
+   * refused, which is no worse than the silence it is trying to undo, and the
+   * Today screen shows the state either way.
+   */
+  useEffect(() => {
+    if (!enabled) return;
+    const rearm = () => {
+      if (document.visibilityState === 'visible') primeAudio();
+    };
+    rearm();
+    document.addEventListener('visibilitychange', rearm);
+    window.addEventListener('focus', rearm);
+    return () => {
+      document.removeEventListener('visibilitychange', rearm);
+      window.removeEventListener('focus', rearm);
+    };
+  }, [enabled]);
+
   // Unmount is the one path that bypasses `setEnabled(false)`, and a wake lock
   // outliving the screen that requested it would keep the phone awake with
   // nothing running.

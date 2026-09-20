@@ -3,6 +3,7 @@ import { type ReactElement, createRef } from 'react';
 
 import { createBooking, hm, wdw } from '@/__fixtures__/ll';
 import { mk } from '@/__fixtures__/resort';
+import { resetAudioForTests } from '@/autopilot/alert';
 import { leaseKey, quarantine } from '@/autopilot/lease';
 import { savePendingSearch } from '@/autopilot/nextll';
 import { planReview } from '@/autopilot/plancheck';
@@ -467,6 +468,100 @@ describe('Today backoff', () => {
     });
     expect(screen.getByText(/Stopped after 8 failed checks/)).toBeVisible();
     expect(screen.queryByText(/in a row/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The alert channel, which on iOS Safari is the only one there is.
+ *
+ * `Notification` is undefined outside an installed web app and vibration is
+ * unimplemented, so a context that never unlocked -- or that iOS interrupted
+ * -- leaves a run unable to reach anybody, silently. Found on a phone: a ride
+ * came up, autopilot alerted, and nothing made a sound.
+ */
+describe('Today alert sound', () => {
+  type AudioGlobal = Omit<typeof globalThis, 'AudioContext'> & {
+    AudioContext?: unknown;
+  };
+  const g = globalThis as AudioGlobal;
+
+  function fakeAudio(state: string) {
+    const ctx = {
+      state,
+      currentTime: 0,
+      resume: jest.fn(async () => {
+        await Promise.resolve();
+        ctx.state = 'running';
+      }),
+      createOscillator: jest.fn(() => ({
+        type: '',
+        frequency: { value: 0 },
+        connect: jest.fn(() => gain),
+        start: jest.fn(),
+        stop: jest.fn(),
+      })),
+      createGain: jest.fn(() => gain),
+      sampleRate: 48_000,
+      createBuffer: jest.fn(() => ({})),
+      createBufferSource: jest.fn(() => ({
+        buffer: undefined as unknown,
+        connect: jest.fn(),
+        start: jest.fn(),
+      })),
+      destination: {},
+    };
+    const gain = {
+      gain: {
+        setValueAtTime: jest.fn(),
+        linearRampToValueAtTime: jest.fn(),
+      },
+      connect: jest.fn(() => ({})),
+    };
+    g.AudioContext = jest.fn(() => ctx);
+    return ctx;
+  }
+
+  beforeEach(() => resetAudioForTests());
+  afterEach(() => {
+    resetAudioForTests();
+    delete g.AudioContext;
+  });
+
+  // Offering a sound test on a browser that cannot make one is a row that can
+  // only ever report failure.
+  it('says nothing where the browser has no audio at all', () => {
+    setup({ enabled: true });
+    expect(screen.queryByText('Test sound')).not.toBeInTheDocument();
+  });
+
+  it('warns while sound would be silent', () => {
+    fakeAudio('suspended');
+    setup({ enabled: true });
+    expect(screen.getByText(/Alert sound is not armed/)).toBeVisible();
+  });
+
+  it('wakes the sound up on demand and says so', async () => {
+    const ctx = fakeAudio('suspended');
+    setup({ enabled: true });
+    await act(async () => {
+      screen.getByText('Test sound').click();
+    });
+    expect(ctx.resume).toHaveBeenCalled();
+    // Actually played, not merely woken: the point of the button is hearing it.
+    expect(ctx.createOscillator).toHaveBeenCalled();
+    expect(screen.getByText('Alert sound is armed.')).toBeVisible();
+  });
+
+  it('reports a context that refuses to wake, rather than claiming success', async () => {
+    const ctx = fakeAudio('suspended');
+    ctx.resume = jest.fn(async () => {
+      throw new Error('gesture required');
+    });
+    setup({ enabled: true });
+    await act(async () => {
+      screen.getByText('Test sound').click();
+    });
+    expect(screen.getByText(/Alert sound is not armed/)).toBeVisible();
   });
 });
 
