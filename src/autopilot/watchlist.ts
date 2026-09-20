@@ -107,6 +107,21 @@ export interface WatchHit {
   inWindow: boolean;
 }
 
+/** Whether a target has any automatic action armed. */
+export function targetActs(
+  target: Pick<
+    WatchTarget,
+    'autoBook' | 'autoModify' | 'bookThenMove' | 'autoSwap'
+  >
+): boolean {
+  return !!(
+    target.autoBook ||
+    target.autoModify ||
+    target.bookThenMove ||
+    target.autoSwap
+  );
+}
+
 /** Whether a target belongs to the park/date currently being operated. */
 export function targetApplies(
   target: WatchTarget,

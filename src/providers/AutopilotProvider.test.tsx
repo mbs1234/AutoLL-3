@@ -3484,6 +3484,30 @@ describe('AutopilotProvider park-day rollover', () => {
     expect(screen.getByTestId('mode')).toHaveTextContent('off');
   });
 
+  it('releases its screen wake lock when the rollover stops the run', async () => {
+    const sentinel = {
+      release: jest.fn(async () => undefined),
+      addEventListener: jest.fn(),
+    };
+    Object.defineProperty(navigator, 'wakeLock', {
+      value: { request: jest.fn(async () => sentinel) },
+      configurable: true,
+    });
+    try {
+      setupBooking();
+      await enable();
+      await waitFor(() => expect(wakeLockHeld()).toBe(true));
+
+      await crossRollover();
+
+      await waitFor(() => expect(wakeLockHeld()).toBe(false));
+      expect(sentinel.release).toHaveBeenCalledTimes(1);
+    } finally {
+      await releaseScreenAwake();
+      Reflect.deleteProperty(navigator, 'wakeLock');
+    }
+  });
+
   // A lock exists to stop a second action on an attraction *today*.
   it('clears the day-scoped action locks', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);

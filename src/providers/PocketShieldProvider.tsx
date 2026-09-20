@@ -25,7 +25,14 @@ export default function PocketShieldProvider({
   const [shielded, setShielded] = useState(false);
   return (
     <PocketShieldContext value={{ shielded, setShielded }}>
-      {children}
+      <div
+        className="contents"
+        inert={shielded}
+        aria-hidden={shielded || undefined}
+        data-testid="pocket-content"
+      >
+        {children}
+      </div>
       {shielded && <PocketShield onExit={() => setShielded(false)} />}
     </PocketShieldContext>
   );

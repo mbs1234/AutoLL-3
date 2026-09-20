@@ -1,21 +1,9 @@
 import { use } from 'react';
 
 import { MODE_TEXT } from '@/autopilot/status';
+import { targetActs } from '@/autopilot/watchlist';
 import TabsContext from '@/contexts/TabContext';
 import TopAutopilotContext from '@/contexts/TopAutopilotContext';
-
-const acts = (target: {
-  autoBook?: boolean;
-  autoModify?: boolean;
-  bookThenMove?: boolean;
-  autoSwap?: boolean;
-}) =>
-  !!(
-    target.autoBook ||
-    target.autoModify ||
-    target.bookThenMove ||
-    target.autoSwap
-  );
 
 /**
  * A compact, tappable day-plan summary for tabs other than Today.
@@ -30,7 +18,7 @@ export default function AutopilotStatusRow() {
   if (!autopilot?.enabled || active.name === 'Today') return null;
 
   const armed = autopilot.targetsHere.filter(
-    target => acts(target) && !target.paused
+    target => targetActs(target) && !target.paused
   ).length;
   return (
     <button

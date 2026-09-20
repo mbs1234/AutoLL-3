@@ -8,7 +8,7 @@ import { loadPendingSearch } from '@/autopilot/nextll';
 import { PlanReview, checkPlan, planReview } from '@/autopilot/plancheck';
 import { NO_REFUSALS } from '@/autopilot/refusal';
 import useQuarantine from '@/autopilot/useQuarantine';
-import { WatchTarget } from '@/autopilot/watchlist';
+import { WatchTarget, targetActs } from '@/autopilot/watchlist';
 import Button from '@/components/Button';
 import Tab from '@/components/Tab';
 import { Time } from '@/components/Time';
@@ -41,9 +41,6 @@ import RefreshButton from './RefreshButton';
 import Timeline from './Timeline';
 
 export const TODAY = 'Today';
-
-const acts = (t: WatchTarget) =>
-  !!(t.autoBook || t.autoModify || t.bookThenMove || t.autoSwap);
 
 /**
  * The park day at a glance, and the one switch that matters.
@@ -126,7 +123,7 @@ export default function Today({ ref }: HomeTabProps) {
   );
   // Armed means it will act: a paused target keeps its arming but is counted
   // with the paused, not with the armed.
-  const armed = targetsHere.filter(t => acts(t) && !t.paused).length;
+  const armed = targetsHere.filter(t => targetActs(t) && !t.paused).length;
   const paused = targetsHere.filter(t => t.paused).length;
   // A NextLL search stops when its tab is left; the tab offers to resume it,
   // but only once you are back there. This is the reminder to go back. Matched

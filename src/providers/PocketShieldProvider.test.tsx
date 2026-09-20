@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { use, useState } from 'react';
 
+import { MIN_TAP_GAP_MS, TAPS_REQUIRED } from '@/components/ll/pocketGuard';
 import NavContext from '@/contexts/NavContext';
 import PocketShieldContext from '@/contexts/PocketShieldContext';
 import NavProvider from '@/providers/NavProvider';
@@ -30,9 +31,41 @@ describe('raising the shield from a screen inside it', () => {
         <Raiser />
       </PocketShieldProvider>
     );
+    expect(screen.getByTestId('pocket-content')).not.toHaveAttribute('inert');
     expect(screen.queryByTestId('pocket-shield')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Pocket it' }));
     expect(screen.getByTestId('pocket-shield')).toBeInTheDocument();
+    expect(screen.getByTestId('pocket-content')).toHaveAttribute('inert');
+    expect(screen.getByTestId('pocket-content')).toHaveAttribute(
+      'aria-hidden',
+      'true'
+    );
+  });
+
+  it('restores the underlying app after the deliberate unlock sequence', () => {
+    let now = 1000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      render(
+        <PocketShieldProvider>
+          <Raiser />
+        </PocketShieldProvider>
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Pocket it' }));
+      for (let tap = 0; tap < TAPS_REQUIRED; ++tap) {
+        now += MIN_TAP_GAP_MS;
+        fireEvent.click(
+          screen.getByRole('button', { name: /unlock the screen/i })
+        );
+      }
+      expect(screen.queryByTestId('pocket-shield')).not.toBeInTheDocument();
+      expect(screen.getByTestId('pocket-content')).not.toHaveAttribute('inert');
+      expect(screen.getByTestId('pocket-content')).not.toHaveAttribute(
+        'aria-hidden'
+      );
+    } finally {
+      jest.restoreAllMocks();
+    }
   });
 });
 

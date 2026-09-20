@@ -1,11 +1,15 @@
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen } from '@testing-library/react';
 
 import { AutopilotState } from '@/contexts/AutopilotContext';
 import TopAutopilotContext from '@/contexts/TopAutopilotContext';
 
 import PocketShield from './PocketShield';
-import { MIN_TAP_GAP_MS, TAPS_REQUIRED } from './pocketGuard';
+import {
+  MAX_FINGER_RADIUS_PX,
+  MIN_TAP_GAP_MS,
+  TAPS_REQUIRED,
+} from './pocketGuard';
 
 const state: AutopilotState = {
   enabled: true,
@@ -74,6 +78,53 @@ function tap(element: HTMLElement) {
   fireEvent.click(element);
 }
 
+const finger = (
+  identifier: number,
+  radius = 12,
+  clientX = 10,
+  clientY = 10
+) => ({
+  identifier,
+  radiusX: radius,
+  radiusY: radius,
+  clientX,
+  clientY,
+});
+
+function touchStart(
+  element: HTMLElement,
+  touches: ReturnType<typeof finger>[],
+  changedTouches = touches
+) {
+  fireEvent.touchStart(element, { touches, changedTouches });
+}
+
+function touchMove(
+  element: HTMLElement,
+  touches: ReturnType<typeof finger>[],
+  changedTouches = touches
+) {
+  fireEvent.touchMove(element, { touches, changedTouches });
+}
+
+function touchEnd(
+  element: HTMLElement,
+  changedTouches: ReturnType<typeof finger>[],
+  touches: ReturnType<typeof finger>[] = []
+) {
+  fireEvent.touchEnd(element, { touches, changedTouches });
+}
+
+function deliberateTouch(element: HTMLElement) {
+  clock += MIN_TAP_GAP_MS;
+  const contact = finger(1);
+  touchStart(element, [contact]);
+  touchEnd(element, [contact]);
+  // Browsers follow a touch with this compatibility click. It is part of the
+  // sequence under test, not a second action by the user.
+  fireEvent.click(element);
+}
+
 describe('the pocket shield', () => {
   // A blank screen would answer nothing. The question being asked while the
   // phone is out of a pocket is almost always "is it still working", and this
@@ -93,6 +144,12 @@ describe('the pocket shield', () => {
     }
     tap(box());
     expect(onExit).toHaveBeenCalled();
+  });
+
+  it('counts a deliberate touch once, not again for its synthetic click', () => {
+    setup();
+    deliberateTouch(box());
+    expect(box()).toHaveAccessibleName(/2 more taps/i);
   });
 
   // Found by writing this suite: the first draft tapped three times without
@@ -125,6 +182,93 @@ describe('the pocket shield', () => {
     expect(box()).toHaveAccessibleName(/2 more taps/i);
   });
 
+  /**
+   * The regression sequence, kept whole. In v1.1.2 the click after the broad
+   * miss happened to reset progress. Suppressing that click without making the
+   * touch itself reset would silently remove the only reset the sequence had.
+   */
+  it('resets on a broad miss and ignores every later event in its click sequence', () => {
+    setup();
+    deliberateTouch(box());
+    expect(box()).toHaveAccessibleName(/2 more taps/i);
+
+    const broad = finger(2, MAX_FINGER_RADIUS_PX + 1);
+    touchStart(backdrop(), [broad]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+    touchEnd(backdrop(), [broad]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+    fireEvent.click(backdrop());
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+  });
+
+  it('does not turn a rejected broad target touch into a click hit', () => {
+    setup();
+    deliberateTouch(box());
+    expect(box()).toHaveAccessibleName(/2 more taps/i);
+
+    const broad = finger(2, MAX_FINGER_RADIUS_PX + 1);
+    touchStart(box(), [broad]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+    touchEnd(box(), [broad]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+    fireEvent.click(box());
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+  });
+
+  it('keeps a staggered multi-touch invalid through both releases', () => {
+    setup();
+    deliberateTouch(box());
+    expect(box()).toHaveAccessibleName(/2 more taps/i);
+
+    const first = finger(3);
+    const second = finger(4);
+    touchStart(box(), [first]);
+    touchStart(backdrop(), [first, second], [second]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+    touchEnd(box(), [first], [second]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+    touchEnd(backdrop(), [second]);
+    fireEvent.click(box());
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+  });
+
+  it('resets when a contact broadens during movement or is cancelled', () => {
+    setup();
+    deliberateTouch(box());
+    const contact = finger(5);
+    touchStart(box(), [contact]);
+    touchMove(box(), [finger(5, MAX_FINGER_RADIUS_PX + 1)]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+
+    deliberateTouch(box());
+    touchStart(box(), [finger(6)]);
+    fireEvent.touchCancel(box(), {
+      touches: [],
+      changedTouches: [finger(6)],
+    });
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+  });
+
+  it('resets when a contact drags instead of tapping', () => {
+    setup();
+    deliberateTouch(box());
+    touchStart(box(), [finger(8)]);
+    touchMove(box(), [finger(8, 12, 100, 10)]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+  });
+
+  it('prevents the touch gestures that can scroll or reload the page', () => {
+    setup();
+    expect(backdrop()).toHaveClass('touch-none', 'overscroll-none');
+    const event = createEvent.touchMove(backdrop(), {
+      cancelable: true,
+      touches: [finger(7)],
+      changedTouches: [finger(7)],
+    });
+    fireEvent(backdrop(), event);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   // Asserted on the position index rather than the rendered `left`. Two of the
   // eight positions share an x -- the target moves diagonally between them --
   // so reading one coordinate made this pass or fail on where the random pick
@@ -155,5 +299,26 @@ describe('the pocket shield', () => {
     setup({ status: { mode: 'stopped', consecutiveFailures: 8, polls: 40 } });
     expect(screen.getByText('Stopped')).toBeInTheDocument();
     expect(screen.getByText(/no longer checking/i)).toBeInTheDocument();
+  });
+
+  it('uses the same alarm state when autopilot is off', () => {
+    setup({
+      enabled: false,
+      status: { mode: 'off', consecutiveFailures: 0, polls: 0 },
+    });
+    expect(screen.getByText('Off')).toBeInTheDocument();
+    expect(screen.getByText(/is off and is no longer checking/i)).toBeVisible();
+    expect(backdrop()).toHaveClass('bg-red-950');
+  });
+
+  it('counts only unpaused targets with an automatic action', () => {
+    setup({
+      targetsHere: [
+        { experienceId: 'alert-only' },
+        { experienceId: 'book', autoBook: true },
+        { experienceId: 'paused', autoSwap: true, paused: true },
+      ],
+    });
+    expect(screen.getByText(/1 armed/)).toBeInTheDocument();
   });
 });

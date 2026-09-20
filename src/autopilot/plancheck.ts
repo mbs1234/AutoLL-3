@@ -3,7 +3,7 @@ import { Experience } from '@/api/ll';
 import { findExistingLL } from '@/autopilot/automodify';
 import { clashablePlans, windowClash } from '@/autopilot/overlap';
 import { isTier1 } from '@/autopilot/priority';
-import { WatchTarget, targetApplies } from '@/autopilot/watchlist';
+import { WatchTarget, targetActs, targetApplies } from '@/autopilot/watchlist';
 import { parkDate } from '@/datetime';
 
 export type PlanCheckLevel = 'blocker' | 'review' | 'ready';
@@ -60,15 +60,6 @@ function armedToBook(target: WatchTarget, input: PlanCheckInput) {
   if (!target.autoBook && !target.bookThenMove) return false;
   return !findExistingLL(input.plans, target.experienceId, input.date);
 }
-
-/** Whether any action at all is armed, for the watch-only advisory. */
-const acts = (target: WatchTarget) =>
-  !!(
-    target.autoBook ||
-    target.autoModify ||
-    target.bookThenMove ||
-    target.autoSwap
-  );
 
 const displayName = (target: WatchTarget, experiences: Experience[]) =>
   experiences.find(exp => exp.id === target.experienceId)?.name ??
@@ -132,7 +123,7 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
     );
   }
 
-  const armedAtAll = active.filter(acts);
+  const armedAtAll = active.filter(targetActs);
   if (armedAtAll.length === 0) {
     push(
       'review',
@@ -154,7 +145,7 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
         { kind: 'target', experienceId: target.experienceId }
       );
     }
-    if (acts(target) && target.paused) {
+    if (targetActs(target) && target.paused) {
       push(
         'review',
         `${name} has an action armed but is paused; it will alert only until resumed.`,

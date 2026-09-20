@@ -18,14 +18,15 @@ endorsed by Disney, it can stop working the day Disney changes an endpoint, and
 it comes with no warranty. Keep Disney's own app as the source of truth for what
 you actually hold.
 
-## 1.0.0 — the first stable release
+## 1.2.0 — guarded pocket operation
 
-Tagged `autoll3-v1.0.0`. "Stable" here means something narrow and checkable: the
-booking path has been through four rounds of adversarial review, the mutual
-exclusion that stops two copies acting on one reservation is atomic over the
-whole set of attractions an action can touch, and an outcome nobody learned is
-recorded as unknown rather than as a failure — so nothing on screen invites you
-to retry a request Disney may already have acted on.
+Tagged `autoll3-v1.2.0`. This release keeps the stable booking invariants from
+1.0.0 and makes the screen safe to leave awake in a pocket: the shield rejects
+the whole multi-touch or broad-contact gesture rather than its final event,
+suppresses the compatibility click a browser generates after touch, resets on
+every miss or cancellation, blocks page gestures, and requires all three
+moving-target taps within ten seconds. A 4am rollover now releases the screen
+wake lock and makes a still-raised shield warn that Autopilot is off.
 
 It does not mean feature-complete, and it does not mean it will keep working.
 [ROADMAP.md](ROADMAP.md) lists what is deliberately still open.
@@ -273,7 +274,7 @@ selections, one Tier 1 until somebody taps in, one booking per attraction per
 day. This build is faster and more attentive than you are at 7:00:02. That is
 the whole of its advantage.
 
-**Known rough edges, as of 1.0.0:**
+**Known rough edges, as of 1.2.0:**
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
@@ -304,13 +305,13 @@ the commit the bundle was built from.
 
 A tagged release is that pair of files together with the tag, and both are
 attached to the
-[release](https://github.com/mbs1234/AutoLL-3/releases/tag/autoll3-v1.0.0)
+[release](https://github.com/mbs1234/AutoLL-3/releases/tag/autoll3-v1.2.0)
 as well as served from the site. Re-running the deploy workflow against a tag
 rebuilds the same site, which is what makes a rollback a one-command operation
 rather than a rebuild from memory:
 
 ```bash
-gh workflow run deploy.yml --ref autoll3-v1.0.0
+gh workflow run deploy.yml --ref autoll3-v1.2.0
 ```
 
 That needs one repository setting that is easy to miss, because nothing in this
@@ -322,7 +323,7 @@ branch one. Anything forking this to a new repository has to add it again.
 
 `main` is protected: a pull request, a passing `check` run, linear history, no
 force-pushes. The deploy gates independently on typecheck and the full test
-suite — 117 suites, 1590 tests — and if either fails, the publish is skipped and
+suite — 117 suites, 1614 tests — and if either fails, the publish is skipped and
 Pages keeps serving the build already on your phone.
 
 ## Development

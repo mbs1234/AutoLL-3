@@ -125,6 +125,7 @@ import {
   parseBound,
   saveWatchList,
   selectNewAlerts,
+  targetActs,
   targetApplies,
 } from '@/autopilot/watchlist';
 import AutopilotContext, {
@@ -268,6 +269,12 @@ export default function AutopilotProvider({
   // second one inside the app's own. Without it, this component's unmount
   // released the lock a different, still-running provider was holding.
   const wakeLockOwner = useRef({}).current;
+
+  /** Every transition to disabled gives this provider's wake-lock hold back. */
+  const disable = useCallback(() => {
+    void releaseScreenAwake(wakeLockOwner);
+    setEnabledState(false);
+  }, [wakeLockOwner]);
 
   // When each rejected action may be tried again, keyed `kind:experienceId`.
   // Session state like the ledger's own locks, and cleared with them.
@@ -463,7 +470,7 @@ export default function AutopilotProvider({
       setBookingLog(loadBookingLog());
       setSkipCounts({});
       setLastSkip(undefined);
-      setEnabledState(false);
+      disable();
     };
     const timer = setInterval(follow, PARK_DAY_CHECK_MS);
     document.addEventListener('visibilitychange', follow);
@@ -473,7 +480,7 @@ export default function AutopilotProvider({
       document.removeEventListener('visibilitychange', follow);
       window.removeEventListener('focus', follow);
     };
-  }, []);
+  }, [disable]);
 
   // Unmount is the one path that bypasses `setEnabled(false)`, and a wake lock
   // outliving the screen that requested it would keep the phone awake with
@@ -1879,11 +1886,7 @@ export default function AutopilotProvider({
       // drop lands. Limiting it to auto-book targets bounds the extra requests,
       // and prewarmGuests skips anything already warm.
       const toWarm = activeTargets
-        .filter(
-          t =>
-            !t.paused &&
-            (t.autoBook || t.autoModify || t.bookThenMove || t.autoSwap)
-        )
+        .filter(t => !t.paused && targetActs(t))
         .map(t => ({ id: t.experienceId }));
       if (toWarm.length > 0) {
         await prewarmGuests(toWarm, date, {
@@ -2074,7 +2077,7 @@ export default function AutopilotProvider({
   const setEnabled = useCallback(
     (on: boolean) => {
       if (!on) {
-        void releaseScreenAwake(wakeLockOwner);
+        disable();
       } else {
         // Both of these must be initiated inside the user gesture that turned
         // autopilot on -- primeAudio synchronously, and the permission request
@@ -2116,9 +2119,9 @@ export default function AutopilotProvider({
         passkeyUnlockedForRef.current = undefined;
         setPasskeyStatus('off');
       }
-      setEnabledState(on);
+      if (on) setEnabledState(true);
     },
-    [wakeLockOwner, requestNotifications]
+    [disable, wakeLockOwner, requestNotifications]
   );
 
   /**

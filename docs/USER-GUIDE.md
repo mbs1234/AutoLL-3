@@ -385,6 +385,23 @@ anything already available gets re-alerted.
 > screen wake lock exists to prevent exactly this, and it is best-effort —
 > where the phone refuses, nothing on screen says so.
 
+### Put the running phone in your pocket
+
+Once Autopilot is on, tap **Pocket it**. The full-screen guard leaves the
+poller and notifications running while preventing the live glass from reaching
+the controls underneath it. It also blocks page scrolling and pull-to-refresh;
+a reload would turn Autopilot off.
+
+To lift the guard, tap the moving circle three times. The three clean taps must
+land within **10 seconds**. A miss, broad contact, second finger or cancelled
+gesture clears all progress, and the target moves after each accepted tap.
+
+The guarded screen is also a status display. It shows the current checking
+pace, the number of targets that can actually act, and today's booking count.
+If Autopilot stops or the 4am rollover turns it off, the guard changes to a red
+warning. Lift it and deliberately start a new run; an off or stopped guard is
+not still checking.
+
 ## 13. What the status words mean
 
 ![Today while bursting at a drop](user-guide/today-running.png)
@@ -830,7 +847,7 @@ further out than tomorrow gets no drop times at all and sits at 45 s.
 | Turning Autopilot on | Clears session log, skip counts, refusal state, locks, cache, passkey status, drop baseline; re-alerts anything available |
 | Turning Autopilot off | Leaves skip counts and the log alone |
 | Page reload | Autopilot off; skip counts lost; log and watch list survive |
-| 4am park-day rollover | Autopilot off; log emptied; skip counts zeroed |
+| 4am park-day rollover | Autopilot off; screen wake lock released; log emptied; skip counts zeroed |
 
 ## Glossary
 
