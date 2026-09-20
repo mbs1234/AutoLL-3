@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { use, useState } from 'react';
 
+import NavContext from '@/contexts/NavContext';
 import PocketShieldContext from '@/contexts/PocketShieldContext';
 import NavProvider from '@/providers/NavProvider';
 
@@ -95,6 +96,62 @@ describe('state above NavProvider', () => {
 });
 
 /**
+ * The second way this broke, found by changing tabs and coming back.
+ *
+ * `NavProvider` renders the nav stack as its OWN children, and `goTo` replaces
+ * the entry wholesale -- `withTabs` changes tab with
+ * `goTo(<Tabbed tabName={name} />, { replace: true })`. So entry 0 starts as
+ * whatever was passed as children and becomes a bare `<Tabbed>`: any provider
+ * mounted BETWEEN NavProvider and the screens is discarded the first time any
+ * screen is pushed or replaced, and every screen reached that way reads the
+ * default context.
+ *
+ * The shield worked only from the Today that happened to be mounted first.
+ * Change tab and come back and the button was still there, still wired to a
+ * real-looking setter, and doing nothing.
+ */
+describe('a provider between NavProvider and the screens', () => {
+  function Raiser3() {
+    const { setShielded } = use(PocketShieldContext);
+    return (
+      <button type="button" onClick={() => setShielded(true)}>
+        Raise
+      </button>
+    );
+  }
+
+  function Pusher({ children }: { children: React.ReactNode }) {
+    const { goTo } = use(NavContext);
+    return (
+      <>
+        {children}
+        <button
+          type="button"
+          onClick={() => goTo(<Raiser3 />, { replace: true })}
+        >
+          Replace screen
+        </button>
+      </>
+    );
+  }
+
+  it('survives a screen being replaced, because it sits above NavProvider', () => {
+    render(
+      <PocketShieldProvider>
+        <NavProvider>
+          <Pusher>
+            <Raiser3 />
+          </Pusher>
+        </NavProvider>
+      </PocketShieldProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Replace screen' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Raise' })[0]!);
+    expect(screen.getByTestId('pocket-shield')).toBeInTheDocument();
+  });
+});
+
+/**
  * `Merlock` and `harness/HarnessApp.tsx` are two hand-mirrored provider trees.
  * The shield was added to one and not the other, so the harness -- the only
  * place this app can be driven without a Disney session -- exercised a build
@@ -111,6 +168,29 @@ describe('the two provider trees', () => {
     'mounts the shield in %s',
     path => {
       expect(source(path)).toContain('<PocketShieldProvider>');
+    }
+  );
+
+  /**
+   * The class-level guard, not just this provider's.
+   *
+   * Anything mounted between `<NavProvider>` and the screen it renders is
+   * discarded the first time `goTo` replaces a stack entry, which a tab change
+   * does on every switch. A context provided there works until the user
+   * touches a tab and then silently stops, which is among the worst ways for
+   * this app to fail -- nothing errors and nothing looks different.
+   *
+   * So NavProvider gets exactly one child, and it is the screen.
+   */
+  it.each([['src/components/ll/Merlock.tsx'], ['harness/HarnessApp.tsx']])(
+    'puts nothing between NavProvider and the screen in %s',
+    path => {
+      const between = source(path)
+        .replace(/\s+/g, ' ')
+        .match(/<NavProvider>(.*?)<\/NavProvider>/)?.[1];
+      expect(between).toBeDefined();
+      expect(between).not.toMatch(/<[A-Z][A-Za-z]*Provider[\s>]/);
+      expect(between).not.toMatch(/<[A-Z][A-Za-z]*Context[\s>]/);
     }
   );
 
