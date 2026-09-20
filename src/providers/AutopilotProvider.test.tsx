@@ -2293,6 +2293,56 @@ describe('AutopilotProvider repeated moves', () => {
 // Opening and leaving that tab therefore mounts and unmounts a provider
 // underneath a running one, and must not disturb it -- Autopilot running
 // across tabs is the whole reason its provider sits where it does.
+/**
+ * On iOS Safari the chime is the whole alert channel: `Notification` is
+ * undefined outside an installed web app and vibration is unimplemented. iOS
+ * parks an AudioContext in `interrupted` when the screen locks or a call
+ * arrives and never leaves it, so priming once at the toggle used to mean a
+ * run went permanently silent the first time anything interrupted it --
+ * including for the alert that says autopilot has stopped.
+ */
+describe('AutopilotProvider keeping the alert sound alive', () => {
+  const visibility = (state: DocumentVisibilityState) =>
+    Object.defineProperty(document, 'visibilityState', {
+      value: state,
+      configurable: true,
+    });
+
+  afterEach(() => visibility('visible'));
+
+  it('takes the audio context back when the page returns to the foreground', async () => {
+    setup([]);
+    await enable();
+    (primeAudio as jest.Mock).mockClear();
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(primeAudio).toHaveBeenCalled();
+  });
+
+  // A hidden page cannot resume audio, and asking would be noise.
+  it('waits until the page is actually visible', async () => {
+    setup([]);
+    await enable();
+    (primeAudio as jest.Mock).mockClear();
+    visibility('hidden');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(primeAudio).not.toHaveBeenCalled();
+  });
+
+  it('leaves audio alone while autopilot is off', async () => {
+    setup([]);
+    (primeAudio as jest.Mock).mockClear();
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(primeAudio).not.toHaveBeenCalled();
+  });
+});
+
 describe('AutopilotProvider with a second provider mounted inside it', () => {
   beforeEach(() => setTime('09:00'));
 

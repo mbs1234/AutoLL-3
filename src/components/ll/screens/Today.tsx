@@ -1,6 +1,7 @@
 import { use, useEffect, useMemo, useState } from 'react';
 
 import { LLMP, isLLMP } from '@/api/itinerary';
+import { AudioStatus, audioStatus, soundCheck } from '@/autopilot/alert';
 import { checklist } from '@/autopilot/checklist';
 import { describeMode } from '@/autopilot/describe';
 import { latestActivity } from '@/autopilot/events';
@@ -121,6 +122,12 @@ export default function Today({ ref }: HomeTabProps) {
   const plan = [...targetsHere].sort(
     (a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity)
   );
+  // Nothing fires an event when an AudioContext is interrupted, so this is
+  // re-read whenever the poller reports in -- `status` is a fresh object per
+  // tick -- rather than trusted from the moment autopilot was switched on.
+  const [soundStatus, setSoundStatus] = useState<AudioStatus>(audioStatus);
+  useEffect(() => setSoundStatus(audioStatus()), [enabled, status]);
+  const checkSound = () => void soundCheck().then(setSoundStatus);
   // Armed means it will act: a paused target keeps its arming but is counted
   // with the paused, not with the armed.
   const armed = targetsHere.filter(t => targetActs(t) && !t.paused).length;
@@ -355,6 +362,30 @@ export default function Today({ ref }: HomeTabProps) {
           vibrate only. On iOS, notifications require adding this page to your
           Home Screen.
         </p>
+      )}
+      {/* On iOS Safari the chime is not one channel of three, it is the only
+          one: `Notification` is undefined outside an installed web app and
+          vibration is unimplemented. A context that never unlocked, or that
+          iOS interrupted, is silent and announces nothing -- so the state is
+          shown, and there is a way to hear it on purpose rather than by
+          waiting for a real find and wondering. */}
+      {soundStatus !== 'unsupported' && (
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span
+            className={`text-sm ${
+              soundStatus === 'armed'
+                ? 'text-gray-600'
+                : 'font-semibold text-red-700'
+            }`}
+          >
+            {soundStatus === 'armed'
+              ? 'Alert sound is armed.'
+              : 'Alert sound is not armed, so alerts would be silent.'}
+          </span>
+          <Button type="small" onClick={checkSound}>
+            Test sound
+          </Button>
+        </div>
       )}
       {unknown > 0 && (
         <p className="mt-3 text-sm font-semibold text-red-700">

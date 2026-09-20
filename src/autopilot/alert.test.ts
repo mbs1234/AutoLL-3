@@ -3,12 +3,17 @@ import { NOTIFICATION_TAG_NAMESPACE } from '@/storageNamespace';
 import {
   alertPermission,
   audioReady,
+  audioStatus,
   chime,
   fireAlert,
   primeAudio,
   requestAlertPermission,
   resetAudioForTests,
+  soundCheck,
 } from './alert';
+
+/** The chime is two notes; asserting on the count keeps that honest. */
+const CHIME_NOTES = 2;
 
 // Omit the lib.dom declarations before re-adding them as `unknown`. An
 // intersection would not help: `AudioContext & unknown` collapses back to the
@@ -22,11 +27,18 @@ type Global = Omit<typeof globalThis, 'Notification' | 'AudioContext'> & {
 const g = globalThis as Global;
 
 /** Minimal AudioContext double: records what got scheduled. */
-function fakeAudioContext(state: AudioContextState = 'running') {
+function fakeAudioContext(state: string = 'running') {
   const started: number[] = [];
+  // Settles a task later, as a browser's does. A double that woke the context
+  // synchronously would hide the bug this file exists to pin: priming and
+  // chiming in one tick plays nothing, because the context is not awake yet.
   const resume = jest.fn(async () => {
+    await Promise.resolve();
     ctx.state = 'running';
   });
+  // The silent one-frame source that unlocks output on iOS. Counted rather
+  // than inspected: that it was started at all is the whole behaviour.
+  const unlocks: number[] = [];
   const gainNode = {
     gain: {
       setValueAtTime: jest.fn(),
@@ -46,9 +58,16 @@ function fakeAudioContext(state: AudioContextState = 'running') {
       stop: jest.fn(),
     })),
     createGain: jest.fn(() => gainNode),
+    sampleRate: 48_000,
+    createBuffer: jest.fn(() => ({})),
+    createBufferSource: jest.fn(() => ({
+      buffer: undefined as unknown,
+      connect: jest.fn(),
+      start: jest.fn((t: number) => unlocks.push(t)),
+    })),
     destination: {},
   };
-  return { ctx, started, resume };
+  return { ctx, started, resume, unlocks };
 }
 
 function stubNotification(
@@ -135,6 +154,26 @@ describe('primeAudio()', () => {
     expect(resume).toHaveBeenCalled();
   });
 
+  // The regression this exists for: resume() alone left a phone silent for a
+  // whole run. WebKit wants a source to have been started inside the gesture
+  // before it will let the context sound.
+  it('starts a silent source, which is what actually unlocks iOS', () => {
+    const { ctx, unlocks } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    expect(unlocks).toHaveLength(1);
+  });
+
+  // iOS parks a context here when the screen locks or a call arrives. It is
+  // not in the DOM state union, and testing for 'suspended' missed it, so a
+  // single interruption used to end the run's only alert channel.
+  it('resumes a context iOS interrupted, not just a suspended one', () => {
+    const { ctx, resume } = fakeAudioContext('interrupted');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    expect(resume).toHaveBeenCalled();
+  });
+
   it('falls back to the webkit-prefixed constructor', () => {
     const { ctx } = fakeAudioContext('running');
     g.webkitAudioContext = jest.fn(() => ctx);
@@ -148,6 +187,71 @@ describe('primeAudio()', () => {
     });
     expect(() => primeAudio()).not.toThrow();
     expect(audioReady()).toBe(false);
+  });
+
+  it('keeps the context when the engine has no buffer sources', () => {
+    const { ctx } = fakeAudioContext('running');
+    ctx.createBufferSource = jest.fn(() => {
+      throw new Error('unimplemented');
+    }) as unknown as typeof ctx.createBufferSource;
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    // Oscillators are all `chime` needs; a failed unlock must not cost the
+    // context on an engine that never needed unlocking.
+    expect(audioReady()).toBe(true);
+  });
+});
+
+describe('audioStatus()', () => {
+  it('reports unsupported where there is no AudioContext at all', () => {
+    expect(audioStatus()).toBe('unsupported');
+  });
+
+  it('reports idle until something primes it', () => {
+    const { ctx } = fakeAudioContext('suspended');
+    g.AudioContext = jest.fn(() => ctx);
+    expect(audioStatus()).toBe('idle');
+    primeAudio();
+    ctx.state = 'suspended';
+    expect(audioStatus()).toBe('idle');
+  });
+
+  it('reports armed once the context is running', () => {
+    const { ctx } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    expect(audioStatus()).toBe('armed');
+  });
+});
+
+describe('soundCheck()', () => {
+  // The button exists because the only way to discover a dead alert channel
+  // was to wait for a real find and notice the silence.
+  it('wakes a sleeping context and then plays', async () => {
+    const { ctx, started, resume } = fakeAudioContext('suspended');
+    g.AudioContext = jest.fn(() => ctx);
+    await expect(soundCheck()).resolves.toBe('armed');
+    expect(resume).toHaveBeenCalled();
+    expect(started).toHaveLength(CHIME_NOTES);
+  });
+
+  // Awaiting the resume is the point: priming and chiming in one tick sees a
+  // context that has not woken up yet and plays nothing.
+  it('would play nothing without waiting for the resume', () => {
+    const { ctx, started } = fakeAudioContext('suspended');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    chime();
+    expect(started).toHaveLength(0);
+  });
+
+  it('reports idle when the context refuses to wake', async () => {
+    const { ctx } = fakeAudioContext('suspended');
+    ctx.resume = jest.fn(async () => {
+      throw new Error('gesture required');
+    });
+    g.AudioContext = jest.fn(() => ctx);
+    await expect(soundCheck()).resolves.toBe('idle');
   });
 });
 
@@ -166,6 +270,19 @@ describe('chime()', () => {
     ctx.state = 'suspended';
     chime();
     expect(ctx.createOscillator).not.toHaveBeenCalled();
+  });
+
+  // Losing this alert is unavoidable; losing every later one is not. iOS
+  // never leaves `interrupted` on its own, so something has to ask.
+  it('asks for a sleeping context back so the next alert can land', () => {
+    const { ctx } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    (ctx.resume as jest.Mock).mockClear();
+    chime();
+    expect(ctx.createOscillator).not.toHaveBeenCalled();
+    expect(ctx.resume).toHaveBeenCalled();
   });
 
   it('schedules both notes in sequence', () => {
