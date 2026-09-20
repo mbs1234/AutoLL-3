@@ -45,11 +45,17 @@ const state: AutopilotState = {
   dropSummaries: [],
 };
 
-function setup(overrides: Partial<AutopilotState> = {}) {
+function setup(
+  overrides: Partial<AutopilotState> = {},
+  options: {
+    wideTouchLearned?: boolean;
+    onLearnWideTouch?: () => void;
+  } = {}
+) {
   const onExit = jest.fn();
   render(
     <TopAutopilotContext value={{ ...state, ...overrides }}>
-      <PocketShield onExit={onExit} />
+      <PocketShield onExit={onExit} {...options} />
     </TopAutopilotContext>
   );
   return onExit;
@@ -90,6 +96,14 @@ const finger = (
   clientX,
   clientY,
 });
+
+const ovalFinger = (
+  identifier: number,
+  radiusX: number,
+  radiusY: number,
+  clientX = 10,
+  clientY = 10
+) => ({ identifier, radiusX, radiusY, clientX, clientY });
 
 function touchStart(
   element: HTMLElement,
@@ -152,6 +166,33 @@ describe('the pocket shield', () => {
     expect(box()).toHaveAccessibleName(/2 more taps/i);
   });
 
+  it('does not credit a touchend whose touchstart preceded the shield', () => {
+    setup();
+    const contact = finger(40);
+    touchEnd(box(), [contact]);
+    fireEvent.click(box());
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+  });
+
+  it.each([
+    [20, 60],
+    [60, 20],
+  ])(
+    'accepts an elongated fingertip reported as %d by %d',
+    (radiusX, radiusY) => {
+      setup();
+      clock += MIN_TAP_GAP_MS;
+      const contact = ovalFinger(9, radiusX, radiusY);
+      touchStart(box(), [contact]);
+      touchEnd(box(), [contact]);
+      fireEvent.click(box());
+      expect(box()).toHaveAccessibleName(/2 more taps/i);
+      expect(
+        screen.queryByText(/keep using one fingertip/i)
+      ).not.toBeInTheDocument();
+    }
+  );
+
   // Found by writing this suite: the first draft tapped three times without
   // moving the clock and did not unlock, which is the floor doing its job. One
   // contact dragging across the glass emits a burst like that.
@@ -201,23 +242,97 @@ describe('the pocket shield', () => {
     expect(box()).toHaveAccessibleName(/3 more taps/i);
   });
 
-  it('does not turn a rejected broad target touch into a click hit', () => {
-    setup();
+  it('turns one broad target sequence into one moving-target escape attempt', () => {
+    const onLearnWideTouch = jest.fn();
+    setup({}, { onLearnWideTouch });
     deliberateTouch(box());
     expect(box()).toHaveAccessibleName(/2 more taps/i);
 
     const broad = finger(2, MAX_FINGER_RADIUS_PX + 1);
+    const before = box().dataset.position;
     touchStart(box(), [broad]);
+    expect(box().dataset.position).not.toBe(before);
     expect(box()).toHaveAccessibleName(/3 more taps/i);
     touchEnd(box(), [broad]);
-    expect(box()).toHaveAccessibleName(/3 more taps/i);
+    expect(box()).toHaveAccessibleName(/2 more taps/i);
+    expect(screen.getByText(/keep using one fingertip/i)).toBeVisible();
     fireEvent.click(box());
+    expect(box()).toHaveAccessibleName(/2 more taps/i);
+    expect(onLearnWideTouch).not.toHaveBeenCalled();
+  });
+
+  it('unlocks through three broad moving-target touches with centroid drift', () => {
+    const onLearnWideTouch = jest.fn();
+    const onExit = setup({}, { onLearnWideTouch });
+    const labels: (string | null)[] = [];
+    const exitCounts: number[] = [];
+
+    for (let attempt = 0; attempt < TAPS_REQUIRED; ++attempt) {
+      clock += MIN_TAP_GAP_MS;
+      const start = finger(20 + attempt, MAX_FINGER_RADIUS_PX + 1, 10, 10);
+      const moved = finger(20 + attempt, MAX_FINGER_RADIUS_PX + 1, 60, 10);
+      const before = box().dataset.position;
+
+      touchStart(box(), [start]);
+      expect(box().dataset.position).not.toBe(before);
+      expect(onExit).not.toHaveBeenCalled();
+
+      touchMove(box(), [moved]);
+      expect(onExit).not.toHaveBeenCalled();
+
+      touchEnd(box(), [moved]);
+      fireEvent.click(box());
+      labels.push(box().getAttribute('aria-label'));
+      exitCounts.push(onExit.mock.calls.length);
+    }
+
+    expect(labels.slice(0, 2)).toEqual([
+      'Unlock the screen: 2 more taps needed',
+      'Unlock the screen: 1 more tap needed',
+    ]);
+    expect(exitCounts).toEqual([0, 0, 1]);
+    expect(onLearnWideTouch).toHaveBeenCalledTimes(1);
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
+  it('resets the escape when the next press stays at the old target', () => {
+    setup();
+    clock += MIN_TAP_GAP_MS;
+    const broad = finger(30, MAX_FINGER_RADIUS_PX + 1);
+    touchStart(box(), [broad]);
+    touchEnd(box(), [broad]);
+    fireEvent.click(box());
+    expect(box()).toHaveAccessibleName(/2 more taps/i);
+
+    clock += MIN_TAP_GAP_MS;
+    touchStart(backdrop(), [broad]);
+    touchEnd(backdrop(), [broad]);
+    fireEvent.click(backdrop());
     expect(box()).toHaveAccessibleName(/3 more taps/i);
+    expect(
+      screen.queryByText(/keep using one fingertip/i)
+    ).not.toBeInTheDocument();
+  });
+
+  it('uses the ordinary path for a learned broad fingertip', () => {
+    setup({}, { wideTouchLearned: true });
+    clock += MIN_TAP_GAP_MS;
+    const broad = finger(31, MAX_FINGER_RADIUS_PX + 1);
+    const before = box().dataset.position;
+    touchStart(box(), [broad]);
+    expect(box().dataset.position).toBe(before);
+    touchEnd(box(), [broad]);
+    fireEvent.click(box());
+    expect(box()).toHaveAccessibleName(/2 more taps/i);
+    expect(box().dataset.position).not.toBe(before);
   });
 
   it('keeps a staggered multi-touch invalid through both releases', () => {
     setup();
-    deliberateTouch(box());
+    const broad = finger(32, MAX_FINGER_RADIUS_PX + 1);
+    touchStart(box(), [broad]);
+    touchEnd(box(), [broad]);
+    fireEvent.click(box());
     expect(box()).toHaveAccessibleName(/2 more taps/i);
 
     const first = finger(3);
@@ -230,23 +345,58 @@ describe('the pocket shield', () => {
     touchEnd(backdrop(), [second]);
     fireEvent.click(box());
     expect(box()).toHaveAccessibleName(/3 more taps/i);
+    expect(
+      screen.queryByText(/keep using one fingertip/i)
+    ).not.toBeInTheDocument();
   });
 
-  it('resets when a contact broadens during movement or is cancelled', () => {
+  it('uses the escape when a contact broadens during movement', () => {
     setup();
     deliberateTouch(box());
     const contact = finger(5);
     touchStart(box(), [contact]);
-    touchMove(box(), [finger(5, MAX_FINGER_RADIUS_PX + 1)]);
+    const broad = finger(5, MAX_FINGER_RADIUS_PX + 1);
+    touchMove(box(), [broad]);
     expect(box()).toHaveAccessibleName(/3 more taps/i);
+    touchEnd(box(), [broad]);
+    fireEvent.click(box());
+    expect(box()).toHaveAccessibleName(/2 more taps/i);
+  });
 
-    deliberateTouch(box());
+  it('resets escape progress when the next gesture is cancelled', () => {
+    setup();
+    const broad = finger(33, MAX_FINGER_RADIUS_PX + 1);
+    touchStart(box(), [broad]);
+    touchEnd(box(), [broad]);
+    fireEvent.click(box());
+    expect(box()).toHaveAccessibleName(/2 more taps/i);
+
     touchStart(box(), [finger(6)]);
     fireEvent.touchCancel(box(), {
       touches: [],
       changedTouches: [finger(6)],
     });
     expect(box()).toHaveAccessibleName(/3 more taps/i);
+  });
+
+  it('resets escape progress when a large contact travels too far', () => {
+    setup();
+    const broad = finger(34, MAX_FINGER_RADIUS_PX + 1);
+    touchStart(box(), [broad]);
+    touchEnd(box(), [broad]);
+    fireEvent.click(box());
+    expect(box()).toHaveAccessibleName(/2 more taps/i);
+
+    clock += MIN_TAP_GAP_MS;
+    touchStart(box(), [broad]);
+    const dragged = finger(34, MAX_FINGER_RADIUS_PX + 1, 100, 10);
+    touchMove(box(), [dragged]);
+    touchEnd(box(), [dragged]);
+    fireEvent.click(box());
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+    expect(
+      screen.queryByText(/keep using one fingertip/i)
+    ).not.toBeInTheDocument();
   });
 
   it('resets when a contact drags instead of tapping', () => {

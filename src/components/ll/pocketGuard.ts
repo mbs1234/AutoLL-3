@@ -35,6 +35,15 @@ export const MIN_TAP_GAP_MS = 150;
 export const MAX_TAP_SEQUENCE_MS = 10_000;
 
 /**
+ * Longest time allowed for the three-tap wide-touch escape, in ms.
+ *
+ * A large contact can take a little longer to place and follow the moving
+ * target. The target still moves after every attempt, so the wider window does
+ * not let one stationary pocket contact accumulate progress.
+ */
+export const MAX_WIDE_TOUCH_SEQUENCE_MS = 20_000;
+
+/**
  * Where the target can be, as fractions of the shield.
  *
  * Nine positions, well apart, and never the centre -- the centre is where a
@@ -71,25 +80,61 @@ export const INITIAL: ShieldState = {
 };
 
 /**
- * Whether a touch is one finger, deliberately placed.
+ * The smaller axis of a reported touch ellipse, in CSS px.
  *
- * A pocket puts several contacts down at once and each one is broad. Both
- * readings are advisory: `radiusX` is unreported on some engines and reads 0 or
- * 1 on others, so a missing or zero radius is NOT treated as suspicious -- it
- * would refuse every tap on those devices. Only a radius we can read AND that
- * is implausibly wide for a fingertip is rejected.
+ * A real fingertip is often an elongated ellipse, so rejecting its larger axis
+ * can make every tap impossible. One narrow axis is treated as finger-shaped.
+ * That admits a long, narrow fabric crease too; the moving target and reset on
+ * every miss remain the primary defence against one of those unlocking.
+ *
+ * Both axes are advisory. Some engines omit them or report 0/1, so an
+ * incomplete reading fails open rather than making the shield impossible to
+ * lift.
  */
+export function reportedMinorRadius(
+  radiusX?: number,
+  radiusY?: number
+): number | undefined {
+  if (
+    radiusX === undefined ||
+    radiusY === undefined ||
+    !Number.isFinite(radiusX) ||
+    !Number.isFinite(radiusY) ||
+    radiusX <= 1 ||
+    radiusY <= 1
+  ) {
+    return undefined;
+  }
+  return Math.min(radiusX, radiusY);
+}
+
+/** Largest usable axis, used to recognise somebody needing the escape path. */
+export function reportedMajorRadius(
+  radiusX?: number,
+  radiusY?: number
+): number | undefined {
+  const axes = [radiusX, radiusY].filter(
+    (radius): radius is number =>
+      radius !== undefined && Number.isFinite(radius) && radius > 1
+  );
+  return axes.length === 0 ? undefined : Math.max(...axes);
+}
+
+/** Whether a touch is one finger, deliberately placed. */
 export function isDeliberateTouch(
   touchCount: number,
-  radiusX?: number
+  minorRadius?: number,
+  ignoreRadius = false
 ): boolean {
   if (touchCount > 1) return false;
-  if (radiusX === undefined || radiusX <= 0) return true;
-  return radiusX <= MAX_FINGER_RADIUS_PX;
+  if (ignoreRadius || minorRadius === undefined || minorRadius <= 0) {
+    return true;
+  }
+  return minorRadius <= MAX_FINGER_RADIUS_PX;
 }
 
 /**
- * Widest contact patch still credited to a fingertip, in CSS px.
+ * Widest minor axis still credited to a fingertip, in CSS px.
  *
  * A fingertip reports roughly 10-25 here. A palm, a thigh through fabric, or a
  * jacket lining reports far more. Set generously: refusing a real tap is worse
@@ -101,6 +146,9 @@ export const MAX_FINGER_RADIUS_PX = 45;
 /** Maximum drift still treated as a tap rather than a drag. */
 export const MAX_TAP_TRAVEL_PX = 32;
 
+/** Maximum drift allowed while learning the wide-touch escape. */
+export const MAX_WIDE_TOUCH_TRAVEL_PX = MAX_TAP_TRAVEL_PX * 2;
+
 export type TouchGesturePhase = 'start' | 'move' | 'end' | 'cancel';
 
 /** The touch facts the component can read without constructing DOM objects. */
@@ -110,8 +158,10 @@ export interface TouchGestureEvent {
   touches: number;
   /** Contacts added, moved, removed or cancelled by this event. */
   changedTouches: number;
-  /** Widest radius reported anywhere in either touch list. */
-  maxRadius?: number;
+  /** Widest minor radius reported anywhere in either touch list. */
+  minorRadius?: number;
+  /** Widest major radius reported anywhere in either touch list. */
+  majorRadius?: number;
   /** Current position of the gesture's primary contact, when reported. */
   point?: { x: number; y: number };
   /** Whether this gesture began on the moving unlock target. */
@@ -124,7 +174,8 @@ export interface TouchGestureState {
   startedOnTarget: boolean;
   invalid: boolean;
   maxContacts: number;
-  maxRadius: number;
+  maxMinorRadius: number;
+  maxMajorRadius: number;
   startX?: number;
   startY?: number;
   maxTravel: number;
@@ -135,14 +186,17 @@ export const INITIAL_TOUCH_GESTURE: TouchGestureState = {
   startedOnTarget: false,
   invalid: false,
   maxContacts: 0,
-  maxRadius: 0,
+  maxMinorRadius: 0,
+  maxMajorRadius: 0,
   maxTravel: 0,
 };
 
 export type TouchGestureResult = {
   state: TouchGestureState;
   /** `reset` is emitted once, at the first evidence the gesture is invalid. */
-  outcome: 'pending' | 'reset' | 'hit';
+  outcome: 'pending' | 'reset' | 'wide-reset' | 'hit';
+  /** What the complete gesture proved, if every contact is now off the glass. */
+  completion: 'none' | 'normal' | 'wide' | 'invalid';
 };
 
 /**
@@ -156,12 +210,24 @@ export type TouchGestureResult = {
  */
 export function reduceTouchGesture(
   state: TouchGestureState,
-  event: TouchGestureEvent
+  event: TouchGestureEvent,
+  { ignoreRadius = false }: { ignoreRadius?: boolean } = {}
 ): TouchGestureResult {
+  // A finger can already be down when the shield mounts. Its ending event did
+  // not begin on this moving target and must never be manufactured into a hit.
+  if (!state.active && event.phase !== 'start') {
+    return {
+      state: INITIAL_TOUCH_GESTURE,
+      outcome: 'pending',
+      completion: 'none',
+    };
+  }
+
   if (event.phase === 'cancel') {
     return {
       state: INITIAL_TOUCH_GESTURE,
       outcome: state.invalid ? 'pending' : 'reset',
+      completion: 'invalid',
     };
   }
 
@@ -174,7 +240,8 @@ export function reduceTouchGesture(
       ? event.touches + event.changedTouches
       : event.touches;
   const maxContacts = Math.max(state.maxContacts, contacts);
-  const maxRadius = Math.max(state.maxRadius, event.maxRadius ?? 0);
+  const maxMinorRadius = Math.max(state.maxMinorRadius, event.minorRadius ?? 0);
+  const maxMajorRadius = Math.max(state.maxMajorRadius, event.majorRadius ?? 0);
   const startX = startsGesture
     ? event.point?.x
     : (state.startX ?? event.point?.x);
@@ -189,17 +256,29 @@ export function reduceTouchGesture(
   const invalid =
     state.invalid ||
     !startedOnTarget ||
-    !isDeliberateTouch(maxContacts, maxRadius) ||
+    !isDeliberateTouch(maxContacts, maxMinorRadius, ignoreRadius) ||
     maxTravel > MAX_TAP_TRAVEL_PX;
+  const wide =
+    startedOnTarget &&
+    maxContacts === 1 &&
+    maxMajorRadius > MAX_FINGER_RADIUS_PX &&
+    maxTravel <= MAX_WIDE_TOUCH_TRAVEL_PX;
   const completed = event.phase === 'end' && event.touches === 0;
+  const newlyInvalid = invalid && !state.invalid;
+  const outcome = newlyInvalid ? (wide ? 'wide-reset' : 'reset') : 'pending';
 
   if (completed) {
     if (!invalid) {
-      return { state: INITIAL_TOUCH_GESTURE, outcome: 'hit' };
+      return {
+        state: INITIAL_TOUCH_GESTURE,
+        outcome: 'hit',
+        completion: 'normal',
+      };
     }
     return {
       state: INITIAL_TOUCH_GESTURE,
-      outcome: state.invalid ? 'pending' : 'reset',
+      outcome,
+      completion: wide ? 'wide' : 'invalid',
     };
   }
 
@@ -209,12 +288,63 @@ export function reduceTouchGesture(
       startedOnTarget,
       invalid,
       maxContacts,
-      maxRadius,
+      maxMinorRadius,
+      maxMajorRadius,
       startX,
       startY,
       maxTravel,
     },
-    outcome: invalid && !state.invalid ? 'reset' : 'pending',
+    outcome,
+    completion: 'none',
+  };
+}
+
+/** Progress through the alternate moving-target path for a large contact. */
+export interface WideTouchState {
+  taps: number;
+  lastTapAt: number;
+  firstTapAt: number;
+}
+
+export const INITIAL_WIDE_TOUCH: WideTouchState = {
+  taps: 0,
+  lastTapAt: 0,
+  firstTapAt: 0,
+};
+
+export type WideTouchResult =
+  | { kind: 'ignored'; state: WideTouchState }
+  | { kind: 'progress'; state: WideTouchState }
+  | { kind: 'unlocked' };
+
+/**
+ * Credit one large-contact attempt in the separate escape sequence.
+ *
+ * The gesture reducer has already proved that it began on the target, used one
+ * contact and stayed within the looser travel bound. The component moves the
+ * target before calling this function, so a stationary pocket contact cannot
+ * provide the next tap.
+ */
+export function onWideTouch(
+  state: WideTouchState,
+  at: number
+): WideTouchResult {
+  const current =
+    state.taps > 0 && at - state.firstTapAt > MAX_WIDE_TOUCH_SEQUENCE_MS
+      ? INITIAL_WIDE_TOUCH
+      : state;
+  if (at - current.lastTapAt < MIN_TAP_GAP_MS) {
+    return { kind: 'ignored', state: current };
+  }
+  const taps = current.taps + 1;
+  if (taps >= TAPS_REQUIRED) return { kind: 'unlocked' };
+  return {
+    kind: 'progress',
+    state: {
+      taps,
+      lastTapAt: at,
+      firstTapAt: current.taps === 0 ? at : current.firstTapAt,
+    },
   };
 }
 
@@ -271,6 +401,19 @@ export function onMiss(
   pick: (count: number, current: number) => number
 ): ShieldState {
   if (state.taps === 0 && state.position === INITIAL.position) return state;
+  return {
+    taps: 0,
+    position: pick(BOX_POSITIONS.length, state.position),
+    lastTapAt: 0,
+    firstTapAt: 0,
+  };
+}
+
+/** Reset normal progress and move even when the shield was still pristine. */
+export function onWideTouchStart(
+  state: ShieldState,
+  pick: (count: number, current: number) => number
+): ShieldState {
   return {
     taps: 0,
     position: pick(BOX_POSITIONS.length, state.position),

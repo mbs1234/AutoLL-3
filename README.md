@@ -18,6 +18,16 @@ endorsed by Disney, it can stop working the day Disney changes an endpoint, and
 it comes with no warranty. Keep Disney's own app as the source of truth for what
 you actually hold.
 
+## 1.2.1 — wide-touch escape
+
+Tagged `autoll3-v1.2.1`. This patch keeps the strict three-tap pocket guard but
+removes a device-dependent lockout: an elongated fingertip is judged by its
+narrow axis, and somebody whose touch still reports too large can follow the
+moving target three times through a separate escape path. That path permits
+more centroid drift, moves after every attempt, resets on any miss or second
+contact, and is remembered until the page reloads. A touchend that began before
+the shield appeared can no longer count.
+
 ## 1.2.0 — guarded pocket operation
 
 Tagged `autoll3-v1.2.0`. This release keeps the stable booking invariants from
@@ -274,7 +284,7 @@ selections, one Tier 1 until somebody taps in, one booking per attraction per
 day. This build is faster and more attentive than you are at 7:00:02. That is
 the whole of its advantage.
 
-**Known rough edges, as of 1.2.0:**
+**Known rough edges, as of 1.2.1:**
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
@@ -305,13 +315,13 @@ the commit the bundle was built from.
 
 A tagged release is that pair of files together with the tag, and both are
 attached to the
-[release](https://github.com/mbs1234/AutoLL-3/releases/tag/autoll3-v1.2.0)
+[release](https://github.com/mbs1234/AutoLL-3/releases/tag/autoll3-v1.2.1)
 as well as served from the site. Re-running the deploy workflow against a tag
 rebuilds the same site, which is what makes a rollback a one-command operation
 rather than a rebuild from memory:
 
 ```bash
-gh workflow run deploy.yml --ref autoll3-v1.2.0
+gh workflow run deploy.yml --ref autoll3-v1.2.1
 ```
 
 That needs one repository setting that is easy to miss, because nothing in this
