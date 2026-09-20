@@ -47,9 +47,16 @@ export default function HarnessApp({
                   <AutopilotProvider>
                     <ScenarioAutopilot scenario={scenario}>
                       <RebookingProvider>
-                        <NavProvider>
-                          <HarnessRoot scenario={scenario} world={world} />
-                        </NavProvider>
+                        {/* Mirrors `Merlock`: both above NavProvider, because
+                            a stack entry replaced by `goTo` carries no
+                            provider mounted inside it. */}
+                        <TopAutopilotProvider>
+                          <PocketShieldProvider>
+                            <NavProvider>
+                              <HarnessRoot scenario={scenario} world={world} />
+                            </NavProvider>
+                          </PocketShieldProvider>
+                        </TopAutopilotProvider>
                       </RebookingProvider>
                     </ScenarioAutopilot>
                   </AutopilotProvider>
@@ -116,11 +123,5 @@ function HarnessRoot({
   // `TopAutopilotProvider` as well, which this tree was missing: without it the
   // shield read the default context and reported "Off" while the engine beside
   // it said "Watching".
-  return (
-    <TopAutopilotProvider>
-      <PocketShieldProvider>
-        <Home tabName={Home.getSavedTabName()} />
-      </PocketShieldProvider>
-    </TopAutopilotProvider>
-  );
+  return <Home tabName={Home.getSavedTabName()} />;
 }
