@@ -4,7 +4,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { use, useState } from 'react';
 
-import { MIN_TAP_GAP_MS, TAPS_REQUIRED } from '@/components/ll/pocketGuard';
+import {
+  MAX_FINGER_RADIUS_PX,
+  MIN_TAP_GAP_MS,
+  TAPS_REQUIRED,
+} from '@/components/ll/pocketGuard';
 import NavContext from '@/contexts/NavContext';
 import PocketShieldContext from '@/contexts/PocketShieldContext';
 import NavProvider from '@/providers/NavProvider';
@@ -63,6 +67,79 @@ describe('raising the shield from a screen inside it', () => {
       expect(screen.getByTestId('pocket-content')).not.toHaveAttribute(
         'aria-hidden'
       );
+    } finally {
+      jest.restoreAllMocks();
+    }
+  });
+
+  it('remembers a learned wide touch when the phone is re-pocketed', () => {
+    let now = 10_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      render(
+        <PocketShieldProvider>
+          <Raiser />
+        </PocketShieldProvider>
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Pocket it' }));
+
+      for (let attempt = 0; attempt < TAPS_REQUIRED; ++attempt) {
+        now += MIN_TAP_GAP_MS;
+        const target = screen.getByRole('button', {
+          name: /unlock the screen/i,
+        });
+        const start = {
+          identifier: attempt,
+          radiusX: MAX_FINGER_RADIUS_PX + 1,
+          radiusY: MAX_FINGER_RADIUS_PX + 1,
+          clientX: 10,
+          clientY: 10,
+        };
+        const moved = { ...start, clientX: 60 };
+        fireEvent.touchStart(target, {
+          touches: [start],
+          changedTouches: [start],
+        });
+        fireEvent.touchMove(target, {
+          touches: [moved],
+          changedTouches: [moved],
+        });
+        fireEvent.touchEnd(target, {
+          touches: [],
+          changedTouches: [moved],
+        });
+        if (attempt < TAPS_REQUIRED - 1) fireEvent.click(target);
+      }
+
+      expect(screen.queryByTestId('pocket-shield')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Pocket it' }));
+
+      now += MIN_TAP_GAP_MS;
+      const target = screen.getByRole('button', {
+        name: /unlock the screen/i,
+      });
+      const before = target.dataset.position;
+      const broad = {
+        identifier: 10,
+        radiusX: MAX_FINGER_RADIUS_PX + 1,
+        radiusY: MAX_FINGER_RADIUS_PX + 1,
+        clientX: 10,
+        clientY: 10,
+      };
+      fireEvent.touchStart(target, {
+        touches: [broad],
+        changedTouches: [broad],
+      });
+      // Learned mode ignores radius on the strict low-travel path, so the box
+      // waits for the completed tap instead of jumping on touchstart again.
+      expect(target.dataset.position).toBe(before);
+      fireEvent.touchEnd(target, {
+        touches: [],
+        changedTouches: [broad],
+      });
+      fireEvent.click(target);
+      expect(target).toHaveAccessibleName(/2 more taps/i);
+      expect(target.dataset.position).not.toBe(before);
     } finally {
       jest.restoreAllMocks();
     }

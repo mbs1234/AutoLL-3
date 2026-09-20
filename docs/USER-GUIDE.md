@@ -393,8 +393,14 @@ the controls underneath it. It also blocks page scrolling and pull-to-refresh;
 a reload would turn Autopilot off.
 
 To lift the guard, tap the moving circle three times. The three clean taps must
-land within **10 seconds**. A miss, broad contact, second finger or cancelled
-gesture clears all progress, and the target moves after each accepted tap.
+land within **10 seconds**. A miss, second finger, drag or cancelled gesture
+clears all progress, and the target moves after each accepted tap.
+
+If the phone reports your fingertip as unusually large, keep using one finger
+and follow the moving circle. Three large-contact taps within **20 seconds**
+lift the guard through its escape path. It allows a little more movement, still
+resets on a miss or second contact, and remembers your phone until the page is
+reloaded so re-pocketing does not make you repeat a separate setup.
 
 The guarded screen is also a status display. It shows the current checking
 pace, the number of targets that can actually act, and today's booking count.

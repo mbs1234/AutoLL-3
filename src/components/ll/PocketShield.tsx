@@ -8,29 +8,48 @@ import {
   BOX_POSITIONS,
   INITIAL,
   INITIAL_TOUCH_GESTURE,
+  INITIAL_WIDE_TOUCH,
   TAPS_REQUIRED,
   TouchGesturePhase,
   nextPosition,
   onHit,
   onMiss,
+  onWideTouch,
+  onWideTouchStart,
   reduceTouchGesture,
+  reportedMajorRadius,
+  reportedMinorRadius,
 } from './pocketGuard';
 
 /** Compatibility clicks arrive immediately after the touch that created them. */
 const COMPATIBILITY_CLICK_MS = 1_000;
 
-/** Widest contact patch reported anywhere in this event. */
-function widestRadius(event: React.TouchEvent): number | undefined {
-  let widest = 0;
+/** Largest usable major and minor axes reported anywhere in this event. */
+function touchRadii(event: React.TouchEvent): {
+  minorRadius?: number;
+  majorRadius?: number;
+} {
+  let minorRadius = 0;
+  let majorRadius = 0;
   for (const list of [event.touches, event.changedTouches]) {
     for (let i = 0; i < list.length; ++i) {
       const touch = list[i] as
         | { radiusX?: number; radiusY?: number }
         | undefined;
-      widest = Math.max(widest, touch?.radiusX ?? 0, touch?.radiusY ?? 0);
+      minorRadius = Math.max(
+        minorRadius,
+        reportedMinorRadius(touch?.radiusX, touch?.radiusY) ?? 0
+      );
+      majorRadius = Math.max(
+        majorRadius,
+        reportedMajorRadius(touch?.radiusX, touch?.radiusY) ?? 0
+      );
     }
   }
-  return widest || undefined;
+  return {
+    minorRadius: minorRadius || undefined,
+    majorRadius: majorRadius || undefined,
+  };
 }
 
 /** Primary contact position, used only to distinguish a tap from a drag. */
@@ -64,9 +83,18 @@ function touchPoint(
  * length, so a glance answers "is it still working" without lifting the shield
  * at all -- which is the question being asked most of the time.
  */
-export default function PocketShield({ onExit }: { onExit: () => void }) {
+export default function PocketShield({
+  onExit,
+  wideTouchLearned = false,
+  onLearnWideTouch = () => undefined,
+}: {
+  onExit: () => void;
+  wideTouchLearned?: boolean;
+  onLearnWideTouch?: () => void;
+}) {
   const autopilot = use(TopAutopilotContext);
   const [guard, setGuard] = useState(INITIAL);
+  const [wideGuard, setWideGuard] = useState(INITIAL_WIDE_TOUCH);
   const shield = useRef<HTMLDivElement>(null);
   const gesture = useRef(INITIAL_TOUCH_GESTURE);
   const lastTouchAt = useRef(-Infinity);
@@ -101,16 +129,34 @@ export default function PocketShield({ onExit }: { onExit: () => void }) {
       target => targetActs(target) && !target.paused
     ).length ?? 0;
   const box = BOX_POSITIONS[guard.position] ?? BOX_POSITIONS[0]!;
-  const remaining = TAPS_REQUIRED - guard.taps;
+  const wideInProgress = wideGuard.taps > 0;
+  const remaining =
+    TAPS_REQUIRED - (wideInProgress ? wideGuard.taps : guard.taps);
 
-  const advance = () => {
-    const result = onHit(guard, Date.now(), nextPosition);
+  const advance = (at = Date.now()) => {
+    const result = onHit(guard, at, nextPosition);
     if (result.kind === 'unlocked') onExit();
     else setGuard(result.state);
   };
 
   const reset = () => {
     setGuard(current => onMiss(current, nextPosition));
+  };
+
+  const resetWide = () => setWideGuard(INITIAL_WIDE_TOUCH);
+
+  const beginWideAttempt = () => {
+    setGuard(current => onWideTouchStart(current, nextPosition));
+  };
+
+  const completeWideAttempt = (at: number) => {
+    const result = onWideTouch(wideGuard, at);
+    if (result.kind === 'unlocked') {
+      onLearnWideTouch();
+      onExit();
+    } else {
+      setWideGuard(result.state);
+    }
   };
 
   /**
@@ -125,18 +171,35 @@ export default function PocketShield({ onExit }: { onExit: () => void }) {
   ) => {
     event.stopPropagation();
     if (event.cancelable) event.preventDefault();
-    lastTouchAt.current = Date.now();
-    const result = reduceTouchGesture(gesture.current, {
-      phase,
-      touches: event.touches.length,
-      changedTouches: event.changedTouches.length,
-      maxRadius: widestRadius(event),
-      point: touchPoint(event),
-      onTarget,
-    });
+    const at = Date.now();
+    lastTouchAt.current = at;
+    const radii = touchRadii(event);
+    const result = reduceTouchGesture(
+      gesture.current,
+      {
+        phase,
+        touches: event.touches.length,
+        changedTouches: event.changedTouches.length,
+        ...radii,
+        point: touchPoint(event),
+        onTarget,
+      },
+      {
+        ignoreRadius: wideTouchLearned,
+      }
+    );
     gesture.current = result.state;
-    if (result.outcome === 'reset') reset();
-    if (result.outcome === 'hit') advance();
+    if (result.outcome === 'reset') {
+      reset();
+      resetWide();
+    }
+    if (result.outcome === 'wide-reset') beginWideAttempt();
+    if (result.completion === 'normal') {
+      resetWide();
+      advance(at);
+    }
+    if (result.completion === 'wide') completeWideAttempt(at);
+    if (result.completion === 'invalid') resetWide();
   };
 
   const compatibilityClick = () =>
@@ -148,6 +211,7 @@ export default function PocketShield({ onExit }: { onExit: () => void }) {
       event.preventDefault();
       return;
     }
+    resetWide();
     advance();
   };
 
@@ -157,6 +221,7 @@ export default function PocketShield({ onExit }: { onExit: () => void }) {
       return;
     }
     reset();
+    resetWide();
   };
 
   return (
@@ -198,10 +263,17 @@ export default function PocketShield({ onExit }: { onExit: () => void }) {
             </div>
           </>
         )}
-        <p className="mt-10 text-sm text-gray-400">
-          Screen guarded. Tap the box {remaining} more{' '}
-          {remaining === 1 ? 'time' : 'times'} to unlock.
-        </p>
+        {wideInProgress ? (
+          <p className="mt-10 text-sm text-gray-300">
+            Keep using one fingertip and follow the moving box. {remaining} more{' '}
+            {remaining === 1 ? 'tap' : 'taps'} to unlock.
+          </p>
+        ) : (
+          <p className="mt-10 text-sm text-gray-400">
+            Screen guarded. Tap the box {remaining} more{' '}
+            {remaining === 1 ? 'time' : 'times'} to unlock.
+          </p>
+        )}
       </div>
 
       <button

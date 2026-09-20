@@ -23,6 +23,10 @@ export default function PocketShieldProvider({
   children: React.ReactNode;
 }) {
   const [shielded, setShielded] = useState(false);
+  // Learned from a deliberate moving-target sequence and deliberately kept in
+  // memory only. A wide thumb should not pay the escape cost every time the
+  // phone is re-pocketed, while a reload starts from the strict defaults.
+  const [wideTouchLearned, setWideTouchLearned] = useState(false);
   return (
     <PocketShieldContext value={{ shielded, setShielded }}>
       <div
@@ -33,7 +37,13 @@ export default function PocketShieldProvider({
       >
         {children}
       </div>
-      {shielded && <PocketShield onExit={() => setShielded(false)} />}
+      {shielded && (
+        <PocketShield
+          onExit={() => setShielded(false)}
+          wideTouchLearned={wideTouchLearned}
+          onLearnWideTouch={() => setWideTouchLearned(true)}
+        />
+      )}
     </PocketShieldContext>
   );
 }
