@@ -11,11 +11,12 @@ import {
   INITIAL_WIDE_TOUCH,
   TAPS_REQUIRED,
   TouchGesturePhase,
+  clearNormalProgress,
   nextPosition,
   onHit,
   onMiss,
   onWideTouch,
-  onWideTouchStart,
+  onWideTouchCredit,
   reduceTouchGesture,
   reportedMajorRadius,
   reportedMinorRadius,
@@ -145,12 +146,15 @@ export default function PocketShield({
 
   const resetWide = () => setWideGuard(INITIAL_WIDE_TOUCH);
 
-  const beginWideAttempt = () => {
-    setGuard(current => onWideTouchStart(current, nextPosition));
+  const clearOrdinaryProgress = () => {
+    setGuard(current => clearNormalProgress(current));
   };
 
   const completeWideAttempt = (at: number) => {
     const result = onWideTouch(wideGuard, at);
+    if (result.kind !== 'ignored') {
+      setGuard(current => onWideTouchCredit(current, nextPosition));
+    }
     if (result.kind === 'unlocked') {
       onLearnWideTouch();
       onExit();
@@ -190,16 +194,19 @@ export default function PocketShield({
     );
     gesture.current = result.state;
     if (result.outcome === 'reset') {
-      reset();
+      clearOrdinaryProgress();
       resetWide();
     }
-    if (result.outcome === 'wide-reset') beginWideAttempt();
+    if (result.outcome === 'wide-reset') clearOrdinaryProgress();
     if (result.completion === 'normal') {
       resetWide();
       advance(at);
     }
     if (result.completion === 'wide') completeWideAttempt(at);
-    if (result.completion === 'invalid') resetWide();
+    if (result.completion === 'invalid') {
+      reset();
+      resetWide();
+    }
   };
 
   const compatibilityClick = () =>

@@ -321,9 +321,9 @@ export type WideTouchResult =
  * Credit one large-contact attempt in the separate escape sequence.
  *
  * The gesture reducer has already proved that it began on the target, used one
- * contact and stayed within the looser travel bound. The component moves the
- * target before calling this function, so a stationary pocket contact cannot
- * provide the next tap.
+ * contact and stayed within the looser travel bound. The component pairs every
+ * accepted result with `onWideTouchCredit`, so a stationary pocket contact
+ * cannot provide the next tap.
  */
 export function onWideTouch(
   state: WideTouchState,
@@ -409,16 +409,28 @@ export function onMiss(
   };
 }
 
-/** Reset normal progress and move even when the shield was still pristine. */
-export function onWideTouchStart(
+/** Clear ordinary progress while a possible wide-touch gesture is still live. */
+export function clearNormalProgress(state: ShieldState): ShieldState {
+  if (state.taps === 0 && state.lastTapAt === 0 && state.firstTapAt === 0) {
+    return state;
+  }
+  return {
+    ...state,
+    taps: 0,
+    lastTapAt: 0,
+    firstTapAt: 0,
+  };
+}
+
+/** Reset ordinary progress and move exactly once for a credited wide touch. */
+export function onWideTouchCredit(
   state: ShieldState,
   pick: (count: number, current: number) => number
 ): ShieldState {
+  const cleared = clearNormalProgress(state);
   return {
-    taps: 0,
-    position: pick(BOX_POSITIONS.length, state.position),
-    lastTapAt: 0,
-    firstTapAt: 0,
+    ...cleared,
+    position: pick(BOX_POSITIONS.length, cleared.position),
   };
 }
 

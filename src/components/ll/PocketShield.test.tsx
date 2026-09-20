@@ -248,17 +248,53 @@ describe('the pocket shield', () => {
     deliberateTouch(box());
     expect(box()).toHaveAccessibleName(/2 more taps/i);
 
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
     const broad = finger(2, MAX_FINGER_RADIUS_PX + 1);
     const before = box().dataset.position;
     touchStart(box(), [broad]);
-    expect(box().dataset.position).not.toBe(before);
+    expect(box().dataset.position).toBe(before);
+    expect(random).not.toHaveBeenCalled();
     expect(box()).toHaveAccessibleName(/3 more taps/i);
     touchEnd(box(), [broad]);
+    expect(box().dataset.position).not.toBe(before);
+    expect(random).toHaveBeenCalledTimes(1);
     expect(box()).toHaveAccessibleName(/2 more taps/i);
     expect(screen.getByText(/keep using one fingertip/i)).toBeVisible();
     fireEvent.click(box());
     expect(box()).toHaveAccessibleName(/2 more taps/i);
+    expect(random).toHaveBeenCalledTimes(1);
     expect(onLearnWideTouch).not.toHaveBeenCalled();
+  });
+
+  it('moves exactly once when a dragged contact later earns a wide attempt', () => {
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
+    setup();
+    const before = box().dataset.position;
+
+    clock += MIN_TAP_GAP_MS;
+    const narrowStart = finger(41, 12, 10, 10);
+    touchStart(box(), [narrowStart]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+    expect(box().dataset.position).toBe(before);
+
+    const narrowDrag = finger(41, 12, 43, 10);
+    touchMove(box(), [narrowDrag]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+    expect(box().dataset.position).toBe(before);
+
+    const broadDrag = finger(41, MAX_FINGER_RADIUS_PX + 1, 60, 10);
+    touchMove(box(), [broadDrag]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+    expect(box().dataset.position).toBe(before);
+
+    touchEnd(box(), [broadDrag]);
+    expect(box()).toHaveAccessibleName(/2 more taps/i);
+    expect(box().dataset.position).not.toBe(before);
+    expect(random).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(box());
+    expect(box()).toHaveAccessibleName(/2 more taps/i);
+    expect(random).toHaveBeenCalledTimes(1);
   });
 
   it('unlocks through three broad moving-target touches with centroid drift', () => {
@@ -274,13 +310,15 @@ describe('the pocket shield', () => {
       const before = box().dataset.position;
 
       touchStart(box(), [start]);
-      expect(box().dataset.position).not.toBe(before);
+      expect(box().dataset.position).toBe(before);
       expect(onExit).not.toHaveBeenCalled();
 
       touchMove(box(), [moved]);
+      expect(box().dataset.position).toBe(before);
       expect(onExit).not.toHaveBeenCalled();
 
       touchEnd(box(), [moved]);
+      expect(box().dataset.position).not.toBe(before);
       fireEvent.click(box());
       labels.push(box().getAttribute('aria-label'));
       exitCounts.push(onExit.mock.calls.length);
@@ -353,14 +391,29 @@ describe('the pocket shield', () => {
   it('uses the escape when a contact broadens during movement', () => {
     setup();
     deliberateTouch(box());
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
+    const before = box().dataset.position;
     const contact = finger(5);
     touchStart(box(), [contact]);
-    const broad = finger(5, MAX_FINGER_RADIUS_PX + 1);
+    expect(box().dataset.position).toBe(before);
+
+    const narrowDrag = finger(5, 12, 43, 10);
+    touchMove(box(), [narrowDrag]);
+    expect(box()).toHaveAccessibleName(/3 more taps/i);
+    expect(box().dataset.position).toBe(before);
+
+    const broad = finger(5, MAX_FINGER_RADIUS_PX + 1, 60, 10);
     touchMove(box(), [broad]);
     expect(box()).toHaveAccessibleName(/3 more taps/i);
+    expect(box().dataset.position).toBe(before);
+    expect(random).not.toHaveBeenCalled();
+
     touchEnd(box(), [broad]);
+    expect(box().dataset.position).not.toBe(before);
+    expect(random).toHaveBeenCalledTimes(1);
     fireEvent.click(box());
     expect(box()).toHaveAccessibleName(/2 more taps/i);
+    expect(random).toHaveBeenCalledTimes(1);
   });
 
   it('resets escape progress when the next gesture is cancelled', () => {
