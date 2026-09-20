@@ -3,10 +3,11 @@ import { type ReactElement, createRef } from 'react';
 
 import { createBooking, hm, wdw } from '@/__fixtures__/ll';
 import { mk } from '@/__fixtures__/resort';
-import { resetAudioForTests } from '@/autopilot/alert';
+import { primeAudio, resetAudioForTests } from '@/autopilot/alert';
 import { leaseKey, quarantine } from '@/autopilot/lease';
 import { savePendingSearch } from '@/autopilot/nextll';
 import { planReview } from '@/autopilot/plancheck';
+import { holdScreenAwake, releaseScreenAwake } from '@/autopilot/wakelock';
 import TabsContext from '@/contexts/TabContext';
 import { ParkTime, parkDate } from '@/datetime';
 import { PARTY_IDS_KEY } from '@/hooks/useSavedParty';
@@ -486,12 +487,13 @@ describe('Today alert sound', () => {
   const g = globalThis as AudioGlobal;
 
   function fakeAudio(state: string) {
+    const listeners = new Set<() => void>();
     const ctx = {
       state,
       currentTime: 0,
       resume: jest.fn(async () => {
         await Promise.resolve();
-        ctx.state = 'running';
+        ctx.setState('running');
       }),
       createOscillator: jest.fn(() => ({
         type: '',
@@ -509,6 +511,16 @@ describe('Today alert sound', () => {
         start: jest.fn(),
       })),
       destination: {},
+      addEventListener: jest.fn((type: string, listener: () => void) => {
+        if (type === 'statechange') listeners.add(listener);
+      }),
+      removeEventListener: jest.fn((type: string, listener: () => void) => {
+        if (type === 'statechange') listeners.delete(listener);
+      }),
+      setState(next: string) {
+        this.state = next;
+        for (const listener of listeners) listener();
+      },
     };
     const gain = {
       gain: {
@@ -562,6 +574,69 @@ describe('Today alert sound', () => {
       screen.getByText('Test sound').click();
     });
     expect(screen.getByText(/Alert sound is not armed/)).toBeVisible();
+  });
+
+  it('reports an interruption immediately rather than waiting for a poll', () => {
+    const ctx = fakeAudio('running');
+    primeAudio();
+    setup({ enabled: true });
+    expect(screen.getByText('Alert sound is armed.')).toBeVisible();
+
+    act(() => ctx.setState('interrupted'));
+
+    expect(screen.getByText(/Alert sound is not armed/)).toBeVisible();
+  });
+});
+
+describe('Today screen wake status', () => {
+  const OWNER = Symbol('today-wake-test');
+
+  function installWakeLock() {
+    const listeners = new Set<() => void>();
+    const sentinel = {
+      release: jest.fn(async () => undefined),
+      addEventListener: jest.fn((type: string, listener: () => void) => {
+        if (type === 'release') listeners.add(listener);
+      }),
+      dropFromBrowser() {
+        for (const listener of listeners) listener();
+      },
+    };
+    Object.defineProperty(navigator, 'wakeLock', {
+      configurable: true,
+      value: { request: jest.fn(async () => sentinel) },
+    });
+    return sentinel;
+  }
+
+  afterEach(async () => {
+    await releaseScreenAwake(OWNER);
+    Reflect.deleteProperty(navigator, 'wakeLock');
+  });
+
+  it('omits the row when the browser has no wake-lock API', () => {
+    setup({ enabled: true });
+    expect(screen.queryByText(/Screen may sleep/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Screen is being kept awake/)
+    ).not.toBeInTheDocument();
+  });
+
+  it('warns when screen wake is supported but idle', () => {
+    installWakeLock();
+    setup({ enabled: true });
+    expect(screen.getByText(/Screen may sleep/)).toBeVisible();
+  });
+
+  it('shows a held lock and reacts when the browser releases it', async () => {
+    const sentinel = installWakeLock();
+    await holdScreenAwake(OWNER);
+    setup({ enabled: true });
+    expect(screen.getByText('Screen is being kept awake.')).toBeVisible();
+
+    act(() => sentinel.dropFromBrowser());
+
+    expect(screen.getByText(/Screen may sleep/)).toBeVisible();
   });
 });
 

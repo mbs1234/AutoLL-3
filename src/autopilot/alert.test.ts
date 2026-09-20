@@ -1,6 +1,7 @@
 import { NOTIFICATION_TAG_NAMESPACE } from '@/storageNamespace';
 
 import {
+  RESUME_REPLAY_MS,
   alertPermission,
   audioReady,
   audioStatus,
@@ -10,6 +11,7 @@ import {
   requestAlertPermission,
   resetAudioForTests,
   soundCheck,
+  subscribeAudioStatus,
 } from './alert';
 
 /** The chime is two notes; asserting on the count keeps that honest. */
@@ -29,12 +31,14 @@ const g = globalThis as Global;
 /** Minimal AudioContext double: records what got scheduled. */
 function fakeAudioContext(state: string = 'running') {
   const started: number[] = [];
+  const stateListeners = new Set<() => void>();
   // Settles a task later, as a browser's does. A double that woke the context
   // synchronously would hide the bug this file exists to pin: priming and
   // chiming in one tick plays nothing, because the context is not awake yet.
   const resume = jest.fn(async () => {
     await Promise.resolve();
     ctx.state = 'running';
+    for (const listener of stateListeners) listener();
   });
   // The silent one-frame source that unlocks output on iOS. Counted rather
   // than inspected: that it was started at all is the whole behaviour.
@@ -66,8 +70,31 @@ function fakeAudioContext(state: string = 'running') {
       start: jest.fn((t: number) => unlocks.push(t)),
     })),
     destination: {},
+    addEventListener: jest.fn((type: string, listener: () => void) => {
+      if (type === 'statechange') stateListeners.add(listener);
+    }),
+    removeEventListener: jest.fn((type: string, listener: () => void) => {
+      if (type === 'statechange') stateListeners.delete(listener);
+    }),
+    setState(next: string) {
+      this.state = next;
+      for (const listener of stateListeners) listener();
+    },
   };
   return { ctx, started, resume, unlocks };
+}
+
+function deferred() {
+  let resolve: () => void = () => undefined;
+  const promise = new Promise<void>(done => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function settleResume(): Promise<void> {
+  // async resume -> status continuation -> finally -> chime continuation
+  for (let i = 0; i < 4; ++i) await Promise.resolve();
 }
 
 function stubNotification(
@@ -222,6 +249,20 @@ describe('audioStatus()', () => {
     primeAudio();
     expect(audioStatus()).toBe('armed');
   });
+
+  it('publishes an interruption immediately from the context state event', () => {
+    const { ctx } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    const changed = jest.fn();
+    const unsubscribe = subscribeAudioStatus(changed);
+
+    ctx.setState('interrupted');
+
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(audioStatus()).toBe('idle');
+    unsubscribe();
+  });
 });
 
 describe('soundCheck()', () => {
@@ -272,17 +313,96 @@ describe('chime()', () => {
     expect(ctx.createOscillator).not.toHaveBeenCalled();
   });
 
-  // Losing this alert is unavoidable; losing every later one is not. iOS
-  // never leaves `interrupted` on its own, so something has to ask.
-  it('asks for a sleeping context back so the next alert can land', () => {
-    const { ctx } = fakeAudioContext('running');
+  // This is the alert that motivated recovery: on iOS there may be no
+  // notification or vibration channel to compensate for losing it.
+  it('resumes and plays the current alert when recovery is prompt', async () => {
+    const { ctx, started } = fakeAudioContext('running');
     g.AudioContext = jest.fn(() => ctx);
     primeAudio();
     ctx.state = 'interrupted';
-    (ctx.resume as jest.Mock).mockClear();
+    const gate = deferred();
+    ctx.resume = jest.fn(async () => {
+      await gate.promise;
+      ctx.setState('running');
+    });
+
     chime();
-    expect(ctx.createOscillator).not.toHaveBeenCalled();
+    expect(started).toHaveLength(0);
     expect(ctx.resume).toHaveBeenCalled();
+
+    gate.resolve();
+    await gate.promise;
+    await settleResume();
+    expect(started).toHaveLength(CHIME_NOTES);
+  });
+
+  // A context can stay pending until the page is foregrounded. Sounding then
+  // would claim an old offer had just appeared, which is less honest than
+  // dropping the audio channel for that alert.
+  it('drops a replay whose resume settles after the freshness deadline', async () => {
+    let now = 1_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { ctx, started } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    const gate = deferred();
+    ctx.resume = jest.fn(async () => {
+      await gate.promise;
+      ctx.setState('running');
+    });
+
+    chime();
+    now += RESUME_REPLAY_MS + 1;
+    gate.resolve();
+    await gate.promise;
+    await settleResume();
+
+    expect(started).toHaveLength(0);
+  });
+
+  it('stays silent and retryable when resume is rejected', async () => {
+    const { ctx, started } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    ctx.resume = jest.fn(async () => {
+      throw new Error('gesture required');
+    });
+
+    chime();
+    await settleResume();
+    expect(started).toHaveLength(0);
+    expect(audioStatus()).toBe('idle');
+
+    chime();
+    await settleResume();
+    expect(ctx.resume).toHaveBeenCalledTimes(2);
+  });
+
+  it('coalesces concurrent alerts and uses the newest request time', async () => {
+    let now = 1_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { ctx, started } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    const gate = deferred();
+    ctx.resume = jest.fn(async () => {
+      await gate.promise;
+      ctx.setState('running');
+    });
+
+    chime();
+    now += RESUME_REPLAY_MS + 1;
+    chime();
+    now += 1;
+    gate.resolve();
+    await gate.promise;
+    await settleResume();
+
+    expect(ctx.resume).toHaveBeenCalledTimes(1);
+    expect(started).toHaveLength(CHIME_NOTES);
   });
 
   it('schedules both notes in sequence', () => {

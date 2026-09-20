@@ -1,6 +1,8 @@
 import {
   holdScreenAwake,
   releaseScreenAwake,
+  screenAwakeStatus,
+  subscribeScreenAwakeStatus,
   wakeLockHeld,
   wakeLockOwnerCount,
   wakeLockSupported,
@@ -74,6 +76,39 @@ describe('wakeLockSupported()', () => {
   it('is true once the API is present', () => {
     installWakeLock(async () => fakeSentinel());
     expect(wakeLockSupported()).toBe(true);
+  });
+});
+
+describe('screenAwakeStatus()', () => {
+  it('distinguishes unsupported, idle and held', async () => {
+    expect(screenAwakeStatus()).toBe('unsupported');
+
+    installWakeLock(async () => fakeSentinel());
+    expect(screenAwakeStatus()).toBe('idle');
+
+    await holdScreenAwake();
+    expect(screenAwakeStatus()).toBe('held');
+
+    await releaseScreenAwake();
+    expect(screenAwakeStatus()).toBe('idle');
+  });
+
+  // The browser can revoke a lock without a call into this module. The status
+  // store must hear that sentinel event or every screen keeps saying "held".
+  it('publishes the browser release immediately', async () => {
+    const sentinel = fakeSentinel();
+    installWakeLock(async () => sentinel);
+    const changed = jest.fn();
+    const unsubscribe = subscribeScreenAwakeStatus(changed);
+
+    await holdScreenAwake();
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(screenAwakeStatus()).toBe('held');
+
+    sentinel.dropFromBrowser();
+    expect(changed).toHaveBeenCalledTimes(2);
+    expect(screenAwakeStatus()).toBe('idle');
+    unsubscribe();
   });
 });
 

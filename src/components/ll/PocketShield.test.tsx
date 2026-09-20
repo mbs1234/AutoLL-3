@@ -1,6 +1,14 @@
 import '@testing-library/jest-dom';
-import { createEvent, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+} from '@testing-library/react';
 
+import { primeAudio, resetAudioForTests } from '@/autopilot/alert';
+import { holdScreenAwake, releaseScreenAwake } from '@/autopilot/wakelock';
 import { AutopilotState } from '@/contexts/AutopilotContext';
 import TopAutopilotContext from '@/contexts/TopAutopilotContext';
 
@@ -45,6 +53,76 @@ const state: AutopilotState = {
   dropSummaries: [],
 };
 
+type AudioGlobal = Omit<typeof globalThis, 'AudioContext'> & {
+  AudioContext?: unknown;
+};
+const audioGlobal = globalThis as AudioGlobal;
+const HEALTH_OWNER = Symbol('pocket-health-test');
+
+function installAudio(state: string) {
+  const listeners = new Set<() => void>();
+  const gain = {
+    gain: {
+      setValueAtTime: jest.fn(),
+      linearRampToValueAtTime: jest.fn(),
+    },
+    connect: jest.fn(() => ({})),
+  };
+  const ctx = {
+    state,
+    currentTime: 0,
+    resume: jest.fn(async () => {
+      ctx.setState('running');
+    }),
+    createOscillator: jest.fn(() => ({
+      type: '',
+      frequency: { value: 0 },
+      connect: jest.fn(() => gain),
+      start: jest.fn(),
+      stop: jest.fn(),
+    })),
+    createGain: jest.fn(() => gain),
+    sampleRate: 48_000,
+    createBuffer: jest.fn(() => ({})),
+    createBufferSource: jest.fn(() => ({
+      buffer: undefined as unknown,
+      connect: jest.fn(),
+      start: jest.fn(),
+    })),
+    destination: {},
+    addEventListener: jest.fn((type: string, listener: () => void) => {
+      if (type === 'statechange') listeners.add(listener);
+    }),
+    removeEventListener: jest.fn((type: string, listener: () => void) => {
+      if (type === 'statechange') listeners.delete(listener);
+    }),
+    setState(next: string) {
+      this.state = next;
+      for (const listener of listeners) listener();
+    },
+  };
+  audioGlobal.AudioContext = jest.fn(() => ctx);
+  return ctx;
+}
+
+function installWakeLock() {
+  const listeners = new Set<() => void>();
+  const sentinel = {
+    release: jest.fn(async () => undefined),
+    addEventListener: jest.fn((type: string, listener: () => void) => {
+      if (type === 'release') listeners.add(listener);
+    }),
+    dropFromBrowser() {
+      for (const listener of listeners) listener();
+    },
+  };
+  Object.defineProperty(navigator, 'wakeLock', {
+    configurable: true,
+    value: { request: jest.fn(async () => sentinel) },
+  });
+  return sentinel;
+}
+
 function setup(
   overrides: Partial<AutopilotState> = {},
   options: {
@@ -77,7 +155,13 @@ beforeEach(() => {
   clock = 1_000_000;
   jest.spyOn(Date, 'now').mockImplementation(() => clock);
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(async () => {
+  await releaseScreenAwake(HEALTH_OWNER);
+  resetAudioForTests();
+  delete audioGlobal.AudioContext;
+  Reflect.deleteProperty(navigator, 'wakeLock');
+  jest.restoreAllMocks();
+});
 
 function tap(element: HTMLElement) {
   clock += MIN_TAP_GAP_MS;
@@ -148,6 +232,68 @@ describe('the pocket shield', () => {
     expect(screen.getByText('Checking often')).toBeInTheDocument();
     expect(screen.getByText(/1 armed/)).toBeInTheDocument();
     expect(screen.getByText(/2 booked today/)).toBeInTheDocument();
+    expect(screen.getByTestId('pocket-health')).toHaveTextContent(
+      'Sound unavailable · Screen wake unavailable'
+    );
+  });
+
+  it('shows both alert channels when sound and screen wake are healthy', async () => {
+    installAudio('running');
+    primeAudio();
+    installWakeLock();
+    await holdScreenAwake(HEALTH_OWNER);
+    setup();
+
+    expect(screen.getByTestId('pocket-health')).toHaveTextContent(
+      'Sound on · Screen held'
+    );
+    expect(screen.getByTestId('pocket-health')).toHaveClass('text-gray-400');
+  });
+
+  it.each([
+    ['suspended', true, 'No sound · Screen held'],
+    ['running', false, 'Sound on · Screen may sleep'],
+    ['suspended', false, 'No sound · Screen may sleep'],
+  ])(
+    'names impaired channels with audio %s and held=%s',
+    async (audio, held, expected) => {
+      if (audio === 'running') {
+        installAudio(audio);
+        primeAudio();
+      } else {
+        installAudio(audio);
+      }
+      installWakeLock();
+      if (held) await holdScreenAwake(HEALTH_OWNER);
+      setup();
+
+      expect(screen.getByTestId('pocket-health')).toHaveTextContent(expected);
+      expect(screen.getByTestId('pocket-health')).toHaveClass(
+        'font-semibold',
+        'text-red-300'
+      );
+    }
+  );
+
+  it('updates from native audio and wake-lock events without a poll', async () => {
+    const ctx = installAudio('running');
+    primeAudio();
+    const sentinel = installWakeLock();
+    await holdScreenAwake(HEALTH_OWNER);
+    setup();
+    expect(screen.getByTestId('pocket-health')).toHaveTextContent(
+      'Sound on · Screen held'
+    );
+
+    act(() => ctx.setState('interrupted'));
+    expect(screen.getByTestId('pocket-health')).toHaveTextContent(
+      'No sound · Screen held'
+    );
+
+    act(() => sentinel.dropFromBrowser());
+    expect(screen.getByTestId('pocket-health')).toHaveTextContent(
+      'No sound · Screen may sleep'
+    );
   });
 
   it('lifts after three taps on the target', () => {
@@ -556,6 +702,7 @@ describe('the pocket shield', () => {
     setup({ status: { mode: 'stopped', consecutiveFailures: 8, polls: 40 } });
     expect(screen.getByText('Stopped')).toBeInTheDocument();
     expect(screen.getByText(/no longer checking/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('pocket-health')).not.toBeInTheDocument();
   });
 
   it('uses the same alarm state when autopilot is off', () => {
@@ -566,6 +713,7 @@ describe('the pocket shield', () => {
     expect(screen.getByText('Off')).toBeInTheDocument();
     expect(screen.getByText(/is off and is no longer checking/i)).toBeVisible();
     expect(backdrop()).toHaveClass('bg-red-950');
+    expect(screen.queryByTestId('pocket-health')).not.toBeInTheDocument();
   });
 
   it('counts only unpaused targets with an automatic action', () => {

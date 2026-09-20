@@ -1,7 +1,11 @@
-import { use, useEffect, useMemo, useState } from 'react';
+import { use, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
 import { LLMP, isLLMP } from '@/api/itinerary';
-import { AudioStatus, audioStatus, soundCheck } from '@/autopilot/alert';
+import {
+  audioStatus,
+  soundCheck,
+  subscribeAudioStatus,
+} from '@/autopilot/alert';
 import { checklist } from '@/autopilot/checklist';
 import { describeMode } from '@/autopilot/describe';
 import { latestActivity } from '@/autopilot/events';
@@ -9,6 +13,10 @@ import { loadPendingSearch } from '@/autopilot/nextll';
 import { PlanReview, checkPlan, planReview } from '@/autopilot/plancheck';
 import { NO_REFUSALS } from '@/autopilot/refusal';
 import useQuarantine from '@/autopilot/useQuarantine';
+import {
+  screenAwakeStatus,
+  subscribeScreenAwakeStatus,
+} from '@/autopilot/wakelock';
 import { WatchTarget, targetActs } from '@/autopilot/watchlist';
 import Button from '@/components/Button';
 import Tab from '@/components/Tab';
@@ -122,12 +130,17 @@ export default function Today({ ref }: HomeTabProps) {
   const plan = [...targetsHere].sort(
     (a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity)
   );
-  // Nothing fires an event when an AudioContext is interrupted, so this is
-  // re-read whenever the poller reports in -- `status` is a fresh object per
-  // tick -- rather than trusted from the moment autopilot was switched on.
-  const [soundStatus, setSoundStatus] = useState<AudioStatus>(audioStatus);
-  useEffect(() => setSoundStatus(audioStatus()), [enabled, status]);
-  const checkSound = () => void soundCheck().then(setSoundStatus);
+  const soundStatus = useSyncExternalStore(
+    subscribeAudioStatus,
+    audioStatus,
+    audioStatus
+  );
+  const awakeStatus = useSyncExternalStore(
+    subscribeScreenAwakeStatus,
+    screenAwakeStatus,
+    screenAwakeStatus
+  );
+  const checkSound = () => void soundCheck();
   // Armed means it will act: a paused target keeps its arming but is counted
   // with the paused, not with the armed.
   const armed = targetsHere.filter(t => targetActs(t) && !t.paused).length;
@@ -386,6 +399,19 @@ export default function Today({ ref }: HomeTabProps) {
             Test sound
           </Button>
         </div>
+      )}
+      {awakeStatus !== 'unsupported' && (
+        <p
+          className={`mt-3 text-sm ${
+            awakeStatus === 'held'
+              ? 'text-gray-600'
+              : 'font-semibold text-red-700'
+          }`}
+        >
+          {awakeStatus === 'held'
+            ? 'Screen is being kept awake.'
+            : 'Screen may sleep, which can slow or pause checks.'}
+        </p>
       )}
       {unknown > 0 && (
         <p className="mt-3 text-sm font-semibold text-red-700">

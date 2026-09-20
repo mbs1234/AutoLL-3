@@ -32,6 +32,9 @@ let stopWatching: (() => void) | undefined;
 let generation = 0;
 /** The outstanding request, shared so concurrent callers do not each make one. */
 let pending: Promise<void> | undefined;
+type StatusListener = () => void;
+const statusListeners = new Set<StatusListener>();
+let lastStatus: ScreenAwakeStatus | undefined;
 
 /**
  * Who currently wants the screen held.
@@ -67,6 +70,35 @@ export function wakeLockHeld(): boolean {
   return !!sentinel;
 }
 
+export type ScreenAwakeStatus = 'unsupported' | 'held' | 'idle';
+
+/** What the best-effort screen-awake channel can currently do. */
+export function screenAwakeStatus(): ScreenAwakeStatus {
+  if (!wakeLockSupported()) return 'unsupported';
+  return wakeLockHeld() ? 'held' : 'idle';
+}
+
+function publishStatus(): void {
+  const next = screenAwakeStatus();
+  if (next === lastStatus) return;
+  lastStatus = next;
+  for (const listener of statusListeners) listener();
+}
+
+/**
+ * Subscribe to the bare status string used by `useSyncExternalStore`.
+ *
+ * It stays a primitive on purpose: returning a fresh object from a snapshot
+ * getter makes React see a change on every read and render forever.
+ */
+export function subscribeScreenAwakeStatus(
+  listener: StatusListener
+): () => void {
+  statusListeners.add(listener);
+  lastStatus = screenAwakeStatus();
+  return () => statusListeners.delete(listener);
+}
+
 /** How many owners are currently holding. Exposed for tests. */
 export function wakeLockOwnerCount(): number {
   return owners.size;
@@ -97,9 +129,13 @@ async function acquire(): Promise<void> {
       // the handle here is what lets `onVisible` re-acquire rather than seeing
       // a stale sentinel and assuming the screen is still held.
       lock.addEventListener('release', () => {
-        if (sentinel === lock) sentinel = undefined;
+        if (sentinel === lock) {
+          sentinel = undefined;
+          publishStatus();
+        }
       });
       sentinel = lock;
+      publishStatus();
     } catch {
       // Rejected -- hidden document, insecure context, or unsupported. The
       // caller has no better option than continuing without it.
@@ -150,6 +186,7 @@ export async function releaseScreenAwake(
   stopWatching = undefined;
   const lock = sentinel;
   sentinel = undefined;
+  publishStatus();
   try {
     await lock?.release();
   } catch {

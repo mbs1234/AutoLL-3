@@ -552,7 +552,7 @@
       stops working.
     </p>
     <div class="masthead-meta">
-      <span>Version 1.2.4</span>
+      <span>Version 1.2.5</span>
       <span>Three parts · 23 sections</span>
       <span>Unofficial · not endorsed by Disney</span>
     </div>
@@ -1180,14 +1180,26 @@
         counts, refusal state, per-run locks and the drop-detection baseline are
         all cleared, and anything already available gets re-alerted.
       </p>
+      <p>
+        <strong>Check the sound before you rely on it.</strong> Under the
+        notification notices Today says whether the alert sound is armed, with
+        a <span class="ui">Test sound</span> button next to it. On iOS the chime
+        is not one channel of three — notifications need the page installed to
+        your Home Screen, and vibration is unimplemented — so if the sound is
+        not armed, nothing can reach you. Tap <span class="ui">Test sound</span>
+        once after turning Autopilot on. If you hear two notes, the channel
+        works.
+      </p>
       <div class="call stop">
         <span class="call-label">The one hard limit</span>
         <p>
           <strong>Autopilot only runs while the page is open and in front of
           you.</strong> Lock the phone or switch apps and the browser throttles
           its timers to minutes. The screen wake lock exists to prevent exactly
-          this, and it is best-effort — where the phone refuses, nothing on
-          screen says so.
+          this, and it is best-effort. Today says <strong>Screen is being kept
+          awake</strong> while it is held and warns <strong>Screen may
+          sleep</strong> when the browser supports the lock but has not granted
+          one.
         </p>
       </div>
       <h4>Put the running phone in your pocket</h4>
@@ -1214,10 +1226,14 @@
       </p>
       <p>
         The guarded screen is also a status display. It shows the current
-        checking pace, the number of targets that can actually act, and today's
-        booking count. If Autopilot stops or the 4am rollover turns it off, the
-        guard changes to a red warning. Lift it and deliberately start a new
-        run; an off or stopped guard is not still checking.
+        checking pace, the number of targets that can actually act, today's
+        booking count, and a line such as <strong>Sound on · Screen held</strong>.
+        A red <strong>No sound</strong> or <strong>Screen may sleep</strong>
+        means to lift the guard and check the named channel; the status follows
+        the browser directly rather than waiting for the next poll. If
+        Autopilot stops or the 4am rollover turns it off, the guard changes to a
+        red warning. Lift it and deliberately start a new run; an off or stopped
+        guard is not still checking.
       </p>
     </section>
 

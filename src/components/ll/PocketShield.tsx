@@ -1,6 +1,16 @@
-import { use, useEffect, useRef, useState } from 'react';
+import { use, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
+import {
+  AudioStatus,
+  audioStatus,
+  subscribeAudioStatus,
+} from '@/autopilot/alert';
 import { MODE_TEXT } from '@/autopilot/status';
+import {
+  ScreenAwakeStatus,
+  screenAwakeStatus,
+  subscribeScreenAwakeStatus,
+} from '@/autopilot/wakelock';
 import { targetActs } from '@/autopilot/watchlist';
 import TopAutopilotContext from '@/contexts/TopAutopilotContext';
 
@@ -25,6 +35,18 @@ import {
 
 /** Compatibility clicks arrive immediately after the touch that created them. */
 const COMPATIBILITY_CLICK_MS = 1_000;
+
+const SOUND_TEXT: Record<AudioStatus, string> = {
+  armed: 'Sound on',
+  idle: 'No sound',
+  unsupported: 'Sound unavailable',
+};
+
+const SCREEN_TEXT: Record<ScreenAwakeStatus, string> = {
+  held: 'Screen held',
+  idle: 'Screen may sleep',
+  unsupported: 'Screen wake unavailable',
+};
 
 /** Largest usable major and minor axes reported anywhere in this event. */
 function touchRadii(event: React.TouchEvent): {
@@ -100,6 +122,16 @@ export default function PocketShield({
   const shield = useRef<HTMLDivElement>(null);
   const gesture = useRef(INITIAL_TOUCH_GESTURE);
   const lastTouchAt = useRef(-Infinity);
+  const soundStatus = useSyncExternalStore(
+    subscribeAudioStatus,
+    audioStatus,
+    audioStatus
+  );
+  const awakeStatus = useSyncExternalStore(
+    subscribeScreenAwakeStatus,
+    screenAwakeStatus,
+    screenAwakeStatus
+  );
 
   // React's delegated touch listener can be passive in a browser, in which
   // case preventDefault() in the synthetic handler is only a wish. A scoped
@@ -126,6 +158,8 @@ export default function PocketShield({
   const stopped = mode === 'stopped';
   const off = mode === 'off';
   const alarm = stopped || off;
+  const alertChannelsHealthy =
+    soundStatus === 'armed' && awakeStatus === 'held';
   const armed =
     autopilot?.targetsHere.filter(
       target => targetActs(target) && !target.paused
@@ -272,6 +306,16 @@ export default function PocketShield({
             </div>
             <div className="mt-1 text-lg text-gray-300">
               {autopilot?.bookedCount ?? 0} booked today
+            </div>
+            <div
+              className={`mt-3 text-sm ${
+                alertChannelsHealthy
+                  ? 'text-gray-400'
+                  : 'font-semibold text-red-300'
+              }`}
+              data-testid="pocket-health"
+            >
+              {SOUND_TEXT[soundStatus]} · {SCREEN_TEXT[awakeStatus]}
             </div>
           </>
         )}
