@@ -113,6 +113,10 @@ export default function PocketShield({ onExit }: { onExit: () => void }) {
         type="button"
         className="absolute h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/70 bg-white/10 text-lg font-semibold transition-[left,top] duration-200"
         style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%` }}
+        // Two positions can share an x or a y -- the target moves diagonally
+        // between them -- so the index is the only honest way to assert that it
+        // moved at all.
+        data-position={guard.position}
         aria-label={`Unlock the screen: ${remaining} more ${
           remaining === 1 ? 'tap' : 'taps'
         } needed`}

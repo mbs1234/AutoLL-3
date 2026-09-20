@@ -125,11 +125,28 @@ describe('the pocket shield', () => {
     expect(box()).toHaveAccessibleName(/2 more taps/i);
   });
 
+  // Asserted on the position index rather than the rendered `left`. Two of the
+  // eight positions share an x -- the target moves diagonally between them --
+  // so reading one coordinate made this pass or fail on where the random pick
+  // landed. It failed in CI on an unrelated pull request, which is the only
+  // reason it was caught.
   it('moves the target after a tap, so it cannot be found by feel', () => {
     setup();
-    const before = box().style.left;
+    const before = box().dataset.position;
     tap(box());
-    expect(box().style.left).not.toBe(before);
+    expect(box().dataset.position).not.toBe(before);
+  });
+
+  // The property the flake was reaching for: wherever it goes, it is somewhere
+  // else. Run enough times that a random pick cannot hide a broken one.
+  it('never stays where it was, whichever position it starts from', () => {
+    setup();
+    for (let i = 0; i < 40; ++i) {
+      const before = box().dataset.position;
+      tap(box());
+      expect(box().dataset.position).not.toBe(before);
+      tap(backdrop());
+    }
   });
 
   // Being shielded over a dead engine is the one state where the shield is
