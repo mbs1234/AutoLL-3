@@ -10,12 +10,13 @@ import {
   MAX_WIDE_TOUCH_TRAVEL_PX,
   MIN_TAP_GAP_MS,
   TAPS_REQUIRED,
+  clearNormalProgress,
   isDeliberateTouch,
   nextPosition,
   onHit,
   onMiss,
   onWideTouch,
-  onWideTouchStart,
+  onWideTouchCredit,
   reduceTouchGesture,
   reportedMajorRadius,
   reportedMinorRadius,
@@ -326,8 +327,20 @@ describe('the wide-touch escape sequence', () => {
     expect(expired.state.taps).toBe(1);
   });
 
-  it('moves the target even before normal unlock progress exists', () => {
-    expect(onWideTouchStart(INITIAL, pick).position).not.toBe(INITIAL.position);
+  it('clears normal progress without moving a target for an unfinished attempt', () => {
+    const first = onHit(INITIAL, 1000, pick);
+    if (first.kind !== 'progress') throw new Error('expected progress');
+    const cleared = clearNormalProgress(first.state);
+    expect(cleared.taps).toBe(0);
+    expect(cleared.position).toBe(first.state.position);
+  });
+
+  it('moves the target exactly once when a wide attempt is credited', () => {
+    const pickOnce = jest.fn(pick);
+    expect(onWideTouchCredit(INITIAL, pickOnce).position).not.toBe(
+      INITIAL.position
+    );
+    expect(pickOnce).toHaveBeenCalledTimes(1);
   });
 });
 
