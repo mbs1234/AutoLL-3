@@ -284,6 +284,13 @@ export function rearmAudio(): void {
   const ctx = audioCtx;
   if (!ctx) return;
   void resumeAudioInBackground(ctx);
+  // Fed as well as resumed, exactly as `primeAudio` does. `resume()` alone is
+  // what left this channel silently dead through v1.2.3: WebKit wants a source
+  // to have been started before it will let a context sound, and a context
+  // that was resumed but never fed reports `running` while playing nothing --
+  // which `audioStatus` would then report as "armed". Recovery must not be a
+  // weaker operation than the gesture it is standing in for.
+  unlockOutput(ctx);
 }
 
 export function audioReady(): boolean {
@@ -372,9 +379,6 @@ export function chime(): void {
 export async function soundCheck(): Promise<AudioStatus> {
   const ctx = ensureAudioContext();
   const generation = ++soundCheckGeneration;
-  // This deliberate sound supersedes an automatic replay that may be waiting
-  // on the same resume, so the user hears one chime rather than two.
-  pendingChimeAt = undefined;
   if (!ctx) return audioStatus();
 
   // This function is called from a button. Every press must make a fresh
@@ -387,14 +391,28 @@ export async function soundCheck(): Promise<AudioStatus> {
   // Only the newest unresolved press owns playback. The small guard applies
   // only to this diagnostic; real alerts deliberately retain their existing
   // scheduling, including simultaneous alerts while the context is running.
+  //
+  // The guard is also read as *stale* when it sits further ahead than its own
+  // length, which a backwards wall-clock step (an NTP correction) would do.
+  // Without that, one clock step could leave the only way to test the only
+  // alert channel silently dead for as long as the step was large.
   const now = Date.now();
+  const guarded =
+    now < testChimeBlockedUntil &&
+    testChimeBlockedUntil - now <= TEST_CHIME_GUARD_MS;
   if (
     running &&
     audioCtx === ctx &&
     generation === soundCheckGeneration &&
-    now >= testChimeBlockedUntil
+    !guarded
   ) {
     testChimeBlockedUntil = now + TEST_CHIME_GUARD_MS;
+    // Cleared only here, on the branch that actually sounds. Clearing it up
+    // front meant a press the guard refused destroyed a real find's queued
+    // replay and put nothing in its place: the find passed in silence while
+    // the screen still read "armed". A press that plays legitimately stands
+    // in for the replay; a press that does not must leave it alone.
+    pendingChimeAt = undefined;
     playChime(ctx);
   }
   publishAudioStatus();
