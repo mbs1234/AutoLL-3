@@ -322,7 +322,7 @@ branch one. Anything forking this to a new repository has to add it again.
 
 `main` is protected: a pull request, a passing `check` run, linear history, no
 force-pushes. The deploy gates independently on typecheck and the full test
-suite — 116 suites, 1580 tests — and if either fails, the publish is skipped and
+suite — 117 suites, 1585 tests — and if either fails, the publish is skipped and
 Pages keeps serving the build already on your phone.
 
 ## Development
