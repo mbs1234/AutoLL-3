@@ -9,6 +9,17 @@ const PEAK_GAIN = 0.3;
 /** Attack/release ramp. Gating a sine abruptly produces an audible click. */
 const RAMP_S = 0.01;
 const VIBRATE_MS = [120, 60, 120];
+/**
+ * One clock for every in-memory deadline in this module.
+ *
+ * Select it once so a timestamp and its later comparison can never mix epoch
+ * milliseconds with milliseconds since navigation. Browsers all expose the
+ * monotonic Performance clock; Date is only a defensive non-browser fallback.
+ */
+const deadlineNow =
+  typeof performance === 'undefined'
+    ? () => Date.now()
+    : () => performance.now();
 /** How long background callers may share one in-flight resume attempt. */
 export const BACKGROUND_RESUME_REUSE_MS = 3_000;
 /** A later chime would sound like a new find even though the offer is stale. */
@@ -65,7 +76,7 @@ function deliverPendingChime(ctx: AudioContext): void {
   const requestedAt = pendingChimeAt;
   pendingChimeAt = undefined;
   if (requestedAt === undefined) return;
-  if (Date.now() - requestedAt > RESUME_REPLAY_MS) return;
+  if (deadlineNow() - requestedAt > RESUME_REPLAY_MS) return;
   playChime(ctx);
 }
 
@@ -110,7 +121,7 @@ function resumeAudioInBackground(ctx: AudioContext): Promise<boolean> {
     observeAudioState(ctx);
     return Promise.resolve(true);
   }
-  const at = Date.now();
+  const at = deadlineNow();
   if (
     pendingBackgroundResume?.ctx === ctx &&
     at - pendingBackgroundResume.startedAt <= BACKGROUND_RESUME_REUSE_MS
@@ -360,7 +371,7 @@ export function chime(): void {
 
   // Keep the newest request. `fireAlert` can call this several times in one
   // poll, and waking into several overlapping two-note chimes is cacophony.
-  pendingChimeAt = Date.now();
+  pendingChimeAt = deadlineNow();
   void resumeAudioInBackground(ctx).then(() => deliverPendingChime(ctx));
 }
 
@@ -391,15 +402,13 @@ export async function soundCheck(): Promise<AudioStatus> {
   // Only the newest unresolved press owns playback. The small guard applies
   // only to this diagnostic; real alerts deliberately retain their existing
   // scheduling, including simultaneous alerts while the context is running.
+  // A permitted diagnostic can likewise overlap a queued alert that recovers
+  // in the same turn. The user is present and asked for sound; deduplicating
+  // that cosmetic case would add shared delivery coordination to the critical
+  // alert path, so it is deliberately deferred with the real-alert overlap.
   //
-  // The guard is also read as *stale* when it sits further ahead than its own
-  // length, which a backwards wall-clock step (an NTP correction) would do.
-  // Without that, one clock step could leave the only way to test the only
-  // alert channel silently dead for as long as the step was large.
-  const now = Date.now();
-  const guarded =
-    now < testChimeBlockedUntil &&
-    testChimeBlockedUntil - now <= TEST_CHIME_GUARD_MS;
+  const now = deadlineNow();
+  const guarded = now < testChimeBlockedUntil;
   if (
     running &&
     audioCtx === ctx &&

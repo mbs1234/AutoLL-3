@@ -441,6 +441,15 @@ span, and every durable/session storage key passes through a typed
 handwritten namespaced literals, while notification tags have their own typed
 `autoll3-*` namespace.
 
+**Two audible overlaps are accepted until after the trip.** Several real finds
+that arrive while the context is already running can schedule their chimes
+together. A permitted **Test sound** press can also overlap a queued real alert
+that recovers in the same turn. In both cases the user hears extra sound rather
+than losing an alert, and the diagnostic case necessarily has the user looking
+at the phone. Deduplicating either would add shared delivery coordination to the
+alert path that has just been stabilised, so both remain deliberately out of
+scope for the freeze.
+
 **The volatile quarantine is under-tested, as of 2026-09-17.** A review of
 `787cff3` raised seventeen surviving findings and only two were defects; the
 other fifteen were paths that can be deleted with the whole suite green. Four of
