@@ -826,6 +826,26 @@ design.
 **"It gave away the wrong pass in a swap."** Swap in gives up the reservation
 the *app* ranks worst, not the one with the highest Plan rank you typed.
 
+## What it cannot do
+
+**Walt Disney World Lightning Lane Multi Pass only.** Disneyland and virtual
+queues were removed. AutoLL v1.0 still carries both; if you need to join a
+boarding group, use Disney's app. A boarding group already in your itinerary
+still displays here.
+
+**Individual Lightning Lane is not booked.** Only Multi Pass.
+
+**Rough edges, as of 1.2.8.** Known, recorded, and not fixed yet:
+
+- The day timeline truncates every target name at 360 px, and its bars are
+  14–20 px tall, which is a small tap target.
+- Undoing two target removals in a row loses the first one's window and rank.
+- A Plan Check item that names a setting opens Configure at the top of a long
+  screen rather than at the setting.
+
+These and everything else outstanding are in [docs/FUTURE.md](FUTURE.md), with
+what each would cost to fix.
+
 ---
 
 # Reference
@@ -900,7 +920,7 @@ definite answer from Disney.
 
 ## Related documents
 
-- [README.md](../README.md) — what this build does that v1.0 did not
+- [README.md](../README.md) — what this build is, and how to install it
 - [ROADMAP.md](../ROADMAP.md) — what to do next, and in what order
 - [docs/FUTURE.md](FUTURE.md) — everything outstanding, with what each would cost
 - [FORK.md](../FORK.md) — why a plain upstream build does not run
