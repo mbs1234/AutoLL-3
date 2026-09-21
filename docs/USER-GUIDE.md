@@ -423,6 +423,51 @@ or the 4am rollover turns it off, the guard changes to a red warning. Lift it
 and deliberately start a new run; an off or stopped guard is not still
 checking.
 
+### Lock the phone to Safari with Guided Access
+
+Pocket mode guards the page. It cannot guard Safari's own toolbar, because no
+web page can cover or disable browser chrome — and the **back** button is the
+one that really hurts, because it navigates away and destroys the run. iOS
+**Guided Access** is what stops a pocket reaching it.
+
+**Set it up once.** Settings → Accessibility → **Guided Access**, turn it on,
+then:
+
+- **Passcode Settings** — set a passcode and turn on **Face ID**, so ending a
+  session is a triple-click and a glance rather than typing in bright sun.
+- **Display Auto-Lock** — set it generously (**Never**, or the longest
+  offered). This is separate from the app's screen wake lock, and you do not
+  want the two arguing.
+
+**Each time you pocket the phone.** Start Autopilot, tap **Pocket it**, then
+triple-click the side button (double-click on iOS 18 and earlier). On the
+Guided Access screen, circle the areas to disable with your finger, then tap
+**Start**. iOS remembers the regions per app, so you draw them once.
+
+**What to circle:**
+
+- **The bottom strip** — on Safari's default layout this holds the address bar,
+  back, forward, share, bookmarks and tabs.
+- **The top strip** — the status bar and the notch. Check which Safari layout
+  you use first: if you moved the address bar to the top, this matters as much
+  as the bottom.
+
+Leave the middle alone. That is where AutoLL-3 is.
+
+**Two ways to run it.** Circle the strips and leave touch on, and Pocket mode
+still works normally — three taps lift the guard and you can check on things
+without ending the session. Or open **Session Settings** and turn **Touch**
+off, and nothing on the glass responds at all; you can still read the guarded
+screen, and you triple-click to end Guided Access when you want to interact.
+The first is more convenient, the second is airtight. They are alternatives,
+not layers: with Touch off, the three-tap unlock cannot work either.
+
+**To end it,** triple-click the side button, authenticate, then **End**.
+
+> **Crash Detection and emergency calls do not work during a Guided Access
+> session.** Apple states this outright. End the session rather than leaving it
+> running all day out of habit.
+
 ## 13. What the status words mean
 
 ![Today while bursting at a drop](user-guide/today-running.png)

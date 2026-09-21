@@ -1240,6 +1240,62 @@
         red warning. Lift it and deliberately start a new run; an off or stopped
         guard is not still checking.
       </p>
+      <h4>Lock the phone to Safari with Guided Access</h4>
+      <p>
+        Pocket mode guards the page. It cannot guard Safari's own toolbar,
+        because no web page can cover or disable browser chrome — and
+        <strong>back</strong> is the one that really hurts, because it navigates
+        away and destroys the run. iOS <strong>Guided Access</strong> is what
+        stops a pocket reaching it.
+      </p>
+      <p>
+        <strong>Set it up once.</strong> Settings → Accessibility →
+        <span class="ui">Guided Access</span>, turn it on, then set
+        <span class="ui">Passcode Settings</span> — a passcode plus
+        <strong>Face ID</strong>, so ending a session is a triple-click and a
+        glance rather than typing in bright sun — and
+        <span class="ui">Display Auto-Lock</span> generously
+        (<strong>Never</strong>, or the longest offered). That setting is
+        separate from the app's screen wake lock, and you do not want the two
+        arguing.
+      </p>
+      <p>
+        <strong>Each time you pocket the phone.</strong> Start Autopilot, tap
+        <span class="ui">Pocket it</span>, then triple-click the side button
+        (double-click on iOS 18 and earlier). On the Guided Access screen,
+        circle the areas to disable with your finger, then tap
+        <span class="ui">Start</span>. iOS remembers the regions per app, so you
+        draw them once.
+      </p>
+      <p>What to circle:</p>
+      <ul>
+        <li><strong>The bottom strip</strong> — on Safari's default layout this holds the address bar, back, forward, share, bookmarks and tabs.</li>
+        <li><strong>The top strip</strong> — the status bar and the notch. Check which Safari layout you use first: if you moved the address bar to the top, this matters as much as the bottom.</li>
+      </ul>
+      <p>Leave the middle alone. That is where AutoLL-3 is.</p>
+      <p>
+        <strong>Two ways to run it.</strong> Circle the strips and leave touch
+        on, and Pocket mode still works normally — three taps lift the guard and
+        you can check on things without ending the session. Or open
+        <span class="ui">Session Settings</span> and turn <span class="ui">Touch</span>
+        off, and nothing on the glass responds at all; you can still read the
+        guarded screen, and you triple-click to end Guided Access when you want
+        to interact. The first is more convenient, the second is airtight. They
+        are alternatives, not layers: with Touch off, the three-tap unlock
+        cannot work either.
+      </p>
+      <p>
+        <strong>To end it,</strong> triple-click the side button, authenticate,
+        then <span class="ui">End</span>.
+      </p>
+      <div class="call stop">
+        <span class="call-label">Before you leave it running</span>
+        <p>
+          <strong>Crash Detection and emergency calls do not work during a
+          Guided Access session.</strong> Apple states this outright. End the
+          session rather than leaving it running all day out of habit.
+        </p>
+      </div>
     </section>
 
     <section id="status">
