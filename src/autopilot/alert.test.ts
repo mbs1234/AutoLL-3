@@ -290,7 +290,7 @@ describe('rearmAudio()', () => {
 
   it('coalesces background recovery only inside the bounded reuse window', () => {
     let now = 1_000;
-    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    jest.spyOn(performance, 'now').mockImplementation(() => now);
     const { ctx } = fakeAudioContext('running');
     g.AudioContext = jest.fn(() => ctx);
     primeAudio();
@@ -312,9 +312,28 @@ describe('rearmAudio()', () => {
     expect(ctx.resume).toHaveBeenCalledTimes(2);
   });
 
+  it('expires a wedged resume while the wall clock moves backwards', () => {
+    let elapsed = 10_000;
+    let wall = 1_700_000_000_000;
+    jest.spyOn(performance, 'now').mockImplementation(() => elapsed);
+    jest.spyOn(Date, 'now').mockImplementation(() => wall);
+    const { ctx } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    ctx.resume = jest.fn(() => new Promise<void>(() => undefined));
+
+    rearmAudio();
+    elapsed += BACKGROUND_RESUME_REUSE_MS + 1;
+    wall -= 600_000;
+    rearmAudio();
+
+    expect(ctx.resume).toHaveBeenCalledTimes(2);
+  });
+
   it('lets a provider visibility rearm replace a resume that never settles', () => {
     let now = 2_000;
-    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    jest.spyOn(performance, 'now').mockImplementation(() => now);
     const { ctx } = fakeAudioContext('running');
     g.AudioContext = jest.fn(() => ctx);
     primeAudio();
@@ -330,7 +349,7 @@ describe('rearmAudio()', () => {
 
   it('does not let an old promise erase a newer background attempt', async () => {
     let now = 3_000;
-    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    jest.spyOn(performance, 'now').mockImplementation(() => now);
     const { ctx } = fakeAudioContext('running');
     g.AudioContext = jest.fn(() => ctx);
     primeAudio();
@@ -377,7 +396,7 @@ describe('soundCheck()', () => {
    */
   it('leaves a pending find alone when the guard refuses the press', async () => {
     let now = 50_000;
-    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    jest.spyOn(performance, 'now').mockImplementation(() => now);
     const { ctx, started } = fakeAudioContext('running');
     g.AudioContext = jest.fn(() => ctx);
     primeAudio();
@@ -393,18 +412,19 @@ describe('soundCheck()', () => {
     expect(started).toHaveLength(CHIME_NOTES * 2);
   });
 
-  // A backwards wall-clock step must not leave the only way to test the only
-  // alert channel silently dead for the length of the correction.
-  it('ignores a guard left in the future by a backwards clock step', async () => {
-    let now = 50_000;
-    jest.spyOn(Date, 'now').mockImplementation(() => now);
+  it('keeps the diagnostic guard bounded across a backwards wall-clock step', async () => {
+    let elapsed = 50_000;
+    let wall = 1_700_000_000_000;
+    jest.spyOn(performance, 'now').mockImplementation(() => elapsed);
+    jest.spyOn(Date, 'now').mockImplementation(() => wall);
     const { ctx, started } = fakeAudioContext('running');
     g.AudioContext = jest.fn(() => ctx);
     primeAudio();
     await soundCheck();
     expect(started).toHaveLength(CHIME_NOTES);
 
-    now -= 600_000;
+    elapsed += TEST_CHIME_GUARD_MS;
+    wall -= 600_000;
     await soundCheck();
     expect(started).toHaveLength(CHIME_NOTES * 2);
   });
@@ -529,7 +549,7 @@ describe('soundCheck()', () => {
 
   it('guards only diagnostic playback for exactly the derived chime length', async () => {
     let now = 5_000;
-    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    jest.spyOn(performance, 'now').mockImplementation(() => now);
     const { ctx, started, resume } = fakeAudioContext('running');
     g.AudioContext = jest.fn(() => ctx);
     primeAudio();
@@ -607,7 +627,7 @@ describe('chime()', () => {
   // dropping the audio channel for that alert.
   it('drops a replay whose resume settles after the freshness deadline', async () => {
     let now = 1_000;
-    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    jest.spyOn(performance, 'now').mockImplementation(() => now);
     const { ctx, started } = fakeAudioContext('running');
     g.AudioContext = jest.fn(() => ctx);
     primeAudio();
@@ -625,6 +645,44 @@ describe('chime()', () => {
     await settleResume();
 
     expect(started).toHaveLength(0);
+  });
+
+  it('drops a stale replay while the wall clock moves backwards', () => {
+    let elapsed = 20_000;
+    let wall = 1_700_000_000_000;
+    jest.spyOn(performance, 'now').mockImplementation(() => elapsed);
+    jest.spyOn(Date, 'now').mockImplementation(() => wall);
+    const { ctx, started } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    ctx.resume = jest.fn(() => new Promise<void>(() => undefined));
+
+    chime();
+    elapsed += RESUME_REPLAY_MS + 1;
+    wall -= 600_000;
+    ctx.setState('running');
+
+    expect(started).toHaveLength(0);
+  });
+
+  it('keeps a boundary-fresh replay while the wall clock moves forwards', () => {
+    let elapsed = 30_000;
+    let wall = 1_700_000_000_000;
+    jest.spyOn(performance, 'now').mockImplementation(() => elapsed);
+    jest.spyOn(Date, 'now').mockImplementation(() => wall);
+    const { ctx, started } = fakeAudioContext('running');
+    g.AudioContext = jest.fn(() => ctx);
+    primeAudio();
+    ctx.state = 'interrupted';
+    ctx.resume = jest.fn(() => new Promise<void>(() => undefined));
+
+    chime();
+    elapsed += RESUME_REPLAY_MS;
+    wall += 600_000;
+    ctx.setState('running');
+
+    expect(started).toHaveLength(CHIME_NOTES);
   });
 
   it('stays silent and retryable when resume is rejected', async () => {
@@ -648,7 +706,7 @@ describe('chime()', () => {
 
   it('starts a fresh alert recovery after the background reuse window', () => {
     let now = 1_000;
-    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    jest.spyOn(performance, 'now').mockImplementation(() => now);
     const { ctx } = fakeAudioContext('running');
     g.AudioContext = jest.fn(() => ctx);
     primeAudio();
@@ -664,7 +722,7 @@ describe('chime()', () => {
 
   it('coalesces concurrent alerts and uses the newest request time', async () => {
     let now = 1_000;
-    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    jest.spyOn(performance, 'now').mockImplementation(() => now);
     const { ctx, started } = fakeAudioContext('running');
     g.AudioContext = jest.fn(() => ctx);
     primeAudio();
