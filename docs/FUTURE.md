@@ -4,7 +4,9 @@ Written 2026-09-13, against AutoLL-3 at 0.5.0. Revised 2026-09-14 when the day's
 action allowance was removed (§7) and the 2026-09-12 review's correctness list
 was cleared (§1), and again on 2026-09-15, when every decision in §4 was
 answered and a Time Search was given precedence over the engine — decided and
-built the same day, so it is not listed below.
+built the same day, so it is not listed below. Revised again on 2026-09-23, when
+the ordering moved to `ROADMAP.md`'s calendar and five items were added
+(§2.8–§2.11 and §3.13).
 
 This is the standing list of what is not done: the items still open from
 `PLAN.md` and `UX-PLAN.md`, the
@@ -29,16 +31,23 @@ usable today; everything here makes it better, and nothing here is required.
 
 ## The short list
 
-If only four things get done, these:
+If only four things get done before December, these — in `ROADMAP.md`'s order,
+which is now the one to follow:
 
-1. **Expiry rescue** (§3.1) — the largest recoverable loss the tool still does
-   not catch: a lapsed pass costs a selection for nothing.
-2. **Plan from the sofa** (§3.2) — a December plan cannot currently be built
-   without a live tip board, which is the opposite of how this is meant to work.
-3. **The timeline's names and tap targets** (§2.1, §2.2) — the day view cannot
-   currently tell you which ride a bar is for.
-4. **The overlay IDs** (§3.3) — a watch list built in October against the wrong
-   Jingle Cruise ID matches nothing in December, silently.
+1. **Back up the plan and what the learner has seen** (§3.13, ROADMAP item 12).
+   Everything lives in one browser store on the phone, iOS deletes that store
+   after about a week without a visit, and nothing gets any of it off the phone.
+2. **Warn before a held pass lapses** (§3.1's warning half, ROADMAP item 3) — the
+   largest recoverable loss the tool still does not catch, and now an alert that
+   reaches a pocket.
+3. **Plan from the sofa** (§3.2, ROADMAP item 6) — but only if the September 27
+   reading shows the date picker cannot serve December.
+4. **The overlay IDs** (§3.3, ROADMAP item 7) — a watch list built against the
+   wrong Jingle Cruise ID matches nothing in December, silently.
+
+The timeline's names and tap targets (§2.1, §2.2), third on the previous list,
+have moved to after December: the day view is a planning aid, and a park morning
+is better served by §2.8 and §2.9.
 
 The correctness list above them is empty: §1 was cleared on 2026-09-14, and
 with it the four screen defects that used to sit in §2.
@@ -146,6 +155,40 @@ description, and the only place a truncated name survives at all, reads
 _Where:_ `src/components/ll/DayTimeline.tsx:123,163`, `src/datetime.ts:91-95`.
 _Size:_ small. Fold it into §2.1, which is already rewriting how a bar carries
 its name.
+
+### 2.8 The park morning has no preflight — ROADMAP item 13
+
+The pre-trip checklist disappears the moment the booking date is today — the
+morning it would help most — and a park morning's go/no-go checks sit in four
+places: the night-before list in the guide, the dry-run banner, the Test sound row
+and the session-expiry line.
+
+_Size:_ small. _Risk:_ a row that claims a readiness it never verified, which is
+§2.5's lesson and ROADMAP item 5's.
+
+### 2.9 Today does not point at the park the plan is for — ROADMAP item 14
+
+The park is saved with `kvdb.setDaily` (`src/providers/ParkProvider.tsx:30`), so it
+resets overnight, and only Configure mentions targets saved at another park. On a
+morning whose plan is at EPCOT, Today reads "Nothing watched at Magic Kingdom on
+this date."
+
+_Size:_ small. _Risk:_ switching the park without saying so, which is a silent
+change of its own.
+
+### 2.10 The booking morning has no screen of its own — ROADMAP item 15
+
+The highest-stakes moment of the year is nine or more sequential searches with the
+date picker changed between them, on a different screen, and the failure that
+cannot be undone is a pass for the wrong day.
+
+_Size:_ medium, and specified by the October 11 booking morning rather than
+before it.
+
+### 2.11 Nothing captures an observation in the moment — ROADMAP item 16
+
+_Size:_ small, optional. A note stamped with park time and the current park and
+date, kept beside the activity log and carried in §3.13's backup.
 
 ---
 
@@ -297,6 +340,20 @@ thing regardless of rank is one bad morning away from spending a slot on a
 filler. If it is built, it has to be bounded to the pre-redemption window and
 to attractions you marked as acceptable.
 
+### 3.13 What the learner learns does not survive to the next trip — ROADMAP item 12
+
+Every observation `observe.ts` records — and the plan, the party and the booking
+log with it — lives in `localStorage` on Disney's origin, and nothing in `src/`
+can get any of it off the phone. WebKit deletes all of a site's script-writable
+storage after seven days of Safari use without a visit. October manufactures the
+learned drop times December uses, eight weeks later.
+
+_Size:_ small for an export, medium with a restore. _Where:_ a pure module beside
+`src/autopilot/storage.ts`, and a button on Settings. _Risk:_ a backup must never
+carry `auth` or `auth.persistence`, which hold a live Disney session, and a
+restore must never write engine state or change dry run. ROADMAP item 12 has the
+full treatment.
+
 ---
 
 ## 4. Decisions before code
@@ -396,7 +453,8 @@ it cannot be used at all.
    `TIER_LIMIT_REACHED` before and after the first tap, ideally with a
    split-party tap-in.
 3. **What is Big Thunder's post-reopening drop schedule?** Unmeasured. Let the
-   learner run at approach cadence and see.
+   learner run at approach cadence and see. This one does not need a park: the
+   learner runs from home whenever the booking date is today (ROADMAP theme 2).
 4. **Do the December overlay IDs still resolve?** See §3.3 — a data check, once
    the overlays are running.
 5. **How long does Disney's itinerary take to show a change that has landed?**
@@ -578,20 +636,22 @@ cannot be running.
 repository. Anything whose purpose is to obtain more entitlements than Disney's
 published rules allow.
 
+**Recorded 2026-09-23.** Running as a Home Screen web app — it would dissolve
+three problems at once, with notifications as a second alert channel, no Safari
+toolbar to guard and storage exempt from the seven-day cap, but AutoLL-3 has to
+run on Disney's own origin to use the Disney session, and a Home Screen web app
+sends navigation outside its scope back to Safari. Autopilot booking every day of
+a stay on its own on the booking morning — the engine is built around one booking
+date, and rebuilding that before December is the riskiest change available
+(ROADMAP item 15). Restoring engine state or dry run from a backup — engine state
+describes reservations at one instant, and dry run is silently wrong in either
+direction (ROADMAP item 12).
+
 ---
 
 ## A suggested order
 
-Nothing here is scheduled, but if the weeks are spent in this order the
-expensive things land first and the freeze catches the cheap ones.
-
-| When | What |
-| ---- | ---- |
-| ~~2026-09-14~~ | ~~All of §1, and the four screen defects §2 then carried~~ — done. The §2 numbers have moved since; do not read them across. |
-| Now | §3.1 expiry rescue, with its tests |
-| October | §3.2 planning offline, §2.1 and §2.2 the timeline, §2.5 the checklist |
-| Early November | §4.2 and §4.4 decided and acted on, or explicitly dropped; §3.4 the countdown |
-| Late November | §3.3 the overlay IDs against a live tip board; §5 instrumentation |
-| December 8 → trip | Freeze. Full-day dry runs in the harness and in the park. |
-
-Cut from the bottom: §3.11 live standby first, then §3.9, then §3.7.
+Retired 2026-09-23. `ROADMAP.md` now carries the calendar, and two documents
+keeping two orderings is how both drift: this table ranked expiry rescue first and
+the countdown in November, while the roadmap now puts the lapse warning ahead of
+rescue and has repriced the countdown down. Follow the roadmap.
