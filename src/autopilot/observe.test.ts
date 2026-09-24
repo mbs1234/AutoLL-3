@@ -23,6 +23,10 @@ import {
   fromDayMinutes,
   loadCoverage,
   loadDropEvents,
+  mergeCoverage,
+  mergeDropEvents,
+  mergeWatchedDays,
+  parseDropEvents,
   recordCoverage,
   recordWatched,
   saveCoverage,
@@ -693,5 +697,99 @@ describe('baselineUsable()', () => {
     expect(SNAPSHOT_STALE_MS).toBeGreaterThan(
       IDLE_INTERVAL_MS + BACKOFF_CAP_MS
     );
+  });
+});
+
+// A restore keeps what this phone has seen *and* what the backup saw, under the
+// same caps recording uses, so a restored store is one recording could have
+// written. `day(n)` counts park dates forward from a fixed, neutral start.
+describe('merging, for a restore', () => {
+  const day = (n: number) =>
+    new Date(Date.UTC(2031, 0, 1 + n)).toISOString().slice(0, 10);
+  const event = (
+    experienceId: string,
+    date: string,
+    time = '09:47'
+  ): DropEvent => ({ experienceId, date, time, kind: 'appeared' });
+
+  it('keeps both sides of the drop history, each event once', () => {
+    const phone = [event('a', D1), event('b', D2)];
+    const file = [event('a', D1), event('c', D3)];
+    expect(mergeDropEvents(phone, file)).toEqual([
+      event('a', D1),
+      event('b', D2),
+      event('c', D3),
+    ]);
+  });
+
+  it('caps the drop history as recording does, dropping the oldest dates', () => {
+    const phone = Array.from({ length: MAX_EVENTS }, (_, i) =>
+      event(
+        'a',
+        day(1000 + Math.floor(i / 50)),
+        `09:${String(i % 50).padStart(2, '0')}`
+      )
+    );
+    const file = [event('old', day(0)), event('new', day(2000))];
+    const merged = mergeDropEvents(phone, file);
+    expect(merged).toHaveLength(MAX_EVENTS);
+    expect(merged.at(-1)).toEqual(event('new', day(2000)));
+    expect(merged.map(e => e.experienceId)).not.toContain('old');
+  });
+
+  it('keeps every bucket either side covered, in numeric order', () => {
+    const mk = coverageKey('mk', D1);
+    expect(mergeCoverage({ [mk]: [132, 60] }, { [mk]: [60, 90] })).toEqual({
+      [mk]: [60, 90, 132],
+    });
+  });
+
+  // Pruning is by date across parks, the rule `recordCoverage` pruning keeps.
+  it('keeps the newest park dates, not the parks sorted first', () => {
+    const phone: Coverage = {};
+    for (let n = 0; n < MAX_COVERAGE_DAYS; n++) {
+      phone[coverageKey('80007944', day(10 + n))] = [1];
+    }
+    const file: Coverage = {
+      [coverageKey('80007823', day(0))]: [1],
+      [coverageKey('80007823', day(10 + MAX_COVERAGE_DAYS))]: [1],
+    };
+    const merged = mergeCoverage(phone, file);
+    const dates = new Set(Object.keys(merged).map(coverageDate));
+    expect(dates.size).toBe(MAX_COVERAGE_DAYS);
+    expect(dates.has(day(0))).toBe(false);
+    expect(dates.has(day(10))).toBe(false);
+    expect(
+      merged[coverageKey('80007823', day(10 + MAX_COVERAGE_DAYS))]
+    ).toEqual([1]);
+  });
+
+  it('keeps every attraction either side had armed, pruned the same way', () => {
+    const mk = coverageKey('mk', D1);
+    expect(
+      mergeWatchedDays({ [mk]: ['b', 'a'] }, { [mk]: ['a', 'c'] })
+    ).toEqual({
+      [mk]: ['a', 'b', 'c'],
+    });
+    const phone = Object.fromEntries(
+      Array.from({ length: MAX_COVERAGE_DAYS }, (_, n) => [
+        coverageKey('mk', day(10 + n)),
+        ['a'],
+      ])
+    );
+    const merged = mergeWatchedDays(phone, {
+      [coverageKey('mk', day(0))]: ['a'],
+    });
+    expect(Object.keys(merged)).toHaveLength(MAX_COVERAGE_DAYS);
+    expect(merged[coverageKey('mk', day(0))]).toBeUndefined();
+  });
+
+  // A backup is a file someone picked; its events go through the loader's own
+  // filter before they are trusted.
+  it('reads only well-formed events out of anything', () => {
+    expect(parseDropEvents('not a list')).toEqual([]);
+    expect(
+      parseDropEvents([event('a', D1), { experienceId: 'b' }, null, 7])
+    ).toEqual([event('a', D1)]);
   });
 });

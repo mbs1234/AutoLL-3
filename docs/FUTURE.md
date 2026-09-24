@@ -34,9 +34,10 @@ usable today; everything here makes it better, and nothing here is required.
 If only four things get done before the main trip, these — in `ROADMAP.md`'s order,
 which is now the one to follow:
 
-1. **Back up the plan and what the learner has seen** (§3.13, ROADMAP item 12).
-   Everything lives in one browser store on the phone, iOS deletes that store
-   after about a week without a visit, and nothing gets any of it off the phone.
+1. **Back up the plan and what the learner has seen** (§3.13, ROADMAP item 12) —
+   built: export in 1.3.0, restore in 1.4.0. Everything lives in one browser
+   store on the phone, iOS deletes that store after about a week without a visit,
+   and until then nothing got any of it off the phone.
 2. **Warn before a held pass lapses** (§3.1's warning half, ROADMAP item 3) — the
    largest recoverable loss the tool still does not catch, and now an alert that
    reaches a pocket.
@@ -342,6 +343,8 @@ filler. If it is built, it has to be bounded to the pre-redemption window and
 to attractions you marked as acceptable.
 
 ### 3.13 What the learner learns does not survive to the next trip — ROADMAP item 12
+
+**Built** — export in 1.3.0 and restore in 1.4.0. ROADMAP item 12 records how.
 
 Every observation `observe.ts` records — and the plan, the party and the booking
 log with it — lives in `localStorage` on Disney's origin, and nothing in `src/`

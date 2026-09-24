@@ -97,6 +97,7 @@ import {
   RefusalState,
   observeAction,
 } from '@/autopilot/refusal';
+import { markRunning } from '@/autopilot/running';
 import { syncedParkTime } from '@/autopilot/schedule';
 import {
   COMMIT_TTL_MS,
@@ -512,6 +513,15 @@ export default function AutopilotProvider({
       document.removeEventListener('visibilitychange', rearm);
       window.removeEventListener('focus', rearm);
     };
+  }, [enabled]);
+
+  // A restore rewrites the plan this engine holds in memory, and its next save
+  // would undo it; so while any engine runs, restore stays unavailable. This
+  // instance may be a Time Search under a pushed screen, where the restore
+  // screen cannot read its context. See `src/autopilot/running.ts`.
+  useEffect(() => {
+    if (!enabled) return;
+    return markRunning();
   }, [enabled]);
 
   // Unmount is the one path that bypasses `setEnabled(false)`, and a wake lock

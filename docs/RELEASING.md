@@ -56,7 +56,7 @@ which is what makes a rollback a one-command operation rather than a rebuild
 from memory:
 
 ```bash
-gh workflow run deploy.yml --ref autoll3-v1.2.8
+gh workflow run deploy.yml --ref autoll3-v1.3.0
 ```
 
 The release is not complete until `gh release view` lists both manifest files; a
