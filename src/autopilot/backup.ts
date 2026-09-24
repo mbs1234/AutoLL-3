@@ -156,7 +156,7 @@ export function describeSummary(s: BackupSummary): string {
   return parts.length > 0 ? parts.join(' · ') : 'Nothing saved yet.';
 }
 
-/** `AutoLL-3 backup 2026-10-21.json`, in the phone's own calendar. */
+/** `{APP_NAME} backup 2031-02-14.json`, in the phone's own calendar. */
 export function backupFileName(now: Date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   const day = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;

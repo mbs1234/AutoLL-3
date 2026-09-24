@@ -226,7 +226,8 @@ end of this file.
 > added to `kvdb` itself (`kvdb.entries()`), so the namespace filter lives at the
 > storage boundary and `storageNamespace.test.ts`'s rule against direct storage
 > access still holds. The owner chose **replace** for restoring the plan.
-> Restore — the narrow half — is the next step, then the port to AutoLL-4.
+> Restore — the narrow half — is the next step. Export ports to AutoLL-4 by merge
+> now, at the owner's request, rather than waiting for restore.
 
 **Why.** Theme 1. Everything lives in `localStorage` on Disney's origin, iOS
 deletes it after about a week of Safari use without a visit, and there is no way to
