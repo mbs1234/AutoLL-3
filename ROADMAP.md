@@ -206,6 +206,16 @@ November 27. What waits until after December is at the end of this file.
 
 ### 12. Back up the plan and what the learner has seen — _small, then medium_
 
+> **Status, 2026-09-23 — export built, restore next.** 1.3.0 adds **Backup and
+> Restore** to the Settings menu. It opens its own screen, because the menu runs
+> its items fifty milliseconds after closing and iOS opens the share sheet only
+> from a tap. **Back up now** shares one versioned JSON file, and a grey line in
+> the menu says how long it has been since the last backup. Enumeration was
+> added to `kvdb` itself (`kvdb.entries()`), so the namespace filter lives at the
+> storage boundary and `storageNamespace.test.ts`'s rule against direct storage
+> access still holds. The owner chose **replace** for restoring the plan.
+> Restore — the narrow half — is the next step, then the port to AutoLL-4.
+
 **Why.** Theme 1. Everything lives in `localStorage` on Disney's origin, iOS
 deletes it after about a week of Safari use without a visit, and there is no way to
 get any of it off the phone. The learned drop times that October produces are the

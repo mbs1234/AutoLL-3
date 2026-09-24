@@ -2,15 +2,18 @@ import { use, useMemo, useRef, useState } from 'react';
 
 import { authStore } from '@/api/auth';
 import { APP_NAME, BUILD_REV } from '@/appIdentity';
+import { describeLastBackup, lastBackupAt } from '@/autopilot/backup';
 import Overlay from '@/components/Overlay';
 import NavContext from '@/contexts/NavContext';
+// import NewsIcon from '@/icons/NewsIcon';
+import BackupIcon from '@/icons/BackupIcon';
 // import News from '@/components/screens/News';
 
 import ExitIcon from '@/icons/ExitIcon';
-// import NewsIcon from '@/icons/NewsIcon';
 import SettingsIcon from '@/icons/SettingsIcon';
 import UserIcon from '@/icons/UserIcon';
 
+import BackupRestore from '../BackupRestore';
 import PartySelector from '../PartySelector';
 
 export default function SettingsButton() {
@@ -25,6 +28,11 @@ export default function SettingsButton() {
         text: 'Party Selection',
         icon: <UserIcon />,
         action: () => goTo(<PartySelector />),
+      },
+      {
+        text: 'Backup and Restore',
+        icon: <BackupIcon />,
+        action: () => goTo(<BackupRestore />),
       },
       {
         text: 'Log Out',
@@ -96,6 +104,15 @@ export default function SettingsButton() {
               aria-label="Session status"
             >
               Session: {sessionStatus.replaceAll('-', ' ')}
+            </li>
+            {/* Read each time the menu opens, so it is current without anything
+                having to notify it. Here rather than on Today, which is for the
+                park day; a reminder to back up belongs with the backup. */}
+            <li
+              className="px-4 text-center text-sm text-gray-500"
+              aria-label="Last backup"
+            >
+              Last backup: {describeLastBackup(lastBackupAt())}
             </li>
             {/* Which build this is. More than one bg1-derived build can be
                 installed on the same phone; this used to sit in the tab bar,
