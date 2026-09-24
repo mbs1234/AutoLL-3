@@ -1,5 +1,5 @@
 import { parkDate } from './datetime';
-import type { StorageKey } from './storageNamespace';
+import { STORAGE_NAMESPACE, type StorageKey } from './storageNamespace';
 
 interface DailyValue<T> {
   value: T;
@@ -26,6 +26,26 @@ export default {
 
   clear() {
     localStorage.clear();
+  },
+
+  /**
+   * Every key under this build's namespace, with its raw stored string.
+   *
+   * For the backup, which is the one caller that needs to enumerate. The store
+   * belongs to Disney's website, which keeps data of its own there, and another
+   * AutoLL build on the same phone keeps its keys there too -- so this never
+   * returns a key outside this build's namespace, and the filter lives here, at
+   * the boundary, rather than in each caller.
+   */
+  entries(): [StorageKey, string][] {
+    const out: [StorageKey, string][] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key === null || !key.startsWith(STORAGE_NAMESPACE)) continue;
+      const raw = localStorage.getItem(key);
+      if (raw !== null) out.push([key as StorageKey, raw]);
+    }
+    return out;
   },
 
   getDaily<T = unknown>(key: StorageKey) {

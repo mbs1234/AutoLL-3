@@ -884,10 +884,14 @@ still displays here.
 your watch list, and what it has learned about drops — is stored by Safari for
 Disney's website. Safari deletes a website's stored data after about a week of
 Safari use without a visit to that site, and nothing warns you when it does.
-**Between trips, open AutoLL-3 at least once a week**, or it may start empty
-next time.
+**Back it up:** the gear at the bottom right, then **Backup and Restore**, then
+**Back up now**. It saves one file — your plan, your party and every drop the
+learner has seen — to Files, or AirDrops it to a computer. Your Disney sign-in
+is never in it. The same menu says how long it has been since the last one.
+**Between trips, open AutoLL-3 at least once a week** as well, or it may start
+empty next time.
 
-**Rough edges, as of 1.2.8.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.3.0.** Known, recorded, and not fixed yet:
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
