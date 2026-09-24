@@ -67,7 +67,8 @@ before you rely on it.
 **Keeps a copy.** Safari deletes what a website has stored after about a week
 without a visit, and everything AutoLL-3 knows is stored that way. **Backup and
 Restore**, in the Settings menu, saves your plan, your party and every drop the
-learner has seen to a file you keep. Your Disney sign-in is never in it.
+learner has seen to a file you keep, and puts it back on a phone that has lost
+it. Your Disney sign-in is never in it.
 
 It books Walt Disney World Multi Passes only — not Disneyland, not virtual
 queues, not Individual Lightning Lanes — and it cannot get you more than

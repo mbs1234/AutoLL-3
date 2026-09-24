@@ -1,8 +1,24 @@
 import { AUTH_KEY } from '@/api/auth';
-import { LAST_BACKUP_KEY, lastBackupAt } from '@/autopilot/backup';
-import { WATCHLIST_KEY } from '@/autopilot/watchlist';
+import { APP_NAME } from '@/appIdentity';
+import {
+  BACKUP_FORMAT,
+  BACKUP_SCHEMA,
+  LAST_BACKUP_KEY,
+  lastBackupAt,
+} from '@/autopilot/backup';
+import { markRunning } from '@/autopilot/running';
+import { WATCHLIST_KEY, loadWatchList } from '@/autopilot/watchlist';
 import { PARTY_IDS_KEY } from '@/savedParty';
-import { TODAY, TOMORROW, act, fireEvent, render, screen } from '@/testing';
+import { STORAGE_NAMESPACE } from '@/storageNamespace';
+import {
+  TODAY,
+  TOMORROW,
+  act,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@/testing';
 
 import BackupRestore from './BackupRestore';
 
@@ -144,5 +160,142 @@ describe('BackupRestore', () => {
     });
     const file = share.mock.calls[0]![0].files![0]!;
     expect(await fileText(file)).not.toContain(TOKEN);
+  });
+});
+
+describe('BackupRestore, restoring', () => {
+  const suffix = (key: string) => key.slice(STORAGE_NAMESPACE.length);
+  const backupFile = (
+    data: Record<string, unknown>,
+    fields: Record<string, unknown> = {}
+  ) =>
+    new File(
+      [
+        JSON.stringify({
+          format: BACKUP_FORMAT,
+          schema: BACKUP_SCHEMA,
+          app: APP_NAME,
+          rev: 'abc1234def',
+          exportedAt: '2031-02-14T15:04:05.000Z',
+          data,
+          ...fields,
+        }),
+      ],
+      'my backup.json',
+      { type: 'application/json' }
+    );
+  const pick = (file: File) =>
+    fireEvent.change(screen.getByLabelText('Backup file'), {
+      target: { files: [file] },
+    });
+  const replaceButton = () =>
+    screen.findByRole('button', { name: 'Replace this phone’s plan' });
+
+  // Like the share sheet, a file picker opens only as the direct result of a tap.
+  it('opens the file picker from inside the tap', () => {
+    const click = jest
+      .spyOn(HTMLInputElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+    render(<BackupRestore />);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Choose a backup file' })
+    );
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('Backup file')).toHaveAttribute(
+      'accept',
+      expect.stringContaining('application/json')
+    );
+  });
+
+  it('shows what a picked backup holds, and writes nothing yet', async () => {
+    render(<BackupRestore />);
+    pick(
+      backupFile({
+        [suffix(WATCHLIST_KEY)]: [
+          { experienceId: 'z', parkId: 'ak', date: TODAY },
+        ],
+        [suffix(PARTY_IDS_KEY)]: ['g9'],
+      })
+    );
+    expect(
+      await screen.findByText(
+        '1 attraction for 1 date at 1 park · a party of 1'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText('my backup.json')).toBeInTheDocument();
+    expect(screen.getByText(/build abc1234$/)).toBeInTheDocument();
+    expect(loadWatchList()).toHaveLength(2);
+  });
+
+  it('replaces the plan, then holds the screen until a reload', async () => {
+    const reload = jest.fn();
+    render(<BackupRestore reload={reload} />);
+    pick(backupFile({ [suffix(WATCHLIST_KEY)]: [{ experienceId: 'z' }] }));
+    fireEvent.click(await replaceButton());
+    const dialog = screen.getByRole('alertdialog', { name: 'Restored' });
+    expect(loadWatchList()).toEqual([{ experienceId: 'z' }]);
+    expect(reload).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reload now' }));
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('says why a file is refused, and offers nothing to restore', async () => {
+    render(<BackupRestore />);
+    pick(backupFile({}, { app: 'AutoLL-9' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      `That backup is from AutoLL-9, not ${APP_NAME}.`
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Replace this phone’s plan' })
+    ).not.toBeInTheDocument();
+  });
+
+  // Each engine holds its plan in memory and would write it back over a
+  // restore -- including a Time Search this screen cannot otherwise see.
+  it('will not restore while any engine runs', async () => {
+    render(<BackupRestore />);
+    pick(backupFile({ [suffix(PARTY_IDS_KEY)]: ['g9'] }));
+    const replace = await replaceButton();
+    let release = () => {};
+    act(() => {
+      release = markRunning();
+    });
+    expect(replace).toBeDisabled();
+    expect(
+      screen.getByText(
+        'Turn off Autopilot, and stop any Time Search, to restore.'
+      )
+    ).toBeInTheDocument();
+    fireEvent.click(replace);
+    expect(localStorage.getItem(PARTY_IDS_KEY)).toBe(
+      JSON.stringify(['g1', 'g2', 'g3'])
+    );
+    act(() => release());
+    expect(replace).toBeEnabled();
+  });
+
+  it('cannot even start a restore while an engine runs', () => {
+    const release = markRunning();
+    try {
+      render(<BackupRestore />);
+      expect(
+        screen.getByRole('button', { name: 'Choose a backup file' })
+      ).toBeDisabled();
+    } finally {
+      release();
+    }
+  });
+
+  it('leaves the phone as it was when cancelled', async () => {
+    render(<BackupRestore />);
+    pick(backupFile({ [suffix(PARTY_IDS_KEY)]: ['g9'] }));
+    await replaceButton();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(
+      screen.getByRole('button', { name: 'Choose a backup file' })
+    ).toBeInTheDocument();
+    expect(localStorage.getItem(PARTY_IDS_KEY)).toBe(
+      JSON.stringify(['g1', 'g2', 'g3'])
+    );
   });
 });

@@ -2,23 +2,45 @@ import { AUTH_KEY } from '@/api/auth';
 import { APP_NAME, BUILD_REV } from '@/appIdentity';
 import kvdb from '@/kvdb';
 import { PARTY_IDS_KEY } from '@/savedParty';
-import { STORAGE_NAMESPACE, storageKey } from '@/storageNamespace';
+import {
+  NEXTLL_WATCHLIST_KEY,
+  STARRED_KEY,
+  STORAGE_NAMESPACE,
+  type StorageKey,
+  storageKey,
+} from '@/storageNamespace';
 
-import { EVENTS_KEY, WATCHED_KEY } from './observe';
-import { WATCHLIST_KEY } from './watchlist';
+import {
+  COVERAGE_KEY,
+  EVENTS_KEY,
+  WATCHED_KEY,
+  loadCoverage,
+  loadDropEvents,
+  loadWatchedDays,
+  mergeCoverage,
+  mergeDropEvents,
+  mergeWatchedDays,
+  parseCoverage,
+  parseDropEvents,
+  parseWatchedDays,
+  saveCoverage,
+  saveWatchedDays,
+} from './observe';
+import { anyRunning } from './running';
+import { WATCHLIST_KEY, parseWatchList, saveWatchList } from './watchlist';
 
 /**
  * A backup of everything this build keeps on the phone, except the sign-in.
  *
- * Everything AutoLL-3 knows lives in `localStorage` on Disney's origin, and
+ * Everything this build knows lives in `localStorage` on Disney's origin, and
  * Safari deletes a site's script-writable storage after seven days of Safari
  * use without a visit. Nothing else gets any of it off the phone. The learned
  * drop times a park trip produces are the ones the next trip uses, weeks later,
  * so a phone that goes a week without opening this app loses them -- and the
  * plan with them -- and nothing says so. ROADMAP item 12.
  *
- * Export is deliberately generous and restore deliberately narrow: this file
- * only ever reads.
+ * Export is deliberately generous and restore deliberately narrow: a backup
+ * holds every key, and a restore writes seven of them. See `restoreBackup`.
  */
 
 /** Recognises a file as one of these, before anything else in it is trusted. */
@@ -149,8 +171,12 @@ export function describeSummary(s: BackupSummary): string {
   }
   if (s.party > 0) parts.push(`a party of ${s.party}`);
   if (s.drops > 0 || s.daysWatched > 0) {
+    // Watched days got their own store after drops were already being kept, so
+    // an older phone can hold drops and no watched days -- say only what is known.
     parts.push(
-      `${plural(s.drops, 'drop')} seen over ${plural(s.daysWatched, 'day')} watched`
+      s.daysWatched > 0
+        ? `${plural(s.drops, 'drop')} seen over ${plural(s.daysWatched, 'day')} watched`
+        : `${plural(s.drops, 'drop')} seen`
     );
   }
   return parts.length > 0 ? parts.join(' · ') : 'Nothing saved yet.';
@@ -236,4 +262,150 @@ export async function shareBackup(
   // the browser has not started reading yet.
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
   return 'downloaded';
+}
+
+// ---------------------------------------------------------------------------
+// Restore.
+
+/**
+ * The plan: what a restore **replaces**. The owner chose replace over merge, so
+ * after a restore this phone has the file's plan -- not a blend of two -- and a
+ * part the file does not have is cleared rather than kept.
+ */
+export const RESTORED_PLAN_KEYS: readonly StorageKey[] = [
+  WATCHLIST_KEY,
+  NEXTLL_WATCHLIST_KEY,
+  PARTY_IDS_KEY,
+  STARRED_KEY,
+];
+
+/**
+ * What the learner has seen: what a restore **merges**. Both are evidence, so
+ * the union is kept, under the learner's own caps.
+ */
+export const MERGED_LEARNING_KEYS: readonly StorageKey[] = [
+  EVENTS_KEY,
+  COVERAGE_KEY,
+  WATCHED_KEY,
+];
+
+/**
+ * Every key a restore may write. An allowlist, deliberately: the sign-in, the
+ * engine's state (leases, locks, doubts, commits, a pending search), dry run and
+ * the other settings, the day's park and date, and this phone's own record of
+ * its last backup are all never written -- and a key added later is never
+ * written either, until someone decides it should be.
+ */
+export const RESTORED_KEYS: readonly StorageKey[] = [
+  ...RESTORED_PLAN_KEYS,
+  ...MERGED_LEARNING_KEYS,
+];
+
+export type BackupReading =
+  | { ok: true; backup: Backup }
+  | { ok: false; reason: string };
+
+/**
+ * Check a picked file before anything in it is trusted. Refuses anything that
+ * is not one of these backups, a backup from a newer schema (rather than guess
+ * at it), and another build's backup (its keys would be the wrong namespace's).
+ */
+export function readBackup(text: string): BackupReading {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    return { ok: false, reason: `That file isn't an ${APP_NAME} backup.` };
+  }
+  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT) {
+    return { ok: false, reason: `That file isn't an ${APP_NAME} backup.` };
+  }
+  const { schema, app, rev, exportedAt, data } = parsed;
+  if (typeof schema !== 'number' || !Number.isInteger(schema) || schema < 1) {
+    return { ok: false, reason: 'That backup is damaged: it has no version.' };
+  }
+  if (schema > BACKUP_SCHEMA) {
+    return {
+      ok: false,
+      reason: `That backup was made by a newer version of ${APP_NAME}. Update this one first.`,
+    };
+  }
+  if (app !== APP_NAME) {
+    return {
+      ok: false,
+      reason: `That backup is from ${typeof app === 'string' ? app : 'another build'}, not ${APP_NAME}.`,
+    };
+  }
+  if (!isRecord(data)) {
+    return { ok: false, reason: 'That backup is damaged: it holds no data.' };
+  }
+  return {
+    ok: true,
+    backup: {
+      format: BACKUP_FORMAT,
+      schema,
+      app,
+      rev: typeof rev === 'string' ? rev : '',
+      exportedAt: typeof exportedAt === 'string' ? exportedAt : '',
+      data,
+    },
+  };
+}
+
+const strings = (value: unknown): string[] =>
+  asArray(value).filter((v): v is string => typeof v === 'string');
+
+/**
+ * Put a checked backup back on this phone: replace the plan, merge what the
+ * learner has seen, and write nothing else. Nothing is ever cleared wholesale --
+ * the store belongs to Disney's website -- and if any write fails, every key
+ * this touched is put back as it was, so a restore lands whole or not at all.
+ *
+ * Refuses while any engine runs: each holds its plan in memory and would write
+ * it back over this. The page must reload afterwards for the same reason --
+ * every screen already open still holds the plan it loaded.
+ */
+export function restoreBackup({ data }: Backup): void {
+  if (anyRunning()) {
+    throw new Error('Turn off Autopilot, and stop any Time Search, first.');
+  }
+  const has = (key: StorageKey) => Object.hasOwn(data, suffix(key));
+  const from = (key: StorageKey) => data[suffix(key)];
+  const before = RESTORED_KEYS.map(key => [key, kvdb.get(key)] as const);
+  try {
+    for (const key of [WATCHLIST_KEY, NEXTLL_WATCHLIST_KEY]) {
+      if (has(key)) saveWatchList(parseWatchList(from(key)), key);
+      else kvdb.delete(key);
+    }
+    for (const key of [PARTY_IDS_KEY, STARRED_KEY]) {
+      if (has(key)) kvdb.set<string[]>(key, strings(from(key)));
+      else kvdb.delete(key);
+    }
+    kvdb.set(
+      EVENTS_KEY,
+      mergeDropEvents(loadDropEvents(), parseDropEvents(from(EVENTS_KEY)))
+    );
+    saveCoverage(
+      mergeCoverage(loadCoverage(), parseCoverage(from(COVERAGE_KEY)))
+    );
+    saveWatchedDays(
+      mergeWatchedDays(loadWatchedDays(), parseWatchedDays(from(WATCHED_KEY)))
+    );
+  } catch (error) {
+    for (const [key, value] of before) {
+      if (value === undefined) kvdb.delete(key);
+      else kvdb.set(key, value);
+    }
+    throw error;
+  }
+}
+
+/** A picked file's text. `FileReader` rather than `Blob.text()`, which older Safari lacks. */
+export function readFileText(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('Unreadable file'));
+    reader.readAsText(file);
+  });
 }

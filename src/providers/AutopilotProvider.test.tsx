@@ -35,6 +35,7 @@ import {
   saveWatchedDays,
 } from '@/autopilot/observe';
 import { NO_REFUSALS, refusedCalls } from '@/autopilot/refusal';
+import { anyRunning } from '@/autopilot/running';
 import {
   BACKOFF_BASE_MS,
   BURST_INTERVAL_MS,
@@ -189,7 +190,7 @@ function setup(
 ) {
   const pollExperiences = jest.fn(async () => experiences);
   const pollPlans = jest.fn(async () => []);
-  render(
+  const view = render(
     <BookingDateContext value={{ bookingDate, setBookingDate: () => {} }}>
       <ClientsContext
         value={{ ll: { nextBookTimes: [] as ParkTime[] } } as Clients}
@@ -220,7 +221,7 @@ function setup(
       </ClientsContext>
     </BookingDateContext>
   );
-  return { pollExperiences, pollPlans };
+  return { pollExperiences, pollPlans, unmount: view.unmount };
 }
 
 async function enable() {
@@ -505,6 +506,25 @@ describe('AutopilotProvider', () => {
     setup([]);
     await enable();
     expect(primeAudio).toHaveBeenCalled();
+  });
+
+  // A restore rewrites the plan this engine holds in memory. The restore
+  // screen cannot read this provider's context -- it may be a Time Search
+  // under a pushed screen -- so the engine says it is running page-wide.
+  it('tells the rest of the page while it runs', async () => {
+    setup([]);
+    expect(anyRunning()).toBe(false);
+    await enable();
+    expect(anyRunning()).toBe(true);
+    await enable();
+    expect(anyRunning()).toBe(false);
+  });
+
+  it('stops counting as running when it goes away', async () => {
+    const { unmount } = setup([]);
+    await enable();
+    unmount();
+    expect(anyRunning()).toBe(false);
   });
 
   it('alerts for a watched experience that is available', async () => {

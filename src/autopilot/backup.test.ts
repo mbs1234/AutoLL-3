@@ -1,24 +1,49 @@
 import { AUTH_KEY, AUTH_PERSISTENCE_KEY } from '@/api/auth';
 import { APP_NAME, BUILD_REV } from '@/appIdentity';
 import { PARTY_IDS_KEY } from '@/savedParty';
-import { STORAGE_NAMESPACE, storageKey } from '@/storageNamespace';
+import {
+  BOOKING_DATE_KEY,
+  NEXTLL_WATCHLIST_KEY,
+  PARK_KEY,
+  PLAN_CHECK_REVIEW_KEY,
+  STARRED_KEY,
+  STORAGE_NAMESPACE,
+  storageKey,
+} from '@/storageNamespace';
 import { TODAY, TOMORROW, YESTERDAY } from '@/testing';
 
 import {
   BACKUP_FORMAT,
   BACKUP_SCHEMA,
+  type Backup,
   LAST_BACKUP_KEY,
+  RESTORED_KEYS,
   backupFileName,
   createBackup,
   describeLastBackup,
   describeSummary,
   lastBackupAt,
+  readBackup,
+  readFileText,
   recordBackup,
+  restoreBackup,
   shareBackup,
   summarize,
 } from './backup';
-import { EVENTS_KEY, WATCHED_KEY } from './observe';
-import { WATCHLIST_KEY } from './watchlist';
+import { LEASE_KEY, QUARANTINE_KEY } from './lease';
+import { NEXTLL_PENDING_KEY } from './nextll';
+import {
+  COVERAGE_KEY,
+  EVENTS_KEY,
+  WATCHED_KEY,
+  coverageKey,
+  loadCoverage,
+  loadDropEvents,
+  loadWatchedDays,
+} from './observe';
+import { markRunning } from './running';
+import { COMMITS_KEY, LOCKS_KEY, LOG_KEY, SETTINGS_KEY } from './storage';
+import { WATCHLIST_KEY, loadWatchList } from './watchlist';
 
 // Every key in this file comes from `storageKey` or `STORAGE_NAMESPACE`, never
 // a spelled-out prefix, so the file passes unchanged in the sibling build that
@@ -186,6 +211,21 @@ describe('describeSummary()', () => {
     ).toBe('1 attraction for 1 date at 1 park');
   });
 
+  // Watched days arrived after drops did, so an older phone has drops and no
+  // watched days. "Over 0 days watched" would claim something never recorded.
+  it('does not claim zero days watched for drops recorded before days were', () => {
+    expect(
+      describeSummary({
+        targets: 0,
+        dates: 0,
+        parks: 0,
+        party: 0,
+        drops: 5,
+        daysWatched: 0,
+      })
+    ).toBe('5 drops seen');
+  });
+
   it('says so when there is nothing to back up', () => {
     expect(
       describeSummary({
@@ -347,5 +387,264 @@ describe('shareBackup()', () => {
     expect(createURL).toHaveBeenCalled();
     const link = click.mock.contexts[0] as HTMLAnchorElement;
     expect(link.download).toBe(`${APP_NAME} backup 2031-02-14.json`);
+  });
+});
+
+const backupOf = (data: Record<string, unknown>): Backup => ({
+  format: BACKUP_FORMAT,
+  schema: BACKUP_SCHEMA,
+  app: APP_NAME,
+  rev: 'abc1234',
+  exportedAt: '2031-02-14T15:04:05.000Z',
+  data,
+});
+
+describe('readBackup()', () => {
+  it('reads back what createBackup wrote', () => {
+    seedPhone();
+    const written = createBackup();
+    const reading = readBackup(JSON.stringify(written, null, 2));
+    expect(reading).toEqual({ ok: true, backup: written });
+  });
+
+  it('refuses a file that is not a backup at all', () => {
+    for (const text of ['not json', '[]', '{"format":"something-else"}']) {
+      expect(readBackup(text)).toEqual({
+        ok: false,
+        reason: `That file isn't an ${APP_NAME} backup.`,
+      });
+    }
+  });
+
+  // Guessing at a newer shape is how a restore writes something this build
+  // then misreads.
+  it('refuses a backup from a newer version', () => {
+    const newer = { ...backupOf({}), schema: BACKUP_SCHEMA + 1 };
+    expect(readBackup(JSON.stringify(newer))).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining('newer version'),
+    });
+  });
+
+  // The other build keeps its own plan, and its keys belong to its namespace.
+  it('refuses another build’s backup', () => {
+    const other = { ...backupOf({}), app: 'AutoLL-9' };
+    expect(readBackup(JSON.stringify(other))).toEqual({
+      ok: false,
+      reason: `That backup is from AutoLL-9, not ${APP_NAME}.`,
+    });
+  });
+
+  it('refuses a backup with no version or no data', () => {
+    const unversioned: Record<string, unknown> = { ...backupOf({}) };
+    delete unversioned.schema;
+    expect(readBackup(JSON.stringify(unversioned))).toMatchObject({
+      ok: false,
+    });
+    expect(
+      readBackup(JSON.stringify({ ...backupOf({}), data: [] }))
+    ).toMatchObject({ ok: false });
+  });
+});
+
+describe('restoreBackup()', () => {
+  const event = (experienceId: string, date: string) => ({
+    experienceId,
+    date,
+    time: '09:47',
+    kind: 'appeared' as const,
+  });
+
+  // The owner chose replace: afterwards the phone has the file's plan, not a
+  // blend of two.
+  it('replaces the plan', () => {
+    localStorage.setItem(
+      WATCHLIST_KEY,
+      JSON.stringify([{ experienceId: 'x' }])
+    );
+    localStorage.setItem(PARTY_IDS_KEY, JSON.stringify(['old']));
+    localStorage.setItem(STARRED_KEY, JSON.stringify(['old-star']));
+    localStorage.setItem(
+      NEXTLL_WATCHLIST_KEY,
+      JSON.stringify([{ experienceId: 'n-old' }])
+    );
+    restoreBackup(
+      backupOf({
+        [suffix(WATCHLIST_KEY)]: [
+          { experienceId: 'a', parkId: 'mk', date: TODAY, autoBook: true },
+        ],
+        [suffix(PARTY_IDS_KEY)]: ['g1', 'g2'],
+        [suffix(STARRED_KEY)]: ['star'],
+        [suffix(NEXTLL_WATCHLIST_KEY)]: [{ experienceId: 'n' }],
+      })
+    );
+    expect(loadWatchList()).toEqual([
+      { experienceId: 'a', parkId: 'mk', date: TODAY, autoBook: true },
+    ]);
+    expect(JSON.parse(localStorage.getItem(PARTY_IDS_KEY)!)).toEqual([
+      'g1',
+      'g2',
+    ]);
+    expect(JSON.parse(localStorage.getItem(STARRED_KEY)!)).toEqual(['star']);
+    expect(loadWatchList(NEXTLL_WATCHLIST_KEY)).toEqual([
+      { experienceId: 'n' },
+    ]);
+  });
+
+  it('clears a part of the plan the file does not have', () => {
+    localStorage.setItem(STARRED_KEY, JSON.stringify(['old-star']));
+    restoreBackup(backupOf({ [suffix(PARTY_IDS_KEY)]: ['g1'] }));
+    expect(localStorage.getItem(STARRED_KEY)).toBeNull();
+  });
+
+  // Hand-edited or damaged values go through the loaders' own rules.
+  it('keeps only what the loaders would accept', () => {
+    restoreBackup(
+      backupOf({
+        [suffix(WATCHLIST_KEY)]: [{ experienceId: 'a', autoBook: 'yes' }, 7],
+        [suffix(PARTY_IDS_KEY)]: ['g1', 2, null],
+      })
+    );
+    expect(loadWatchList()).toEqual([{ experienceId: 'a' }]);
+    expect(JSON.parse(localStorage.getItem(PARTY_IDS_KEY)!)).toEqual(['g1']);
+  });
+
+  it('merges what the learner has seen instead of replacing it', () => {
+    const mk = coverageKey('mk', YESTERDAY);
+    const ep = coverageKey('ep', TODAY);
+    localStorage.setItem(
+      EVENTS_KEY,
+      JSON.stringify([event('phone', TODAY), event('both', TODAY)])
+    );
+    localStorage.setItem(COVERAGE_KEY, JSON.stringify({ [ep]: [100] }));
+    localStorage.setItem(WATCHED_KEY, JSON.stringify({ [ep]: ['phone'] }));
+    restoreBackup(
+      backupOf({
+        [suffix(EVENTS_KEY)]: [event('file', YESTERDAY), event('both', TODAY)],
+        [suffix(COVERAGE_KEY)]: { [mk]: [90], [ep]: [101] },
+        [suffix(WATCHED_KEY)]: { [mk]: ['file'] },
+      })
+    );
+    expect(loadDropEvents()).toEqual([
+      event('file', YESTERDAY),
+      event('phone', TODAY),
+      event('both', TODAY),
+    ]);
+    expect(loadCoverage()).toEqual({ [mk]: [90], [ep]: [100, 101] });
+    expect(loadWatchedDays()).toEqual({ [ep]: ['phone'], [mk]: ['file'] });
+  });
+
+  // The rule that matters most. The file names every key it holds -- a
+  // hand-edited one could name a sign-in or a dry-run setting -- and the
+  // restore writes only its seven.
+  it('writes nothing outside its seven keys, whatever the file holds', () => {
+    const untouched = [
+      AUTH_KEY,
+      AUTH_PERSISTENCE_KEY,
+      SETTINGS_KEY,
+      LOG_KEY,
+      LOCKS_KEY,
+      COMMITS_KEY,
+      LEASE_KEY,
+      QUARANTINE_KEY,
+      NEXTLL_PENDING_KEY,
+      PLAN_CHECK_REVIEW_KEY,
+      BOOKING_DATE_KEY,
+      PARK_KEY,
+      LAST_BACKUP_KEY,
+      storageKey('some.key.added.later'),
+    ];
+    for (const key of untouched) localStorage.setItem(key, '"phone"');
+    localStorage.setItem('disney.session', 'Disney’s own data');
+    const data = Object.fromEntries(
+      untouched.map(key => [suffix(key), 'from the file'])
+    );
+    const others = () =>
+      Object.fromEntries(
+        Object.keys(localStorage)
+          .filter(key => !(RESTORED_KEYS as string[]).includes(key))
+          .map(key => [key, localStorage.getItem(key)])
+      );
+    const before = others();
+    restoreBackup(backupOf(data));
+    expect(others()).toEqual(before);
+  });
+
+  // The store belongs to Disney's website.
+  it('never clears the store', () => {
+    const clear = jest.spyOn(Storage.prototype, 'clear');
+    seedPhone();
+    restoreBackup(createBackup());
+    expect(clear).not.toHaveBeenCalled();
+  });
+
+  it('refuses while any engine runs, and writes nothing', () => {
+    localStorage.setItem(PARTY_IDS_KEY, JSON.stringify(['old']));
+    const release = markRunning();
+    try {
+      expect(() =>
+        restoreBackup(backupOf({ [suffix(PARTY_IDS_KEY)]: ['new'] }))
+      ).toThrow('Turn off Autopilot');
+    } finally {
+      release();
+    }
+    expect(JSON.parse(localStorage.getItem(PARTY_IDS_KEY)!)).toEqual(['old']);
+  });
+
+  // A restore half-applied is a plan nobody chose: the file's party with the
+  // phone's watch list. So a failed write puts every touched key back.
+  it('lands whole or not at all', () => {
+    seedPhone();
+    const before = Object.fromEntries(
+      RESTORED_KEYS.map(key => [key, localStorage.getItem(key)])
+    );
+    const setItem = Storage.prototype.setItem;
+    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key: string,
+      value: string
+    ) {
+      if (key === COVERAGE_KEY) {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      }
+      setItem.call(this, key, value);
+    });
+    expect(() =>
+      restoreBackup(
+        backupOf({
+          [suffix(WATCHLIST_KEY)]: [{ experienceId: 'z' }],
+          [suffix(PARTY_IDS_KEY)]: ['z'],
+        })
+      )
+    ).toThrow('Quota exceeded');
+    jest.restoreAllMocks();
+    expect(
+      Object.fromEntries(
+        RESTORED_KEYS.map(key => [key, localStorage.getItem(key)])
+      )
+    ).toEqual(before);
+  });
+
+  // The roadmap's done-means, in miniature: back up, lose the site's data the
+  // way Safari loses it, restore, and see the plan and the drops come back.
+  it('brings back a phone that lost everything', () => {
+    seedPhone();
+    const file = JSON.stringify(createBackup());
+    const plan = loadWatchList();
+    const drops = loadDropEvents();
+    localStorage.clear();
+    const reading = readBackup(file);
+    if (!reading.ok) throw new Error(reading.reason);
+    restoreBackup(reading.backup);
+    expect(loadWatchList()).toEqual(plan);
+    expect(loadDropEvents()).toEqual(drops);
+    expect(localStorage.getItem(AUTH_KEY)).toBeNull();
+  });
+});
+
+describe('readFileText()', () => {
+  it('reads a picked file', async () => {
+    const file = new File(['{"a":1}'], 'x.json', { type: 'application/json' });
+    await expect(readFileText(file)).resolves.toBe('{"a":1}');
   });
 });

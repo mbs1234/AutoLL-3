@@ -262,9 +262,16 @@ export function parseBound(value?: string): ParkTime | undefined {
 export function loadWatchList(
   key: WatchListKey = WATCHLIST_KEY
 ): WatchTarget[] {
-  const stored = kvdb.get<StoredTarget[]>(key);
+  return parseWatchList(kvdb.get(key));
+}
+
+/**
+ * The targets in whatever was stored, or in a backup being restored: one set of
+ * rules for both, so a restored list is one the loader would have accepted.
+ */
+export function parseWatchList(stored: unknown): WatchTarget[] {
   if (!Array.isArray(stored)) return [];
-  return stored.flatMap(t => {
+  return (stored as StoredTarget[]).flatMap(t => {
     if (typeof t?.experienceId !== 'string') return [];
     const after = parseBound(t.after);
     const before = parseBound(t.before);

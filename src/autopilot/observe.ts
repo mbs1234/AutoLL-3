@@ -273,15 +273,7 @@ export function recordCoverage(
   //
   // Keeping the newest MAX_COVERAGE_DAYS *dates* keeps every park's history
   // for the same span, which is what demotion compares across.
-  const keep = new Set(
-    [...new Set(Object.keys(next).map(coverageDate))]
-      .sort()
-      .slice(-MAX_COVERAGE_DAYS)
-  );
-  for (const key of Object.keys(next)) {
-    if (!keep.has(coverageDate(key))) delete next[key];
-  }
-  return { coverage: next, changed: true };
+  return { coverage: newestDays(next), changed: true };
 }
 
 export interface ObservedDrop {
@@ -412,16 +404,23 @@ export function summarizeDrops(
 // Storage. Not day-scoped: the whole point is accumulating evidence across
 // visits.
 
-export function loadDropEvents(): DropEvent[] {
-  const stored = kvdb.get<DropEvent[]>(EVENTS_KEY);
+/**
+ * The well-formed events in whatever was stored, or in a backup being restored.
+ * Never throws: both sources are outside this module's control.
+ */
+export function parseDropEvents(stored: unknown): DropEvent[] {
   if (!Array.isArray(stored)) return [];
-  return stored.filter(
-    e =>
+  return (stored as Partial<DropEvent>[]).filter(
+    (e): e is DropEvent =>
       typeof e?.experienceId === 'string' &&
       typeof e.date === 'string' &&
       typeof e.time === 'string' &&
       (e.kind === 'appeared' || e.kind === 'earlier')
   );
+}
+
+export function loadDropEvents(): DropEvent[] {
+  return parseDropEvents(kvdb.get(EVENTS_KEY));
 }
 
 /** Append and cap, keeping the newest. */
@@ -432,8 +431,8 @@ export function appendDropEvents(events: DropEvent[]): DropEvent[] {
   return all;
 }
 
-export function loadCoverage(): Coverage {
-  const stored = kvdb.get<Coverage>(COVERAGE_KEY);
+/** The well-formed coverage in whatever was stored, or in a backup. */
+export function parseCoverage(stored: unknown): Coverage {
   if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
   const out: Coverage = {};
   for (const [date, buckets] of Object.entries(stored)) {
@@ -442,6 +441,10 @@ export function loadCoverage(): Coverage {
     }
   }
   return out;
+}
+
+export function loadCoverage(): Coverage {
+  return parseCoverage(kvdb.get(COVERAGE_KEY));
 }
 
 export function saveCoverage(coverage: Coverage): void {
@@ -465,8 +468,8 @@ export function saveCoverage(coverage: Coverage): void {
  */
 export type WatchedByDay = Record<string, string[]>;
 
-export function loadWatchedDays(): WatchedByDay {
-  const stored = kvdb.get<WatchedByDay>(WATCHED_KEY);
+/** The well-formed watched days in whatever was stored, or in a backup. */
+export function parseWatchedDays(stored: unknown): WatchedByDay {
   if (!stored || typeof stored !== 'object') return {};
   return Object.fromEntries(
     Object.entries(stored).flatMap(([key, ids]) =>
@@ -475,6 +478,10 @@ export function loadWatchedDays(): WatchedByDay {
         : []
     )
   );
+}
+
+export function loadWatchedDays(): WatchedByDay {
+  return parseWatchedDays(kvdb.get(WATCHED_KEY));
 }
 
 export function saveWatchedDays(watched: WatchedByDay): void {
@@ -491,13 +498,69 @@ export function recordWatched(
   const merged = [...new Set([...existing, ...ids])].sort();
   if (merged.length === existing.length) return { watched, changed: false };
   const next: WatchedByDay = { ...watched, [key]: merged };
+  return { watched: newestDays(next), changed: true };
+}
+
+/**
+ * Only the entries for the newest MAX_COVERAGE_DAYS park *dates*, across every
+ * park. The one pruning rule for coverage and watched days alike -- recording
+ * and restoring must not disagree about what is kept.
+ */
+function newestDays<T>(record: Record<string, T>): Record<string, T> {
   const keep = new Set(
-    [...new Set(Object.keys(next).map(coverageDate))]
+    [...new Set(Object.keys(record).map(coverageDate))]
       .sort()
       .slice(-MAX_COVERAGE_DAYS)
   );
-  for (const k of Object.keys(next)) {
-    if (!keep.has(coverageDate(k))) delete next[k];
+  return Object.fromEntries(
+    Object.entries(record).filter(([key]) => keep.has(coverageDate(key)))
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Merging, for a restore. What this phone has seen and what a backup saw are
+// both evidence, so a restore keeps the union -- under the same caps as
+// recording, so a restored store is one this module could have written itself.
+
+/**
+ * Both lists as one: each event once, oldest park date first, capped to the
+ * newest MAX_EVENTS as `appendDropEvents` caps. Within a date each side keeps
+ * its own order, which is the order its events were seen in.
+ */
+export function mergeDropEvents(a: DropEvent[], b: DropEvent[]): DropEvent[] {
+  const byIdentity = new Map<string, DropEvent>();
+  for (const event of [...a, ...b]) {
+    const id = `${event.experienceId}|${event.date}|${event.time}|${event.kind}`;
+    if (!byIdentity.has(id)) byIdentity.set(id, event);
   }
-  return { watched: next, changed: true };
+  return [...byIdentity.values()]
+    .sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0))
+    .slice(-MAX_EVENTS);
+}
+
+/** Every bucket either side saw, per scoped park day, pruned as recording prunes. */
+export function mergeCoverage(a: Coverage, b: Coverage): Coverage {
+  const out: Coverage = {};
+  for (const source of [a, b]) {
+    for (const [key, buckets] of Object.entries(source)) {
+      out[key] = [...new Set([...(out[key] ?? []), ...buckets])].sort(
+        (x, y) => x - y
+      );
+    }
+  }
+  return newestDays(out);
+}
+
+/** Every attraction either side had armed, per scoped park day, pruned the same way. */
+export function mergeWatchedDays(
+  a: WatchedByDay,
+  b: WatchedByDay
+): WatchedByDay {
+  const out: WatchedByDay = {};
+  for (const source of [a, b]) {
+    for (const [key, ids] of Object.entries(source)) {
+      out[key] = [...new Set([...(out[key] ?? []), ...ids])].sort();
+    }
+  }
+  return newestDays(out);
 }
