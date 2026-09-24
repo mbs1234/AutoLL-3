@@ -6,7 +6,7 @@ was cleared (§1), and again on 2026-09-15, when every decision in §4 was
 answered and a Time Search was given precedence over the engine — decided and
 built the same day, so it is not listed below. Revised again on 2026-09-23, when
 the ordering moved to `ROADMAP.md`'s calendar and five items were added
-(§2.8–§2.11 and §3.13).
+(§2.8–§2.11 and §3.13), and a sixth the same day (§2.12).
 
 This is the standing list of what is not done: the items still open from
 `PLAN.md` and `UX-PLAN.md`, the
@@ -191,6 +191,18 @@ before it.
 
 _Size:_ small, optional. A note stamped with park time and the current park and
 date, kept beside the activity log and carried in §3.13's backup.
+
+### 2.12 A new build waits for a reload — ROADMAP item 17
+
+After a deploy the phone keeps running the old bundle for up to ten minutes —
+Pages' `max-age=600` on a fixed `bg1.js` URL — and an app already open never
+checks at all. The owner wants it to reload on its own when it finds a new
+version: in place, because a page reload drops an app the bookmarklet loaded,
+and never while anything is running.
+
+_Size:_ medium. _Where:_ a small module beside `src/autopilot/running.ts`, and
+the loader's own steps. _Risk:_ reloading mid-run; stale chunks, which
+content-hashed chunk names fix.
 
 ---
 
