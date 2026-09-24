@@ -428,7 +428,7 @@ function parseDoubts(primaryKey: string, value: unknown): Doubt[] {
  * first attempt at this. The wrapper's date says when the store was *written*;
  * it says nothing about which reservations are inside, and most of what this app
  * books is dated weeks out. Yesterday's wrapper can hold a doubt about a
- * December reservation, and honouring only today's threw exactly those away.
+ * reservation weeks away, and honouring only today's threw exactly those away.
  * Pruning is the key's job, and the key names the reservation's own day.
  */
 function unwrapDaily(stored: unknown): Record<string, unknown> | undefined {

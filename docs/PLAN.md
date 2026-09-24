@@ -1,4 +1,4 @@
-# bg1 — Booking intelligence plan for December 2026
+# bg1 — Booking intelligence plan
 
 Written 2026-09-05. Sources: the four strategy articles supplied by the owner,
 Thrill Data's public Lightning Lane pages and Wait Magic FAQ, Disney's own
@@ -396,7 +396,7 @@ day.**
 ### 3.4 Drop-time corrections
 
 - Add `14:47` to Expedition Everest alongside `15:47` (sources disagree; an
-  extra burst is cheap, a missed CL10 December drop is not).
+  extra burst is cheap, a missed CL10 drop is not).
 - Keep Test Track `17:47` despite being single-sourced, same reasoning.
 - **Do not seed Big Thunder drop times** from pre-closure 2024 evidence. Every
   current source says "no predictable drop times" post-reopening, and
@@ -462,7 +462,7 @@ Count only bookings that occupy a slot: `isLLMP` + same day + `cancellable` +
 
 **P1.3 · Overlap check on the autopilot path.** Every offer carries `itinerary`
 with an `Overlap`; `OverlappingPlans.tsx` uses it to warn before a manual
-confirm. The autopilot never looks. For December this is how a slot gets spent
+confirm. The autopilot never looks. In the holiday season this is how a slot gets spent
 on top of a Candlelight Processional dining package.
 
 Three corrections from verification: (a) build the check from **plans**, not
@@ -566,7 +566,7 @@ return times past close, so that guard is a no-op. The `hasUpcomingDrop` half
 stands and is unverified; confirm in park._ _Effort: small._
 
 **P2.6 · Crowd-gated drops.** All five AK drop times carry a CL 4+/7+
-qualifier. For December this is good news — AK will be CL 7–10 and they all
+qualifier. For a peak-season trip this is good news — AK will be CL 7–10 and they all
 fire. Carry the qualifier in the data and gate on a "busy day" toggle so an
 off-season user is not burst-polling five dead times. _Effort: small._
 
@@ -656,7 +656,7 @@ calls `/ea-vas/planning/api/v1/experiences/availability/bundles/experiences` and
 destructures a `tiers[]` response. Disney publishes current tier grouping per
 park per date. The static flags are correct _today_, but tiers moved twice in
 the last twelve months (Big Thunder returned May 2026; Rock 'n' Roller Coaster
-left Tier 1 in March and returned in May under a new ID). December is three
+left Tier 1 in March and returned in May under a new ID). The main trip is
 months out. Delete the dead return, read tier membership live, keep the static
 flag as a fallback that warns on divergence. _Effort: medium._
 
@@ -668,7 +668,7 @@ because on a day-of poll the bundle appends closed attractions and the drop
 learner files a ride simply opening for the day as a drop. The consequence is
 that no bundle is fetched on an ordinary day-of poll, so the tier-divergence
 warning cannot fire in the park: live tiers are consulted when planning a future
-date, not on the day. If December tiers move, this will not be what tells you.
+date, not on the day. If tiers move before the trip, this will not be what tells you.
 
 **P3.6 · Reclaimability for swap victims.** `chooseSwapVictim` assumes Tier 2 is
 always cheap to give up. Thrill Data shows Kali selectable for 10h 28m of the
@@ -740,7 +740,7 @@ targets absent from today's tipboard as a distinct **"not on today's list"**
 group. That catches any ID drift, including drift nobody thought to alias.
 An alias table is a best-effort convenience — and note commit `f1f022a`
 reassigned three holiday IDs last November, so the current overlay IDs need
-re-verifying against a live December tipboard. _Effort: small._
+re-verifying against a live tipboard once the overlays run. _Effort: small._
 
 **P4.8 · Per-target guest subset.** Both competitors treat "which guests" as a
 per-search field; bg1 has one global whole-party flag. _Effort: medium._
@@ -753,7 +753,7 @@ the next booking window on one screen. _Effort: medium._
 ## 8. Phase 5 — Live data (optional)
 
 **Live standby in the ranking.** Replace the hardcoded `avgWait` tiebreak with
-today's standby wait from themeparks.wiki. On a December CL10 day the gap
+today's standby wait from themeparks.wiki. On a CL10 day the gap
 between a 40-minute average and a 110-minute actual is the whole decision. Note
 `livedata.ts` currently calls `bg1.joelface.com`, not themeparks.wiki directly,
 so this is a new dependency rather than a second call to an existing one. None
@@ -803,7 +803,7 @@ most consequential:
    for it is untouched.
 6. **Swapping Frozen Ever After and Remy.** Three of four post-refurbishment
    sources put Remy at or ahead of Frozen, and bg1's own `avgWait` agrees. The
-   December argument does not discriminate — both are in World Showcase.
+   holiday-season argument does not discriminate — both are in World Showcase.
 
    **The data ships the swap anyway, and it was not re-litigated on
    2026-09-12.** `wdw.ts` has Frozen at 1.1 with `avgWait: 51` and Remy at 1.2
@@ -846,7 +846,7 @@ most consequential:
 
 Instrument these; do not model them from folklore. The instrumentation itself —
 log lines, not behaviour changes — is tracked as `docs/FUTURE.md` §5, and it has
-to land before the December 8 freeze, or the ones that need a timestamped record
+to land before the main trip's freeze, or the ones that need a timestamped record
 cannot be answered on the trip at all.
 
 1. **Does an expired, never-tapped first LL free its slot?** One well-cited
@@ -859,15 +859,15 @@ cannot be answered on the trip at all.
    and after the first tap, ideally with a split-party tap-in.
 3. **Big Thunder's post-reopening drop schedule.** Unmeasured. Let the learner
    run at approach cadence.
-4. **Do the December overlay IDs still resolve?** Re-verify `412010035` and
+4. **Do the holiday overlay IDs still resolve?** Re-verify `412010035` and
    `412010036` against a live tipboard once the overlays start.
 
 ---
 
-## 11. December specifics
+## 11. Trip specifics
 
-- **Trip dates, recorded 2026-09-17:** December 22–28, 2026. A park trip to test
-  the app in the parks runs October 18–20, 2026.
+- **Trip dates, recorded 2026-09-17,** and kept privately, outside this repository:
+  the main trip, and a shorter park trip before it to test the app in the parks.
 
   These are scheduling facts and nothing more. They decide when work lands and
   when an assumption can be replaced by a measurement; they must not decide what
@@ -879,19 +879,19 @@ cannot be answered on the trip at all.
   the whole stay**. Both stays are inside the fourteen-day cap, so each trip is
   won or lost in a single morning, at home, before anyone travels:
 
-  | trip | check-in | park days | booking morning |
-  |---|---|---|---|
-  | October | 2026-10-18 | Oct 18–20 (3) | **2026-10-11**, 7:00am ET |
-  | December | 2026-12-22 | Dec 22–28 (7) | **2026-12-15**, 7:00am ET |
+  | trip | booking morning |
+  |---|---|
+  | the rehearsal | **seven days before its check-in**, 7:00am ET |
+  | the main trip | **seven days before its check-in**, 7:00am ET |
 
   The engineering deadline is therefore the booking morning, not the trip. For
-  October that moves it a week earlier than this file previously assumed.
+  the rehearsal that moves it a week earlier than this file previously assumed.
 
   The booking-date picker offers today plus twenty-one days
-  (`NUM_BOOKING_DAYS = 22`). On 2026-10-11 all three October dates are inside
-  it; on 2026-12-15 all seven December dates are. December 22 becomes selectable
-  on December 1 and December 28 on December 7, so a December plan can be built
-  in the picker during that first week, before the booking morning.
+  (`NUM_BOOKING_DAYS = 22`). On each booking morning every day of that stay is
+  inside it, and each day becomes selectable twenty-one days before it, so the
+  main plan can be built in the picker in the weeks before its booking morning,
+  one day at a time.
 
   **A correction, because this paragraph carried a false claim into the
   roadmap.** It used to list "what the booking-window endpoint returns for a
@@ -903,12 +903,12 @@ cannot be answered on the trip at all.
   (`ExperiencesProvider.tsx:68`) and `ll.nextBookTimes` is reassigned from
   `bookWindows(data.eligibility, date)` on every poll (`ll.ts:330`), so moving
   the date picker forward and reading the eligibility block answers it from a
-  desk in twenty minutes. October is still the first park day available for the
+  desk in twenty minutes. The rehearsal is still the first park day available for the
   other three.
 - **Party nights** truncate MK on 13 dates and HS on 7. On those MK dates
   daytime crowds are low and the 6pm close kills evening drops; on non-party
   dates crowds are displaced and drops run late.
-- **Live overlays:** Jingle Cruise (whole trip), Glimmering Greenhouses
+- **Live overlays:** Jingle Cruise (the whole season), Glimmering Greenhouses
   (Nov 27 – Dec 30).
 - **Animal Kingdom** will be CL 7–10, so all five gated drop times fire. Kali
   River Rapids closes on cold days and took an accelerated refurbishment in late
@@ -925,10 +925,10 @@ _Revised 2026-09-13._ The schedule has moved to `docs/FUTURE.md`, under "A
 suggested order", and is kept there alone: two orderings of the same work would
 disagree within a week of each other.
 
-Two constraints belong to this document rather than that one. **December 8 is
-the freeze** — no code changes in the final two weeks, only full-day dry runs in
+Two constraints belong to this document rather than that one. **The main trip's
+freeze** — no code changes in the final two weeks, only full-day dry runs in
 the harness and in the park, which is also why §10's instrumentation has to be
 in before that date. And **if the weeks slip, §8's live standby ranking is the
 first thing to cut**: it is the only Phase 5 item, the largest remaining
-accuracy gain on a CL10 December day, and a new external dependency on the
-booking path's ordering, so it should not be started after early November.
+accuracy gain on a CL10 day, and a new external dependency on the
+booking path's ordering, so it should not be started in the weeks before the trip.

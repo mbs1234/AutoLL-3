@@ -194,7 +194,7 @@ export interface AutopilotSettings {
    * is stricter than the warning it models, and it is the reason this defaults
    * OFF: a guard with no way to ask costs a Lightning Lane every time it is
    * wrong, and it is wrong whenever the clash was one the owner would have
-   * accepted. A dining package on a December evening is the case for turning
+   * accepted. A dining package on a holiday evening is the case for turning
    * it on, and it is a case the owner knows about in advance and can switch on
    * for that day.
    *

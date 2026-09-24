@@ -84,7 +84,7 @@ too, stamped on the outcome, and rendered as
 - **`paths-ignore: ['**.md']`** on the deploy push trigger. Nothing markdown
   reaches the published site (the guide ships as `user-guide.html` plus
   images), so a prose commit cannot change the artifact and should not rebuild
-  it. This matters most during the planned 2026-10-05..11 freeze, where
+  it. This matters most during the planned pre-trip freeze, where
   correcting a roadmap would otherwise republish the exact bundle the freeze
   exists to leave alone. YAML validated; 16 build steps intact.
 - **Two comments repaired** that the `goofy` → pinned-revision rename cut in
@@ -146,8 +146,8 @@ installs and cleared storage only.
 - **Is the three-at-a-time Multi Pass cap per park date or global?** Every input
   to `slotsAreFull()` is scoped to the selected booking date. If Disney enforces
   it globally, the fourth booking fails as a rejection — and the engine has no
-  idea why. The owner books three park days in one sitting on 2026-10-11, which
-  is the first time this can matter.
+  idea why. The owner books every park day of a stay in one sitting on a booking
+  morning, which is the first time this can matter.
 - **Are `modify:` / `swap:` orphan locks from an unmounted NextLL provider ever
   released?** `book:` orphans heal in two polls. I believe the other two do not,
   and `saveLocks` removal is owner-scoped so nobody else can withdraw them.
