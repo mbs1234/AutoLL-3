@@ -625,7 +625,7 @@ export const experiences: ResortData['experiences'] = {
   // Christmas
   //
   // Disney re-issued all three of these for 2026; the ids they replace are
-  // listed under "Ignored" below. This is the December trip's own instance of
+  // listed under "Ignored" below. This is the holiday season's own instance of
   // the re-theme problem in §1 of docs/PLAN.md -- a watch list built on the
   // old ids would match nothing, on the nights it matters most.
   412009394: {
@@ -1349,7 +1349,7 @@ export const experiences: ResortData['experiences'] = {
     land: discIsland,
     type: 'A',
     // A real Multi Pass option that sorted last because it had no rank at all.
-    // Below Everest, above Kali: a large-capacity show for a December trip.
+    // Below Everest, above Kali: a large-capacity show for a busy-season trip.
     priority: 3.2,
     avgWait: 11,
   },

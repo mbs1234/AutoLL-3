@@ -31,7 +31,7 @@ Two things are true of the whole app and worth reading first:
 # Part 1 — Before the trip
 
 Do all of this at home, days or weeks ahead. The mistakes that cost you a
-December morning get made in November.
+park morning get made weeks before it.
 
 ## 1. Install it
 
@@ -843,7 +843,7 @@ forgetting it leaves a pass unprotected.
 
 So that reservation is **held**, and the hold is visible. Activity and Plan
 Check both list it under a red panel, naming the attraction and what the change
-was trying to do — "Move Haunted Mansion from 7:15 PM to 11:40 AM on December
+was trying to do — "Move Haunted Mansion from 7:15 PM to 11:40 AM on March
 5". Nothing touches that pass until Disney's own itinerary shows the exact
 result the request asked for.
 

@@ -73,20 +73,20 @@ which is the one that destroys data rather than mislabelling it.
 
 **Do not upgrade Vite, Rollup or PostCSS before the trip.** Your step 8 puts the
 dependency work last, which is right, but I would go further and put it after
-December. Your own finding is that the shipped browser dependencies have no known
+the main trip. Your own finding is that the shipped browser dependencies have no known
 vulnerabilities — the 17 findings are in the build tree, which never reaches a
 guest's phone. Meanwhile a bundler upgrade changes the emitted bundle, so it
 invalidates every verification done before it and needs the full release gate
-run again. Two weeks before a booking morning that cannot be repeated until
-December, that is the highest-variance item on the list and it buys the least.
+run again. Shortly before a booking morning that cannot be repeated until the
+main trip, that is the highest-variance item on the list and it buys the least.
 
 `tar` and `handlebars` are transitive dev-only and can wait with it.
 
 ## Suggested sequencing, given the dates
 
-The pre-trip freeze starts **2026-10-05** and the October booking morning is
-**2026-10-11** — one 7:00am that books all three park days, from home. That is
-about two weeks of working time, not four.
+The pre-trip freeze starts a week before the rehearsal's booking morning — one
+7:00am that books every park day of the stay, from home. That leaves less
+working time than the trip date suggests.
 
 - **Must land before the freeze:** blockers 1, 2 and 3; the guide and wording
   corrections (the guide is actively wrong about Avoid clashes today, which is a
@@ -165,8 +165,8 @@ fresh book in doubt has no durable protection at all — only the day-scoped
 doubt-hold.
 
 On a booking morning the engine holds doubts about reservations for park days a
-week out. A fresh-book doubt raised on 2026-10-11 about an 2026-10-18
-reservation is cleared at 4am on 10-12, while the reservation it is unsure about
+week out. A fresh-book doubt raised on a booking morning about a reservation a
+week out is cleared at 4am the next day, while the reservation it is unsure about
 still exists and still matters. A same-day doubt never outlives its own
 reservation that way. The plans poll is a real backstop — five hours is plenty
 for the itinerary to settle, and a settled plan makes the engine choose modify
@@ -175,10 +175,10 @@ review from the future-dated case rather than the same-day one.
 
 **Two scheduling notes on the release sequence.**
 
-October 18 first becomes selectable in the booking-date picker on **2026-09-27**
-(`NUM_BOOKING_DAYS = 22`), which is the first day a real October plan can be
-built. Landing the deploy on the 26th rather than the 27th gives that work a day
-of soak underneath it instead of happening on a build published the same day.
+The rehearsal's first day becomes selectable in the booking-date picker
+twenty-one days before it (`NUM_BOOKING_DAYS = 22`), which is the first day a
+real plan for it can be built. Landing the deploy the day before gives that work
+a day of soak underneath it instead of happening on a build published the same day.
 
 `docs/SYNC.md` forbids merging into AutoLL-4 on a day AutoLL-3 deployed, so
 working backwards from the 10-05 freeze: AutoLL-3 deploy ~09-26, soak, AutoLL-4

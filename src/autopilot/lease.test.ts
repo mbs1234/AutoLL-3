@@ -575,7 +575,7 @@ describe('the operation lease', () => {
      * And whatever day that wrapper names. Its date says when the store was
      * *written*, not what is inside it -- and most of what this app books is
      * dated weeks out, so yesterday's wrapper can easily hold a doubt about a
-     * December reservation. Honouring only today's threw exactly those away.
+     * reservation weeks away. Honouring only today's threw exactly those away.
      */
     it('honours an old store written on an earlier day', async () => {
       const later = leaseKey('80010114', modifyDate(parkDate(), 40));

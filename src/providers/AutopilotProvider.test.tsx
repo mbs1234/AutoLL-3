@@ -685,7 +685,7 @@ describe('AutopilotProvider auto-booking', () => {
     expect(book).not.toHaveBeenCalled();
   });
 
-  // December means dining packages, and the manual booking screen only warns
+  // The holidays mean dining packages, and the manual booking screen only warns
   // about a clash. Autopilot has nobody to warn, so it declines -- and it does
   // so before the offer, which keeps a doomed round trip out of a drop.
   it('will not book on top of an existing reservation', async () => {
@@ -3852,9 +3852,9 @@ describe('AutopilotProvider cross-instance overlaps', () => {
 /**
  * Roadmap item 10, end to end: the booking date moving under a lock.
  *
- * This is the morning of 2026-10-11 in miniature. The party is on-site, so all
- * three October park days are booked in one sitting from one date picker: three
- * dates, many searches, the picker moved between them. An action lock that did
+ * This is a booking morning in miniature. For an on-site stay every park day is
+ * booked in one sitting from one date picker: several dates, many searches, the
+ * picker moved between them. An action lock that did
  * not name a date retired an attraction on dates nothing had been attempted for.
  */
 describe('AutopilotProvider across booking dates', () => {

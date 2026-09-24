@@ -4,17 +4,24 @@ Rewritten 2026-09-23 against `main` at `49a4ef6`, version 1.2.8. It replaces the
 revision of 2026-09-19: the goal, the calendar, the themes and the ordering are
 new, and the item analyses are carried forward under their old numbers.
 
-**December 22–28 is the trip. October 18–20 is its rehearsal.** The owner's
-framing, recorded 2026-09-23: whatever happens in October, the goal is a December
-that works. Every item is ranked by what it does for December. October is where
-things get tried, measured and — where it teaches something — allowed to go
-wrong.
+**The trip dates are not in this repository, and must not be.** Nothing personal
+belongs on GitHub. The dates, and the calendar worked out from them, are in the
+owner's private notes — `TRIPS.md`, one folder up, outside every repository. This
+file speaks relatively instead: *the rehearsal* is the short first trip, *the
+main trip* is the one it rehearses, a trip's *booking morning* is 7:00am ET seven
+days before its check-in, and its *freeze* is the week up to that morning.
 
-**The app is not built for these trips.** The dates below decide *when* work
+**There are two trips: the main trip, and a shorter rehearsal before it.** The
+owner's framing, recorded 2026-09-23: whatever happens on the rehearsal, the goal
+is a main trip that works. Every item is ranked by what it does for the main
+trip. The rehearsal is where things get tried, measured and — where it teaches
+something — allowed to go wrong.
+
+**The app is not built for these trips.** The trip dates decide *when* work
 lands and *when* an assumption can be replaced by a measurement. They must not
 decide what the app does. Every item here is written for "a future park date",
-"a held pass", "a reservation in doubt" — never for December 22, and never for
-Walt Disney World in one particular week. If an item can only be stated in terms
+"a held pass", "a reservation in doubt" — never for one particular date, and never
+for Walt Disney World in one particular week. If an item can only be stated in terms
 of a specific date, it is data maintenance (item 7) or it does not belong here.
 
 **How to read it.** Each item says what it is, why it earns time now, what could
@@ -24,7 +31,7 @@ two with tests, _large_ is a week and a decision. Numbers are stable identifiers
 referenced from `docs/` and from commit messages; they are not priority order.
 
 **Nothing in this file is required.** The tool is usable today and has booked for
-real. This is what would make December better, in the order it is worth doing.
+real. This is what would make the main trip better, in the order it is worth doing.
 
 ---
 
@@ -41,35 +48,38 @@ real. This is what would make December better, in the order it is worth doing.
 - **The documents were cut back.** Both READMEs are introductions. Building,
   verifying and releasing live in `docs/RELEASING.md`; limitations and Guided
   Access live in the user guide.
-- **October became a rehearsal**, which changes what the freeze and the trip are
-  for.
+- **The first trip became a rehearsal**, which changes what its freeze and its
+  park days are for.
 - **A silent loss turned up in a place nobody had looked** — between the trips.
   See theme 1.
 
 ## The calendar
 
+The dates themselves are kept privately (see the top of this file); every step
+here is fixed relative to a trip. The arithmetic is the part worth keeping in
+writing: the booking-date picker offers today plus twenty-one days
+(`NUM_BOOKING_DAYS = 22`), so a park day becomes selectable twenty-one days
+before it.
+
 | When | What happens | What it is for |
 |---|---|---|
-| **Now → Oct 4** | Test and tweak against live Disney data | Items 12, 3, 8's honesty half, 13, 14 — and start the learner |
-| **Sep 27** | Oct 18 first appears in the date picker | A free reading that decides item 6 |
-| **Oct 5–11** | Freeze | Rehearsing December's freeze is part of rehearsing December |
-| **Oct 6** | AutoLL-3 → AutoLL-4 merge | `docs/SYNC.md`: not on an AutoLL-3 deploy day |
-| **Oct 11, 7:00** | The first real booking morning | Write down what was hard: it is item 15's specification |
-| **Oct 12–17** | The gap before the trip | Fixes from Oct 11; item 4 if not already in |
-| **Oct 18–20** | The rehearsal | Watch, record, and let it fail usefully |
-| **by ~Oct 27** | **Export** (item 12) — or at least open the app | Before iOS's seven-day storage cap can take October's learning |
-| **Nov** | Build December on what October showed | Retrospective; item 15; item 6 if Sep 27 said so; item 7 near Nov 27 |
-| **Dec 1–7** | December's dates enter the picker, one a day | Build the December plan |
-| **Dec 8** | Last change | Freeze from Dec 9 through the trip |
-| **Dec 15, 7:00** | The booking morning that matters | All seven December days, in one morning, from home |
-| **Dec 22–28** | The trip | |
+| **Now → the rehearsal's freeze** | Test and tweak against live Disney data | Items 12, 3, 8's honesty half, 13, 14 — and start the learner |
+| **21 days before the rehearsal** | Its first day appears in the date picker | A free reading that decides item 6 |
+| **The rehearsal's freeze** | The week up to its booking morning | Rehearsing the main trip's freeze is part of rehearsing the main trip |
+| **Early in that freeze** | AutoLL-3 → AutoLL-4 merge | `docs/SYNC.md`: not on an AutoLL-3 deploy day |
+| **The rehearsal's booking morning, 7:00** | The first real booking morning | Write down what was hard: it is item 15's specification |
+| **Booking morning → check-in** | The gap before the trip | Fixes from the booking morning; item 4 if not already in |
+| **The rehearsal** | Its park days | Watch, record, and let it fail usefully |
+| **Within a week of it** | **Export** (item 12) — or at least open the app | Before iOS's seven-day storage cap can take the rehearsal's learning |
+| **Between the trips** | Build the main trip on what the rehearsal showed | Retrospective; item 15; item 6 if the picker reading said so; item 7 once the holiday overlays start |
+| **The three weeks before the main trip** | Its days enter the picker, one a day | Build the main plan |
+| **A week before its booking morning** | Last change | Freeze from then through the trip |
+| **Its booking morning, 7:00** | The booking morning that matters | Every day of the stay, in one morning, from home |
+| **The main trip** | The trip | |
 
-The December arithmetic is worth keeping in writing. The booking-date picker
-offers today plus twenty-one days (`NUM_BOOKING_DAYS = 22`), so December 22
-becomes selectable on December 1 and December 28 on December 7 — the last of them
-about a day before the freeze. The December plan can therefore be built in the
-picker, day by day, in the first week of December. It works, with almost no
-slack.
+So the main plan can be built in the picker, day by day, in the three weeks
+before the trip; its last day arrives about a day before the freeze. It works,
+with almost no slack.
 
 ## Three moments, and the tool is tuned for one
 
@@ -77,7 +87,7 @@ slack.
 |---|---|---|---|
 | **Booking morning** | a desk, at 7:00 | The highest of the year. A pass for the wrong day cannot be moved, only cancelled into inventory that is already gone | Least. Item 15 is the first work aimed at it |
 | **Park day** | a pocket | Recoverable | Most. It is what 1.1–1.2.8 built |
-| **Between trips** | nowhere | What October teaches either compounds into December or is lost | Not at all, until item 12 |
+| **Between trips** | nowhere | What the rehearsal teaches either compounds into the main trip or is lost | Not at all, until item 12 |
 
 Inside a park the loop is already good: the shield is a status display, so
 checking on the engine is take the phone out, glance, put it back — no taps. What
@@ -94,18 +104,18 @@ the learner's drop observations — lives in `localStorage` on Disney's origin
 phone. WebKit deletes "all of a website's script-writable storage after seven
 days of Safari use without user interaction on the site"
 ([WebKit, 2020](https://webkit.org/blog/10218/full-third-party-cookie-blocking-and-more/)),
-naming LocalStorage. October manufactures the learned drop times —
-`LEARNED_MIN_DAYS = 2`, and Oct 18–20 is the first trip long enough to meet it —
-and December is when they are used, eight weeks later. A phone that goes about a
+naming LocalStorage. The rehearsal manufactures the learned drop times —
+`LEARNED_MIN_DAYS = 2`, and it is the first trip long enough to meet it — and the
+main trip is when they are used, weeks later. A phone that goes about a
 week of Safari use without opening AutoLL-3 in between loses them, and the plan
 with them, and nothing says so. Item 12.
 
 **2. Learn from every live day, not only the trip days.** The learner does not
 need a park. It runs whenever the booking date is today, for every attraction on
 the watch list, and it is gated on neither dry run nor location — Disney's tip
-board is the same from a sofa. So the rehearsal does not have to wait for
-October 18: every ordinary day from now to December is a day of real drop
-observations, available from home. See *Learn from home*, below.
+board is the same from a sofa. So the rehearsal does not have to wait for its
+first park day: every ordinary day from now to the main trip is a day of real
+drop observations, available from home. See *Learn from home*, below.
 
 **3. Make the start of the day fast and hard to get wrong.** Two mornings. On the
 booking morning the failure is a pass for the wrong day. On each park morning the
@@ -116,9 +126,9 @@ resets itself overnight. Items 13, 14 and 15.
 
 ## The plan
 
-### Now → October 4: test and tweak against live data
+### Now → the rehearsal's freeze: test and tweak against live data
 
-Eleven days with live Lightning Lanes every morning. In order:
+Every morning until the freeze has live Lightning Lanes. In order:
 
 1. **Item 12 — back up the plan and what the learner has seen.** Export first: it
    is small, and it is the piece everything meant to carry forward depends on.
@@ -130,14 +140,15 @@ Eleven days with live Lightning Lanes every morning. In order:
 5. **Items 13 and 14** — a park-morning preflight, and a Today that points at the
    park the plan is for.
 6. **Item 4** — name the Tier 1 blocker. Medium; if it does not fit, it takes the
-   Oct 12–17 gap.
+   gap between the rehearsal's booking morning and its check-in.
 
 Two readings, both free:
 
-- **September 27.** October 18 first appears in the date picker. Open Configure
-  for it. Whether Disney's tip board returns usable rows twenty-one days out
-  settles item 6: if it does not, the December plan cannot be built in the picker
-  either, and item 6's parts (b) and (c) come back before December.
+- **Twenty-one days before the rehearsal.** Its first day appears in the date
+  picker. Open Configure for it. Whether Disney's tip board returns usable rows
+  twenty-one days out settles item 6: if it does not, the main plan cannot be
+  built in the picker either, and item 6's parts (b) and (c) come back before the
+  main trip.
 - **Any morning.** Move the picker three and seven days out and read
   `ll.nextBookTimes`. It settles item 1's design.
 
@@ -148,13 +159,13 @@ Every item above is aimed elsewhere, and should stay aimed elsewhere.
 
 ### Learn from home
 
-Pick a park each day. Arm the attractions you want in December at that park, turn
+Pick a park each day. Arm the attractions you want on the main trip at that park, turn
 on **Dry run**, and leave Autopilot running on a plugged-in phone with the screen
 on. The learner records real drops for everything on the watch list, and the
-Activity screen shows what it has learned. Rotate the parks across days. By
-December there can be weeks of observations instead of three October days.
+Activity screen shows what it has learned. Rotate the parks across days. By the
+main trip there can be weeks of observations instead of a rehearsal's few days.
 
-Three things to know. Drops learned in September may not be December's drops —
+Three things to know. Drops learned weeks ahead may not be the trip's drops —
 and that is safe rather than harmful, because learned times are merged into the
 schedule instead of replacing it (`mergeDropTimes` only appends), so a stale one
 costs a burst at a minute that no longer drops, never a missed drop. It is real
@@ -162,7 +173,7 @@ traffic to Disney at a park day's cadence, so run it during park hours, not arou
 the clock. And it makes item 12 more urgent, not less: the more a phone has
 learned, the more the seven-day cap can take.
 
-### October 5–11: the freeze
+### The rehearsal's freeze
 
 The freeze is on **pushes to `main`**, and the rule is sharper than this file used
 to say. `deploy.yml` now carries `paths-ignore: ['**.md']`, so a markdown-only push
@@ -172,33 +183,34 @@ the freeze exists to leave alone. **During a freeze, do not touch the guide's
 HTML.** The previous revision said every push deploys, which aimed the one warning
 this section carries at the wrong files.
 
-Keep the freeze even for a rehearsal. December's booking morning will sit behind
-one, and finding out in October that the freeze has a hole in it is part of the
-point of rehearsing.
+Keep the freeze even for a rehearsal. The main trip's booking morning will sit
+behind one, and finding out on the rehearsal that the freeze has a hole in it is
+part of the point of rehearsing.
 
-### October 11: the first real booking morning
+### The rehearsal's booking morning: the first real one
 
 Write down what was hard, as it happens — which search, which screen, which date
 change. That note *is* item 15's specification. A booking-morning screen designed
 before this morning would be a guess; designed after it, it is a fix.
 
-### October 18–20: the rehearsal
+### The rehearsal's park days
 
 What to watch, alongside using it:
 
 - **Item 4** fires only in the first hours of a real park morning. This is the one
-  chance to see it before December.
+  chance to see it before the main trip.
 - **The questions only a park can answer** (`FUTURE.md` §5): whether an expired,
   unredeemed pass frees its slot, and whether the Tier 1 release is per guest.
 - **The morning routine itself** — how long from waking to a running, guarded,
   pocketed phone, and what went wrong on the way. That is what items 13 and 14 are
   for, and item 16 is where to write it down.
 
-### After October
+### After the rehearsal
 
-Export within a week (item 12). Then build December on what October showed: a
-retrospective, item 15, item 6 if September 27 said so, and item 7 around
-November 27. What waits until after December is at the end of this file.
+Export within a week (item 12). Then build the main trip on what the rehearsal
+showed: a retrospective, item 15, item 6 if the picker reading said so, and item 7
+once the holiday overlays start. What waits until after the main trip is at the
+end of this file.
 
 ---
 
@@ -218,8 +230,8 @@ November 27. What waits until after December is at the end of this file.
 
 **Why.** Theme 1. Everything lives in `localStorage` on Disney's origin, iOS
 deletes it after about a week of Safari use without a visit, and there is no way to
-get any of it off the phone. The learned drop times that October produces are the
-ones December uses.
+get any of it off the phone. The learned drop times that the rehearsal produces
+are the ones the main trip uses.
 
 **What.** An **Export** button that gathers everything under the `autoll3.*`
 namespace into one versioned JSON file and hands it to the share sheet —
@@ -244,7 +256,8 @@ Engine state describes reservations at one instant. Written back into a live run
 could make the engine refuse a reservation that is free, or act on one that no
 longer exists — the class of failure leases and quarantines were built to prevent.
 Dry run is excluded for a sharper reason: restoring it is silent and wrong in both
-directions. Off makes a rehearsal book for real; on makes December book nothing.
+directions. Off makes a rehearsal book for real; on makes the main trip book
+nothing.
 The phone keeps its own setting.
 
 **Risk.** A backup from a newer build, an older schema, or the other build. The
@@ -309,20 +322,21 @@ choose.
 **Done means.** A Today test with targets at EPCOT today and the header on Magic
 Kingdom shows the nudge; with nothing saved elsewhere, it shows nothing.
 
-### 15. A booking-morning screen — _medium, after October 11_
+### 15. A booking-morning screen — _medium, after the rehearsal's booking morning_
 
 **Why.** The booking morning is the highest-stakes moment of the year and the
 least served. The failure that cannot be undone is a pass booked for the wrong
 day, and the morning is nine or more sequential searches with the date picker
 changed between them, on a different screen.
 
-**What.** Specified by October 11, not before it. The likely shape: the date being
+**What.** Specified by the rehearsal's booking morning, not before it. The likely
+shape: the date being
 booked in large type, what is already held for each day of the stay, and what is
 next.
 
 **Deliberately not:** Autopilot booking every day of a stay on its own. The engine
 is built around one booking date — 111 non-test references across 23 files, per
-item 6 — and rebuilding that before December would repeat last week's pattern on
+item 6 — and rebuilding that before the main trip would repeat last week's pattern on
 the most dangerous code in the project.
 
 ### 16. Field notes — _small, optional_
@@ -412,13 +426,13 @@ Neither choice blocks starting.
 
 **Risk.** The old risk paragraph conflated two different numbers. N, the warning
 lead time, is a usability choice about how long someone needs to walk to a ride;
-no Disney fact sits behind it and October cannot observe it. The unmeasured fact
+no Disney fact sits behind it and the rehearsal cannot observe it. The unmeasured fact
 is the *grace period* past `end.time` — how late a turnstile still accepts a
 pass — and it decides whether `end.time` is even the right anchor at all. That
 one can only be observed by deliberately tapping in late at a real turnstile,
-which is something to choose to do in October, not something the trip produces on
-its own. So: ship N as a named, explicitly-unverified constant now, and record the
-grace-period observation as a separate October decision rather than as a reason to
+which is something to choose to do on the rehearsal, not something the trip
+produces on its own. So: ship N as a named, explicitly-unverified constant now, and
+record the grace-period observation as a separate rehearsal decision rather than as a reason to
 wait.
 
 The sharper risk is that the alert exists only while autopilot is on. The tick
@@ -469,7 +483,7 @@ is empty in that scenario.
 > not today, Today names a "Next drop" for a date the engine never bursts for —
 > the last part of this item — and that is what Today shows on a booking morning.
 > De-duplicating the two `Next drop:` lines described below belongs with it. Drop
-> the countdown unless October gives a reason for one.
+> the countdown unless the rehearsal gives a reason for one.
 
 
 The tool's one structural advantage is being the thing that looks in the first
@@ -500,7 +514,7 @@ same `dropExpsByPark` list (`resort.ts:122-133`), `activeScheduledDropTimes()`
 returns exactly `park.dropTimes`. The two sources are identical until
 `learnedDropTimes()` contributes, which needs `LEARNED_MIN_DAYS = 2` distinct
 observed park days (`learned.ts:15`). On a fresh install the lie is not yet a
-lie, and October 18-20 is the first trip long enough to manufacture one. It is
+lie, and the rehearsal is the first trip long enough to manufacture one. It is
 also one-directional: `mergeDropTimes` appends only uncovered times
 (`learned.ts:87-99`), so merged is always a superset. Today can never invent a
 drop the engine skips; it can only hide a learned one the engine bursts for,
@@ -513,8 +527,8 @@ first drop of the day, not a next anything — while `AutopilotProvider.tsx:1797
 passes `dropTimes: watchingToday ? effectiveDropTimes : undefined` for exactly
 that case. The screen names a "Next drop" for a date the engine will never burst
 for at all. That is flatly false rather than merely stale, and it is what Today
-shows on the October booking morning — 2026-10-11, now the rule is settled —
-to apply — when the booking date is 10-18 and the real work is happening on
+shows on a booking morning — when the booking date is a week out and the real
+work is happening on
 Time Search, which renders no `AutopilotStatus` at all: the component is
 imported only by `Today.tsx:13`. Two lines fix it, independently of everything
 else in this item, and it is the only part of this item with value before the
@@ -585,10 +599,10 @@ still cites `Today.tsx:300-316` and `alert.ts:71-140`; the derivation is now
 
 ### 4. Name the attraction the Tier 1 hold is waiting for — _medium_
 
-> **Status, 2026-09-23 — build before October 18.** It can only be seen in the
-> first hours of a real park morning, so October is the one sighting before
-> December. Build it against the fakes and treat October as the sighting, not the
-> test. Item 8's honesty half settles which drop time to print, which argues for
+> **Status, 2026-09-23 — build before the rehearsal.** It can only be seen in
+> the first hours of a real park morning, so the rehearsal is the one sighting
+> before the main trip. Build it against the fakes and treat the rehearsal as the
+> sighting, not the test. Item 8's honesty half settles which drop time to print, which argues for
 > doing that first.
 
 
@@ -675,9 +689,9 @@ and the "Latest check" line render the same named sentence from one `Skip`.
 **When it can be seen.** The gate is `forToday &&`
 (`AutopilotProvider.tsx:1129`) and releases at the party's first redemption
 (`redeemedToday`, `priority.ts:93`), so this message only ever exists in the
-first hours of a real park morning. October 18-20 is the one chance to see it
-fire before December. Build it against the fakes and treat October as the
-sighting, not the test.
+first hours of a real park morning. The rehearsal is the one chance to see it
+fire before the main trip. Build it against the fakes and treat the rehearsal as
+the sighting, not the test.
 
 **The companion half shipped.** Four skip reasons — `waiting-to-retry`,
 `not-enabled`, `no-existing-booking`, `already-held` — were declared,
@@ -740,10 +754,10 @@ move the date picker three and seven days out and read `ll.nextBookTimes` off
 the live client. The genuinely open question is what the *values* mean for a
 date whose window has not opened — a usable instant, an absent block, or a
 window meaning something else. If the block is empty for those dates the
-API-driven design is dead and the decision is made without waiting for October.
-`NUM_BOOKING_DAYS = 22` (`BookingDateProvider.tsx:24`) bounds what can be looked
-at: today the picker offers 2026-09-19 through 2026-10-10, so October 18 itself
-cannot be inspected until 2026-09-27.
+API-driven design is dead and the decision is made without waiting for the
+rehearsal. `NUM_BOOKING_DAYS = 22` (`BookingDateProvider.tsx:24`) bounds what can
+be looked at: the picker offers today and the twenty-one days after it, so a trip
+day itself cannot be inspected until twenty-one days before it.
 
 **Risk, and it is not either direction this item used to name.** `ParkTime` is
 hour, minute and second with no date at all (`datetime.ts:19-44`). A window-open
@@ -800,24 +814,25 @@ was captured for.
 `src/api/ll.ts`, `src/providers/BookingDateProvider.tsx`,
 `src/providers/AutopilotProvider.test.tsx`, `harness/fakes/clients.ts`.
 
-**This item is not served by the October trip, and the old text said it was.**
-The gap is inert during October 18-20: on those days `bookingDate === parkDate()`,
+**This item is not served by the rehearsal, and the old text said it was.**
+The gap is inert during its park days: on those days `bookingDate === parkDate()`,
 `watchingToday` is true, and the poller already bursts. The trip cannot exercise
-this at all. The date-pressured moment is the October *booking* morning, from
+this at all. The date-pressured moment is the rehearsal's *booking* morning, from
 home — 7:00am ET seven days before check-in for resort guests, or three days
 before each park day for everyone else (`docs/PLAN.md:269-271`). Which of those
-rule applies here was settled on 2026-09-19: on-site, so the morning is
-2026-10-11. This item does not turn on it — that morning is before the trip
+rule applies here was settled on 2026-09-19: on-site, so the morning is seven
+days before check-in. This item does not turn on it — that morning is before the trip
 either way, and the feature is about any future park date. The one observation no amount of effort buys early is what the
 response looks like at the instant a window actually opens, which requires
 watching on a morning one does.
 
 ### 6. Let a plan outlive the booking window — _large_
 
-> **Status, 2026-09-23 — decided on September 27.** That is the morning October
-> 18 first appears in the picker, twenty-one days out. If Configure shows usable
-> rows, the picker serves December and this item waits until after it. If it does
-> not, parts (b) and (c) are needed before December 1.
+> **Status, 2026-09-23 — decided twenty-one days before the rehearsal.** That is
+> the morning its first day appears in the picker. If Configure shows usable
+> rows, the picker serves the main trip and this item waits until after it. If it
+> does not, parts (b) and (c) are needed before the main trip's days enter the
+> picker.
 
 
 A plan for a date beyond the booking window still cannot be built, and the
@@ -835,7 +850,7 @@ engine's own `activeTargets` filter (`AutopilotProvider.tsx:593`) through every
 per-target edit — `isWatched`, add, remove, the four toggles, the rank, the
 return-time bounds — out to Plan Check (`plancheck.ts:88`) and the timeline
 (`Timeline.tsx:28`). So a target starred today is stamped `2026-09-19`, and
-`targetApplies` refuses it in December. Nor does it lapse on its own:
+`targetApplies` refuses it on any later trip day. Nor does it lapse on its own:
 `saveWatchList` writes with `kvdb.set` (`watchlist.ts:289`), not the `setDaily`
 the booking date itself gets (`BookingDateProvider.tsx:66`), so the stale stamp
 is durable. `PLAN.md` §11 records the twenty-two-day clamp as a scheduling
@@ -859,8 +874,8 @@ saved for another park or date, or not on this park's list today"
 (`Configure.tsx:377-380`). What is missing is a path forward, not a warning, so
 a fix should not spend an evening re-adding a banner that exists.
 
-**The demotion's missing half.** The 2026-09-17 demotion rests on the December
-days becoming selectable in the picker before the freeze. Selecting the date is
+**The demotion's missing half.** The 2026-09-17 demotion rests on the main
+trip's days becoming selectable in the picker before the freeze. Selecting the date is
 necessary but not sufficient. Configure's add list is
 `experiences.filter((exp): exp is Experience => !!exp.flex)`
 (`Configure.tsx:83-84`), and `experiences` comes only from
@@ -868,19 +883,18 @@ necessary but not sufficient. Configure's add list is
 (`src/providers/ExperiencesProvider.tsx:68`) — Disney's tip board for that one
 date (`src/api/ll.ts:320-327`). Nobody here knows what that endpoint returns
 for a park date twenty-one days out: rows with `flex`, rows without, or
-nothing. If it returns nothing usable, `watchable` is empty on December 1,
-Configure renders "No attractions loaded yet.", and the December plan cannot be
-built in the picker after all — which is `FUTURE.md` §3.2 exactly, and would
+nothing. If it returns nothing usable, `watchable` is empty the morning the main
+trip's first day enters the picker, Configure renders "No attractions loaded
+yet.", and the main plan cannot be built in the picker after all — which is `FUTURE.md` §3.2 exactly, and would
 un-demote this item. **The roadmap treated that as settled; the code does not
 settle it.**
 
 What would settle it costs nothing and has a date on it. The same clamp that
-blocks December blocks October right now: today the picker offers 2026-09-19
-through 2026-10-10, so October 18 first becomes selectable on September 27 and
-October 20 on September 29. That is nine days of slack and not a problem — but
-it means the "build it in the picker" workflow the demotion rests on gets its
-first rehearsal on September 27, at exactly twenty-one days out, and whoever
-opens Configure that morning answers this question for free. One request
+blocks the main trip blocks the rehearsal right now: each of its days becomes
+selectable only twenty-one days before it. That is not a problem — but it means
+the "build it in the picker" workflow the demotion rests on gets its first
+rehearsal twenty-one days before the rehearsal, and whoever opens Configure that
+morning answers this question for free. One request
 answers `PLAN.md` §10's recorded question too, because `experiences()` reads
 the rows and sets `this.nextBookTimes = bookWindows(data.eligibility, date)`
 off the same response (`src/api/ll.ts:320-330`).
@@ -897,8 +911,8 @@ healthy run. The nastier danger is a half-done split, and it is one line away.
 `targetApplies` treats an absent date as applying everywhere
 (`watchlist.ts:118`, asserted at `watchlist.test.ts:264-265`), so if `addTarget`
 stops stamping a date before `targetApplies` stops comparing one, every saved
-target arms on every park day — a December plan booking on a September
-morning. The opposite order merely makes targets vanish, which
+target arms on every park day — the main trip's plan booking on a morning weeks
+before it. The opposite order merely makes targets vanish, which
 `Configure.tsx:250-256` at least counts out loud. Do it in that order. And (c)
 is not garnish on (b): `src/api/data/wdw.ts:442-449` gives TRON Lightcycle / Run
 the same shape as any Multi Pass ride, Single Pass is knowable only at runtime
@@ -910,17 +924,17 @@ will do.
 
 **Done means.** This item has never had a "done" line, and the obvious
 candidate would not earn one: `watchlist.test.ts:250-266` already asserts
-`expect(targetApplies(scoped, 'mk', '2026-12-11')).toBe(false)` and passes
+`expect(targetApplies(scoped, 'mk', '2031-02-15')).toBe(false)` and passes
 today, because it encodes the blocker rather than the fix — it will still pass
 after this ships. The test that fails on HEAD belongs in
 `src/providers/AutopilotProvider.test.tsx`, whose fixture already has what it
 needs (`setBookingDate: (date: string) => view.rerender(<Tree date={date} />)`,
-line 461): star an attraction while the plan date is a December day and the
-booking date is still today, then assert the stored target carries
-`date: '2026-12-22'` and that `isWatched` is true for it on that plan date.
+line 461): star an attraction while the plan date is a day beyond the window and
+the booking date is still today, then assert the stored target carries that plan
+date and that `isWatched` is true for it on that plan date.
 Both halves fail now — `addTarget` has no input but `bookingDate`
 (`AutopilotProvider.tsx:1910`), and `validDate` will not let `bookingDate` hold
-a December day in the first place.
+such a day in the first place.
 
 **Where.** `FUTURE.md` §3.2's _Where_ line cites
 `src/components/ll/screens/Configure.tsx:87,275-300` and both halves have moved:
@@ -929,17 +943,18 @@ derived at `Configure.tsx:83-85` and rendered at `376-398`. Strike the old line
 rather than leave it standing.
 
 **Demoted 2026-09-17; moved here 2026-09-19.** The owner answer stands — skip
-this cycle, revisit after December — and the date blocker is still real and
+this cycle, revisit after the main trip — and the date blocker is still real and
 still worth fixing on general grounds, because planning a trip should not
 depend on being inside a twenty-two-day window. The trips do not need it: the
-October trip cannot exercise it, and for December the picker probably suffices.
-But "probably" is the honest word, and it has a cheap test on September 27. If
-that morning's tip board for October 18 comes back without usable `flex` rows,
-the picker workflow will not serve December either, part (b) becomes
+rehearsal cannot exercise it, and for the main trip the picker probably suffices.
+But "probably" is the honest word, and it has a cheap test twenty-one days
+before the rehearsal. If that morning's tip board for its first day comes back
+without usable `flex` rows, the picker workflow will not serve the main trip
+either, part (b) becomes
 load-bearing rather than a convenience, and this item comes straight back to
 _Before the trips_ in its (b)-and-(c) form.
 
-### 9. Fix the gate, the test timeout and Dependabot in one evening — and stop calling the settle-time row an October item — _medium_
+### 9. Fix the gate, the test timeout and Dependabot in one evening — and stop calling the settle-time row a rehearsal item — _medium_
 
 > **Status, 2026-09-23.** Item 12 answers (a)'s open owner question: with an
 > export, new instrumentation no longer has to be read back over a cable. Which
@@ -949,15 +964,15 @@ _Before the trips_ in its (b)-and-(c) form.
 
 Three small diffs and one thing that is not a diff. (b), (c) and (d) are the evening: unblocked, behaviour-neutral, and untouched in both repos — `check.yml`, `jest.config.js`, `lease.ts` and `observe.ts` are byte-identical to AutoLL-4's copies. (a) is a session, and the reason it was promoted on 2026-09-17 does not survive contact with when doubts are actually raised.
 
-**(a) Record how long a change takes to land.** Retract the October 18 deadline as stated. The claim was that a park day without this is a park day spent; for the version described — one capped row the first time a doubt settles — three October days will almost certainly write zero rows. A doubt exists only when the outcome is indeterminate: `AutopilotProvider.tsx:1431-1434` raises one only when `current.dispatched && outcome?.status === 'failed' && !outcome.rejected`, and every commit whose response comes back, success or definite rejection, takes the `else if (current.dispatched)` branch at `:1449` and calls `resolveDoubt` at `:1453`, creating nothing to settle. The only other source is the deadline, and `MAX_MUTATION_MS` (`mutation.ts:7`) is `TICK_DEADLINE_MS + RENEW_INTERVAL_MS`, 90s plus 40s: a mutation has to hang 130 seconds. So the instrument samples exactly the sub-population where the response was lost *and* Plans later proved the exact requested state.
+**(a) Record how long a change takes to land.** Retract the rehearsal deadline as stated. The claim was that a park day without this is a park day spent; for the version described — one capped row the first time a doubt settles — the rehearsal's few park days will almost certainly write zero rows. A doubt exists only when the outcome is indeterminate: `AutopilotProvider.tsx:1431-1434` raises one only when `current.dispatched && outcome?.status === 'failed' && !outcome.rejected`, and every commit whose response comes back, success or definite rejection, takes the `else if (current.dispatched)` branch at `:1449` and calls `resolveDoubt` at `:1453`, creating nothing to settle. The only other source is the deadline, and `MAX_MUTATION_MS` (`mutation.ts:7`) is `TICK_DEADLINE_MS + RENEW_INTERVAL_MS`, 90s plus 40s: a mutation has to hang 130 seconds. So the instrument samples exactly the sub-population where the response was lost *and* Plans later proved the exact requested state.
 
-That is also why this is not the measurement `FUTURE.md` §5.5 asks for, despite the item saying it is. §5.5 is explicit: log the send, log every subsequent plans read that does and does not show the change, and let the distribution of the ones that eventually appear set the window. That is a second store plus a hook in `PlansProvider`, and it is the version with a real claim on October 18 under this file's own rule that anything turning an assumption into a recorded fact should land before the test trip. The narrow row's honest deadline is **December 8**, the freeze — six December park days are a better sample than three October ones, and an instrument not in the build before the freeze cannot produce anything in December either. Decide which of the two is being built before writing any of it; they are not the same size and only one of them has an October reason.
+That is also why this is not the measurement `FUTURE.md` §5.5 asks for, despite the item saying it is. §5.5 is explicit: log the send, log every subsequent plans read that does and does not show the change, and let the distribution of the ones that eventually appear set the window. That is a second store plus a hook in `PlansProvider`, and it is the version with a real claim on the rehearsal under this file's own rule that anything turning an assumption into a recorded fact should land before the test trip. The narrow row's honest deadline is **the main trip's freeze** — its park days are a better sample than the rehearsal's, and an instrument not in the build before the freeze cannot produce anything on the main trip either. Decide which of the two is being built before writing any of it; they are not the same size and only one of them has a rehearsal reason.
 
 The mechanical claim about the code is nearly right and one word wrong. `Doubt.at` is the dispatch instant (`lease.ts:103`, written from `dispatchedAt` at the two `quarantine()` call sites, `AutopilotProvider.tsx:1440` and `:1223`), `reconcile()` takes `polledAt` (`lease.ts:613-619`), and `landed()` (`lease.ts:562`) is the only thing that counts as proof. But they do not pass through one function — they pass through one function in *two branches*: the volatile pass at `lease.ts:625`, outside `exclusive()`, and the durable pass at `:644`, inside it. A row written in one branch misses half the population, and the volatile half is precisely the case where durable storage has already failed.
 
 **Risk, and it is not the one this item names.** The obvious place for the write is inside `exclusive()`'s body beside `if (changed) kvdb.set<Quarantine>(QUARANTINE_KEY, next)` (`lease.ts:649`), and `kvdb.set` is a bare `localStorage.setItem` with no try/catch (`kvdb.ts:19-21`). Put the measurement write before the quarantine write and a `QuotaExceededError` on a phone aborts the clear: the doubt is never removed, the `finally` at `:651-653` still fires `publishQuarantineChange()` so the UI repaints with the doubt still showing, and the throw lands in `PlansProvider.tsx:99`'s `.catch(error => console.error(error))`. The result is a reservation the engine refuses to touch for the rest of the trip, for a reason that exists only in a console nobody opens in a park. Which also disposes of the item's opening sentence: (a) is not behaviour-neutral, because it adds a storage write to the path that clears a quarantine. The measurement write goes *after* the quarantine write, in its own try/catch, in both branches.
 
-**Not into the activity log** — that part stands, checked. `LOG_LIMIT` is 20 (`storage.ts:11`) and the log is written through `kvdb.setDaily` (`storage.ts:161-163`), so a park day's real bookings push the measurement out and the 4am rollover drops the rest; `storage.test.ts:84`, `is scoped to the park day`, asserts exactly that. `observe.ts` is the right home: plain `kvdb.set` (`:431`), not day-scoped by its own comment at `:412`, `MAX_EVENTS = 1000` (`:34`) and `MAX_COVERAGE_DAYS = 30` (`:38`). What the item never says is how the rows are read back. `observe.ts`'s data reaches a screen — `Activity.tsx:42` pulls `dropSummaries` out of the context — and a new store would not, so on a build that in practice runs only in a phone browser, reading it on October 21 means Web Inspector over a cable. Whether that is acceptable is an open owner question, and it is the difference between an evening and a weekend. Keep §5's warning in the comment either way: this must never become an automatic fail-open rule again.
+**Not into the activity log** — that part stands, checked. `LOG_LIMIT` is 20 (`storage.ts:11`) and the log is written through `kvdb.setDaily` (`storage.ts:161-163`), so a park day's real bookings push the measurement out and the 4am rollover drops the rest; `storage.test.ts:84`, `is scoped to the park day`, asserts exactly that. `observe.ts` is the right home: plain `kvdb.set` (`:431`), not day-scoped by its own comment at `:412`, `MAX_EVENTS = 1000` (`:34`) and `MAX_COVERAGE_DAYS = 30` (`:38`). What the item never says is how the rows are read back. `observe.ts`'s data reaches a screen — `Activity.tsx:42` pulls `dropSummaries` out of the context — and a new store would not, so on a build that in practice runs only in a phone browser, reading it the day after the rehearsal means Web Inspector over a cable. Whether that is acceptable is an open owner question, and it is the difference between an evening and a weekend. Keep §5's warning in the comment either way: this must never become an automatic fail-open rule again.
 
 **(b) Make the gate tell the truth.** Correct the count first: four steps carry `if: '!cancelled()'` — Tests, Lint, Typecheck, Build at `check.yml:44-62` — and `npm ci` at `:35` is unconditional. The consequence the item states is right and live: #30 and #31 are both red now, five red steps each from one unresolvable peer range. The form matters. A step `if` containing no status-check function is implicitly ANDed with `success()`, so `if: steps.install.outcome == 'success'` would restore fail-fast and destroy the report-everything-at-once property `check.yml:3-6` exists to defend; write `if: ${{ !cancelled() && steps.install.outcome == 'success' }}`. Do not rename the `check` job — it is the required status context on both protected mains.
 
@@ -982,8 +997,7 @@ every attraction's `externalId` in that feed is the Disney facility id this
 repository already keys on, and `docs/PLAN.md:241-242` records the repository
 running exactly this check once already, on 2026-09-05. Both overlays also start
 before the freeze: `docs/PLAN.md:887-888` dates Glimmering Greenhouses Nov 27 -
-Dec 30, eleven days ahead of the two-week freeze starting around December 8
-(`docs/PLAN.md:879`). The correction holds — and it is still unapplied.
+Dec 30, well ahead of the main trip's freeze (`docs/PLAN.md:879`). The correction holds — and it is still unapplied.
 `docs/FUTURE.md:189-192`, the schedule row at `docs/FUTURE.md:585`, and
 `docs/PLAN.md:862-863` all say the old thing today; `1a453b0` corrected four
 documents and touched none of the three. Applying the correction in those three
@@ -999,8 +1013,8 @@ an unconditional red banner on the default tab
 individually and explains what a re-theme looks like
 (`src/components/ll/screens/Configure.tsx:230-238`). All of that shipped in
 `650a1082` on 2026-09-07, ten days before this roadmap was added in `36d0035`.
-The check is still worth running — the banner tells you in December, and the
-whole point of a November desk session is to know before the freeze — but
+The check is still worth running — the banner tells you on the trip, and the
+whole point of a desk session weeks ahead is to know before the freeze — but
 visibility is not what it buys.
 
 **The genuinely silent case is the one this item does not look at, and it sits
@@ -1014,7 +1028,7 @@ all — `412380330`, `412380331`, `412380332`, `412380258`
 that "a nulled one that Disney *does* serve is invisible and unbookable — which
 is the failure this whole section exists to record"
 (`src/api/data/wdw.ts:1478-1480`). If Disney serves one of those four in
-December there is no row, no banner, no warning and no name. Widen the session
+the holiday season there is no row, no banner, no warning and no name. Widen the session
 by five minutes and grep the live feed against the null list too: that is where
 the harm the old text described actually lives.
 
@@ -1090,9 +1104,9 @@ date-stamped, with a comment explaining that a second instance working the same
 future date needs it. `PendingSearch` carries a `bookingDate`. The ledger is
 the one store that missed the memo.
 
-**What it does.** Book an attraction for October 18, move the picker to October
-19, and that attraction is skipped as `already-attempted` — the lock says the
-work is done while the evidence says the reservation is not held on the 19th.
+**What it does.** Book an attraction for one park day, move the picker to the
+next, and that attraction is skipped as `already-attempted` — the lock says the
+work is done while the evidence says the reservation is not held on that day.
 In the ordinary case it self-heals after `CONFIRM_ABSENT_POLLS` = 2 plans
 polls, which is about twelve seconds inside a rapid Time Search and about
 fifteen minutes in the background engine on a future date.
@@ -1106,11 +1120,11 @@ exactly what a 7:00 a.m. rush produces.
 
 Worse and simpler: `modify:` and `swap:` locks have no release path at all.
 The settle loop sweeps `book:` locks only (`AutopilotProvider.tsx:823`). A move
-performed for October 18 blocks that action on that attraction for the 19th and
-the 20th for the rest of the session.
+performed for one park day blocks that action on that attraction for every other
+day of the stay for the rest of the session.
 
 **It does not reach the manual booking path, and that is the mitigation for
-October.** The ledger is confined to `src/autopilot/` and `AutopilotProvider`;
+the rehearsal.** The ledger is confined to `src/autopilot/` and `AutopilotProvider`;
 no screen imports it. Booking from the LL tab by hand takes none of these
 locks. Until this is fixed, that is what to do on a booking morning, and it is
 a better answer than the workaround that suggests itself — toggling autopilot
@@ -1188,8 +1202,8 @@ cannot go permanently stale; it can only talk about a day other than the one on
 screen. Filtered does the more dangerous thing: it hides a live doubt about
 *today's* reservation whenever the picker sits on a future date, which is the
 normal pre-trip state and the state the app is in right now. What would settle
-it is a park day's worth of real doubts to look at, and October is the first
-chance to collect any. Until then, filter the count on `bookingDate` and give an
+it is a park day's worth of real doubts to look at, and the rehearsal is the
+first chance to collect any. Until then, filter the count on `bookingDate` and give an
 off-date doubt its own differently worded line, so nothing is hidden outright.
 Route to Activity, not Plan Check: Today's two existing Plan Check buttons both
 call `setPlanChecked(true)` on the way (`Today.tsx:197` and `Today.tsx:237`), so
@@ -1281,7 +1295,7 @@ reset when the park or the booking date changes. Today's only `useEffect` is
 the one-minute clock at `Today.tsx:92-95`; nothing watches `park.id` or
 `bookingDate`. Compare `PlanCheck.tsx:139`, which does
 `useEffect(() => setParty(undefined), [park.id, bookingDate])` for precisely
-this reason. Review Magic Kingdom / December 22, change either control in the
+this reason. Review Magic Kingdom on a trip day, change either control in the
 header, and the checklist still reads "Plan Check reviewed" for a plan nobody
 has checked. That is a sharper instance of this item's own thesis than either
 failure it named, and "persist the acknowledgement per park and date" only
@@ -1330,8 +1344,8 @@ place the old flag did. Pass the unfiltered `targets`, which is on the same
 context (`AutopilotContext.ts:56`) and merely not destructured. Second, do not
 persist with `kvdb.setDaily`: `getDaily` returns a value only while
 `date === parkDate()` (`kvdb.ts:31-34`), and a pre-trip acknowledgement is made
-days before the date it is about, so one made on October 11 for October 18
-would evaporate at the next park-date rollover — the same silent un-tick on a
+days before the date it is about, so one made on a booking morning for the trip a
+week later would evaporate at the next park-date rollover — the same silent un-tick on a
 slower clock. The repo already records this failure once, in the comment at
 `nextll.ts:28-33`, which is why that file carries its own date field beside
 `getDaily`/`setDaily` (`nextll.ts:56,63`). Use plain `kvdb.set` with a
@@ -1406,7 +1420,7 @@ strength of a decision made about a request that had already been answered.
 `lockKey(date, kind, experienceId)` rather than `` `${kind}:${experienceId}` ``,
 so a token minted for one booking date can no longer release a live doubt-hold
 on another — which was the wider and more likely case, and the one a booking
-morning with nine searches across three park days would have produced. What is
+morning with nine searches across several park days would have produced. What is
 left is same-key reuse after a release, which HEAD has identically. That is why
 this is its own item and not a regression in item 10.
 
@@ -1432,7 +1446,7 @@ branch of `resolveHeld`, which are the two places a lock is given back).
 
 ---
 
-## After December
+## After the main trip
 
 Ordered loosely by value, not by effort. None of it is needed for either trip.
 
@@ -1454,9 +1468,9 @@ Ordered loosely by value, not by effort. None of it is needed for either trip.
 - **Per-target guest subset** instead of one global whole-party switch — _medium_.
 - **Component tests for the Time Search recovery states** — _small_.
 - **Port the day's-work screens back to AutoLL v1.1** — _large_. Not before
-  December: the fallback build's value is that it is proven, and porting
+  the main trip: the fallback build's value is that it is proven, and porting
   unproven screens into it inverts that.
-- **Stamp the December 2026 facts and their source dates into the documents** — _small_.
+- **Stamp the season's Disney facts and their source dates into the documents** — _small_.
 
 ---
 
@@ -1508,9 +1522,9 @@ reconsidered and rejected again, so the next pass does not rediscover them:
 ## Questions only the owner can answer
 
 **Answered.** On-site for both trips (2026-09-19), so each trip is booked in one
-morning from home: **2026-10-11** for Oct 18–20 and **2026-12-15** for Dec 22–28.
-The trip dates themselves (2026-09-17). What October is for — a rehearsal for
-December (2026-09-23). And whether to build backups — yes (2026-09-23), item 12.
+morning from home, seven days before check-in. The trip dates themselves
+(2026-09-17; kept privately). What the first trip is for — a rehearsal for the
+main one (2026-09-23). And whether to build backups — yes (2026-09-23), item 12.
 
 **Field notes, item 16: build it?** Recommendation: yes. It is small, and it is
 how the rehearsal answers the question of what the parks show that the code does
@@ -1518,17 +1532,17 @@ not.
 
 **Item 9(a): which timing instrument?** The narrow row, or `FUTURE.md` §5.5's full
 distribution. Item 12 has removed the cable problem; the choice of instrument
-remains, and only the distribution has an October reason.
+remains, and only the distribution has a rehearsal reason.
 
 **Item 1: API-driven or clock-driven?** Let the `ll.nextBookTimes` reading decide.
 Prefer API-driven if the instant is genuinely there.
 
 **Expiry rescue: build it on an unverified assumption, or ship the warning and let
 a park supply the fact?** Recommendation unchanged: the warning, item 3, and
-October is the park day that can supply the grace-period fact.
+the rehearsal is the park day that can supply the grace-period fact.
 
 **Jingle Cruise and Jungle Cruise are two facility IDs for one ride.**
-Recommendation unchanged: arm both by hand for December, and if the overlay books,
+Recommendation unchanged: arm both by hand for the main trip, and if the overlay books,
 pause the base-ID target so it does not try for a second pass on the same ride.
 
 ---
@@ -1536,11 +1550,11 @@ pause the base-ID target so it does not try for a second pass on the same ride.
 ## How this relates to the other documents
 
 `docs/PLAN.md` is the booking-intelligence reasoning and the record of what was
-decided, including the trip and booking dates in §11. `docs/UX-PLAN.md` is the same
+decided; the trip and booking dates are kept privately, not here. `docs/UX-PLAN.md` is the same
 for the screens. `docs/FUTURE.md` is the complete standing list of what is not
 done, including what this roadmap declines. `docs/RELEASING.md` is how a build is
 made, verified, released and rolled back. The user guide carries what the tool
 cannot do and how to guard a pocketed phone.
 
-This file is only the plan, and it expires. Revisit it after October 20, when the
-rehearsal has answered what it can, and again after December.
+This file is only the plan, and it expires. Revisit it after the rehearsal, when it
+has answered what it can, and again after the main trip.

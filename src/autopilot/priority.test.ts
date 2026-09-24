@@ -380,7 +380,7 @@ describe('Animal Kingdom ranking, as shipped', () => {
 
   // They collide at the 12:47 drop, which is the same-tick case
   // `orderByPriority` decides. Shipped at 4 against Everest's 3.1, autopilot
-  // attempted the lesser ride first through December's busiest drop.
+  // attempted the lesser ride first through a peak day's busiest drop.
   it('attempts Kilimanjaro Safaris before Expedition Everest', () => {
     const ordered = orderByPriority([hit(of(EVEREST)), hit(of(SAFARIS))]);
     expect(ordered.map(h => h.experience.id)).toEqual([SAFARIS, EVEREST]);
