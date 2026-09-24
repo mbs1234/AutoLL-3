@@ -228,7 +228,7 @@ describe('watch list persistence', () => {
         experienceId: BZ,
         name: 'Buzz Lightyear',
         parkId: 'mk',
-        date: '2026-12-10',
+        date: '2031-02-14',
         rank: 1,
       },
     ]);
@@ -237,7 +237,7 @@ describe('watch list persistence', () => {
         experienceId: BZ,
         name: 'Buzz Lightyear',
         parkId: 'mk',
-        date: '2026-12-10',
+        date: '2031-02-14',
         rank: 1,
       },
     ]);
@@ -265,16 +265,16 @@ describe('targetApplies()', () => {
   const scoped = {
     experienceId: BZ,
     parkId: 'mk',
-    date: '2026-12-10',
+    date: '2031-02-14',
   };
 
   it('keeps a plan target within its selected park and date', () => {
-    expect(targetApplies(scoped, 'mk', '2026-12-10')).toBe(true);
-    expect(targetApplies(scoped, 'epcot', '2026-12-10')).toBe(false);
-    expect(targetApplies(scoped, 'mk', '2026-12-11')).toBe(false);
+    expect(targetApplies(scoped, 'mk', '2031-02-14')).toBe(true);
+    expect(targetApplies(scoped, 'epcot', '2031-02-14')).toBe(false);
+    expect(targetApplies(scoped, 'mk', '2031-02-15')).toBe(false);
   });
 
   it('keeps legacy targets available everywhere', () => {
-    expect(targetApplies({ experienceId: BZ }, 'mk', '2026-12-10')).toBe(true);
+    expect(targetApplies({ experienceId: BZ }, 'mk', '2031-02-14')).toBe(true);
   });
 });

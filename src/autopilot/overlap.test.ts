@@ -3,7 +3,7 @@ import { DateTime, ParkTime } from '@/datetime';
 
 import { clashWindow, overlappingPlans, windowClash } from './overlap';
 
-const DATE = '2026-12-10';
+const DATE = '2031-02-14';
 const at = (h: number, m = 0) => new ParkTime(h, m);
 
 /** A dining reservation, which carries a start and no end. */
@@ -81,7 +81,7 @@ describe('overlappingPlans()', () => {
   });
 
   it('ignores other park days', () => {
-    const tomorrow = [dining('d2', at(18), '2026-12-11')];
+    const tomorrow = [dining('d2', at(18), '2031-02-15')];
     expect(overlappingPlans(at(18, 30), tomorrow, { date: DATE })).toEqual([]);
   });
 

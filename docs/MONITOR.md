@@ -362,7 +362,7 @@ GET — bearer subject, `x-user-id`, and the query param.
 - [FORK.md](../FORK.md) — why booking needs the sensor payload, and the history
   behind it
 - [docs/USER-GUIDE.md](USER-GUIDE.md) — what the person in the park is using
-- [ROADMAP.md](../ROADMAP.md) — what this project is doing before the December
-  freeze; neither tool here is on it
+- [ROADMAP.md](../ROADMAP.md) — what this project is doing before the main
+  trip's freeze; neither tool here is on it
 - `src/autopilot/observe.ts`, `learned.ts` — the drop-learning tool B feeds
 - `src/api/data/wdw.ts` — the table both tools read

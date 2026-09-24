@@ -181,7 +181,7 @@ with the rule reverted to prove the tests bite.
 ### Phase 0a: narrow to Walt Disney World Lightning Lane
 
 Goal: one resort, one product, one button on the start page. Decided by the
-owner on 2026-09-07: the December trip is at Walt Disney World, virtual queues
+owner on 2026-09-07: the trip is at Walt Disney World, virtual queues
 are not in use, and Disneyland booking never worked in this fork.
 
 What goes, on `main`:
@@ -545,7 +545,7 @@ auth-hardening commit `c3f2542` before this work was ready, so the roadmap
 merge `aa83e10` took 0.4.0. The review gate was not one round but several
 Codex rounds, merged as PRs #14 through #19, each merge followed by a
 successful `deploy.yml` run, the last of them on 2026-09-11. Park use waits on
-the December trip, and the port to AutoLL v1.1 has not happened: none of
+the trip, and the port to AutoLL v1.1 has not happened: none of
 `Toggle`, `TargetCard`, `ContextStrip`, `describe.ts`, `events.ts`, `Today` or
 `Configure` exists in that repository yet (`FUTURE.md` §6).
 
@@ -572,7 +572,7 @@ Six of the seven are settled by what shipped. One is still open.
    would have to arbitrate rather than merely a second claim on the budget.
    `FUTURE.md` §4.1 owns the decision now: it reads that arbitration as the
    same collision class as a Time Search commit taken outside the ledger, and
-   recommends against hoisting before December.
+   recommends against hoisting before the main trip.
 4. **Retire `DaySummary.tsx`.** Done. The file is gone and Today and Timeline
    cover what it showed.
 5. **Activity** as its own screen. Done: `screens/Activity.tsx`.
@@ -589,7 +589,7 @@ Six of the seven are settled by what shipped. One is still open.
 Four of the risks first listed here have gone. `Autopilot.test.tsx` was split
 in Phase 1b with its 81 tests re-homed across three suites and none lost. Five
 tabs at 360 px was settled in the harness and shipped. The colour change
-landed in Phase 1a with the chip wording unchanged and the December trip still
+landed in Phase 1a with the chip wording unchanged and the main trip still
 months off. And the CI exclusion is gone: `jest.ci.config.js` was deleted,
 `npm run test:ci` is plain `jest --ci`, and it runs 108 suites and 1293 tests
 with `Home.test.tsx` and `MultiPassList.test.tsx` among them and passing, so

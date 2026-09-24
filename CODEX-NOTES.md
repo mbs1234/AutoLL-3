@@ -75,7 +75,7 @@ that acquires early, and I have not bounded that difference.
    identical modifies of the same reservation to the same time would merge, and
    I think that is correct but it is a judgement.
 6. **Legacy unwrap.** Whatever day the wrapper names; pruning stays the key's
-   job. Verified in the harness: a `2020-01-01` wrapper holding a December 2026
+   job. Verified in the harness: a `2020-01-01` wrapper holding a future-dated
    doubt survived a reload, a 2019-dated key in the same store was pruned, and
    the store came back in the new shape.
 7. **Lightning Lanes only.** `findExistingLL` in `PlansProvider`.

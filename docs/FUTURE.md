@@ -23,7 +23,7 @@ _small_ is an evening, _medium_ is a session or two with tests, _large_ is a
 week and a decision. Nothing here is scheduled; the ordering at the end is a
 recommendation, not a plan.
 
-**The trip is in December 2026, and the last two weeks before it are a freeze.**
+**The main trip is the goal, and the last two weeks before it are a freeze.**
 That is the constraint every judgement below is made against. The tool is
 usable today; everything here makes it better, and nothing here is required.
 
@@ -31,7 +31,7 @@ usable today; everything here makes it better, and nothing here is required.
 
 ## The short list
 
-If only four things get done before December, these — in `ROADMAP.md`'s order,
+If only four things get done before the main trip, these — in `ROADMAP.md`'s order,
 which is now the one to follow:
 
 1. **Back up the plan and what the learner has seen** (§3.13, ROADMAP item 12).
@@ -40,13 +40,14 @@ which is now the one to follow:
 2. **Warn before a held pass lapses** (§3.1's warning half, ROADMAP item 3) — the
    largest recoverable loss the tool still does not catch, and now an alert that
    reaches a pocket.
-3. **Plan from the sofa** (§3.2, ROADMAP item 6) — but only if the September 27
-   reading shows the date picker cannot serve December.
+3. **Plan from the sofa** (§3.2, ROADMAP item 6) — but only if the reading taken
+   twenty-one days before the rehearsal shows the date picker cannot serve the
+   main trip.
 4. **The overlay IDs** (§3.3, ROADMAP item 7) — a watch list built against the
-   wrong Jingle Cruise ID matches nothing in December, silently.
+   wrong Jingle Cruise ID matches nothing during the holidays, silently.
 
 The timeline's names and tap targets (§2.1, §2.2), third on the previous list,
-have moved to after December: the day view is a planning aid, and a park morning
+have moved to after the main trip: the day view is a planning aid, and a park morning
 is better served by §2.8 and §2.9.
 
 The correctness list above them is empty: §1 was cleared on 2026-09-14, and
@@ -182,7 +183,7 @@ The highest-stakes moment of the year is nine or more sequential searches with t
 date picker changed between them, on a different screen, and the failure that
 cannot be undone is a pass for the wrong day.
 
-_Size:_ medium, and specified by the October 11 booking morning rather than
+_Size:_ medium, and specified by the rehearsal's booking morning rather than
 before it.
 
 ### 2.11 Nothing captures an observation in the moment — ROADMAP item 16
@@ -214,19 +215,19 @@ other move.
 The booking-correctness half landed: targets carry park, date and your rank,
 and the rank drives both the ordering and the Tier 1 hold. What did not land is
 building the add list from the shipped data table, so on a plane or in a hotel,
-with no tip board loaded, you cannot add a single attraction to a December day.
+with no tip board loaded, you cannot add a single attraction to a future trip day.
 
 _Where:_ `src/components/ll/screens/Configure.tsx:87,275-300`. _Size:_ medium.
 _Risk:_ the static table includes attractions Disney's tip board never returns;
 a target added from it that can never match needs the "Not on today's list"
 treatment rather than silence.
 
-### 3.3 The December overlay IDs are unverified, and there is no alias — P4.7, §10.4
+### 3.3 The holiday overlay IDs are unverified, and there is no alias — P4.7, §10.4
 
 Jingle Cruise and Jungle Cruise are two IDs for one ride; so are Glimmering
-Greenhouses and Living with the Land. Jingle Cruise runs the whole trip and
-Glimmering Greenhouses from late November. A watch list built in October
-against the wrong ID matches nothing in December — and the durable half of this
+Greenhouses and Living with the Land. Jingle Cruise runs the whole holiday season
+and Glimmering Greenhouses from late November. A watch list built before the
+overlays start, against the wrong ID, matches nothing once they run — and the durable half of this
 (the "Not on today's list" group) will tell you, but only after the fact.
 
 _Where:_ `src/api/data/wdw.ts:295-302,707-712`. _Size:_ small. _Risk:_ the
@@ -306,8 +307,8 @@ thing to cut.
 ### 3.10 Crowd-level qualifiers are not carried — P2.6
 
 All five Animal Kingdom drop times carry a crowd-level qualifier in the source
-they came from, and the data table carries none. For December this changes
-nothing — Animal Kingdom will be crowd level 7 to 10 and all five fire. It
+they came from, and the data table carries none. For a peak-season trip this
+changes nothing — Animal Kingdom will be crowd level 7 to 10 and all five fire. It
 matters on an off-season day, when the poller bursts at five dead times.
 
 _Where:_ `src/api/data/wdw.ts:1091-1120`. _Size:_ small. The clearest candidate
@@ -321,7 +322,7 @@ decision about which of two tied attractions to chase.
 
 _Where:_ `src/autopilot/priority.ts:31-36`, `src/api/livedata.ts`. _Size:_
 medium. _Risk:_ a new external dependency on the booking path's ordering.
-`PLAN.md` §12 says do not start it after early November.
+`PLAN.md` §12 says do not start it in the weeks before the trip.
 
 ### 3.12 The passkey has a detector but no selector — P3.1
 
@@ -345,8 +346,8 @@ to attractions you marked as acceptable.
 Every observation `observe.ts` records — and the plan, the party and the booking
 log with it — lives in `localStorage` on Disney's origin, and nothing in `src/`
 can get any of it off the phone. WebKit deletes all of a site's script-writable
-storage after seven days of Safari use without a visit. October manufactures the
-learned drop times December uses, eight weeks later.
+storage after seven days of Safari use without a visit. The rehearsal manufactures
+the learned drop times the main trip uses, weeks later.
 
 _Size:_ small for an export, medium with a restore. _Where:_ a pure module beside
 `src/autopilot/storage.ts`, and a button on Settings. _Risk:_ a backup must never
@@ -378,7 +379,7 @@ remains a decision rather than a straightforward port.
 **Answered 2026-09-15: leave NextLL as it is.** A trip is the wrong week to find
 out how two pollers share a lock ledger. What would make it live again is the
 trip being over, or the arbitration being settled by something other than a
-December park day.
+park day on the main trip.
 
 ### 4.2 ~~Turn drop demotion on?~~ — P2.3. No
 
@@ -393,7 +394,7 @@ false. The evidence it would act on is still gathered and still shown on the
 Activity screen, so nothing is lost by waiting; and the store starts empty and
 needs three covered days, so a short trip barely reaches the threshold anyway.
 Demotion is the only part of drop learning that can remove a real burst target,
-which is the wrong thing to be discovering in December.
+which is the wrong thing to be discovering on the main trip.
 
 What would make it live again: coverage recorded per scheduled drop time rather
 than per park day, so both counts derive from the same evidence, plus enough
@@ -401,10 +402,10 @@ observed days to mean something.
 
 _Where:_ `src/autopilot/learned.ts:15-17,40-51,103-135`. _Size:_ medium.
 
-### 4.3 ~~Will the December party use Park Hopper?~~ — P3.4. Dropped
+### 4.3 ~~Will the party use Park Hopper?~~ — P3.4. Dropped
 
-**Answered 2026-09-15: no work needed.** The party will hold Park Hopper through
-an annual pass, but intends one park per day and does not want hopping
+**Answered 2026-09-15: no work needed.** The party will hold Park Hopper, but
+intends one park per day and does not want hopping
 automated. So the distinction this item asked for — `TOO_EARLY_FOR_PARK_HOPPING`
 carries a time and should schedule a poll, `TOO_EARLY_FOR_NEXT_PARK` has no
 timer and should suppress cross-park targets — has nothing to act on: a plan
@@ -423,7 +424,7 @@ _Where:_ `src/api/ll.ts:111-126`. _Size:_ medium, if it ever comes back.
 The tier bundle is fetched and the divergence warning exists, but the fetch is
 gated so it never runs on a day-of poll — deliberately, because the bundle
 appends closed attractions and the drop learner would read them as inventory.
-Tiers moved twice in the last twelve months, and December is exactly when a
+Tiers moved twice in the last twelve months, and the main trip is exactly when a
 stale flag would have the tool hold a Tier 1 slot for the wrong attraction.
 
 **Answered 2026-09-15: leave the tier check as it is.** The fetch stays gated
@@ -431,7 +432,7 @@ off the day-of poll. The narrow version — fetch once at park open, use it for
 the warning only, keep it out of the tip board the learner reads — is probably
 right, and is what to build if this comes back; but it re-opens a path closed on
 purpose, and the failure it guards against (a tier moving between now and
-December) is less likely than the one it would introduce (the drop learner
+the main trip) is less likely than the one it would introduce (the drop learner
 reading a closed attraction as inventory). The static flags were verified twice
 and are correct today.
 
@@ -455,7 +456,7 @@ it cannot be used at all.
 3. **What is Big Thunder's post-reopening drop schedule?** Unmeasured. Let the
    learner run at approach cadence and see. This one does not need a park: the
    learner runs from home whenever the booking date is today (ROADMAP theme 2).
-4. **Do the December overlay IDs still resolve?** See §3.3 — a data check, once
+4. **Do the holiday overlay IDs still resolve?** See §3.3 — a data check, once
    the overlays are running.
 5. **How long does Disney's itinerary take to show a change that has landed?**
    This no longer controls safety. An unresolved mutation does not clear on a
@@ -642,7 +643,7 @@ toolbar to guard and storage exempt from the seven-day cap, but AutoLL-3 has to
 run on Disney's own origin to use the Disney session, and a Home Screen web app
 sends navigation outside its scope back to Safari. Autopilot booking every day of
 a stay on its own on the booking morning — the engine is built around one booking
-date, and rebuilding that before December is the riskiest change available
+date, and rebuilding that before the main trip is the riskiest change available
 (ROADMAP item 15). Restoring engine state or dry run from a backup — engine state
 describes reservations at one instant, and dry run is silently wrong in either
 direction (ROADMAP item 12).
@@ -653,5 +654,5 @@ direction (ROADMAP item 12).
 
 Retired 2026-09-23. `ROADMAP.md` now carries the calendar, and two documents
 keeping two orderings is how both drift: this table ranked expiry rescue first and
-the countdown in November, while the roadmap now puts the lapse warning ahead of
+the countdown between the trips, while the roadmap now puts the lapse warning ahead of
 rescue and has repriced the countdown down. Follow the roadmap.

@@ -1060,21 +1060,21 @@ describe('AutoBookLedger.resolveRejected()', () => {
  *
  * The defect was that a lock said only "book, Buzz Lightyear" while the settle
  * loop asked `findExistingLL(plans, id, date)` -- a date-scoped question. Book
- * for the 18th, move the picker to the 19th, and the attraction was skipped as
+ * for one day, move the picker to the next, and the attraction was skipped as
  * already-attempted on a date nothing had been attempted for.
  *
  * `hasAttempted` takes no date and never will: the date lives on the instance
  * precisely so the lock and the evidence cannot be given different ones.
  */
 describe('AutoBookLedger booking dates', () => {
-  const D18 = '2026-10-18';
-  const D19 = '2026-10-19';
+  const D1 = '2031-02-17';
+  const D2 = '2031-02-18';
 
   /** Every key the persister was told to drop, flattened. */
   const dropped = (removals: (readonly string[] | undefined)[]) =>
     removals.flatMap(r => [...(r ?? [])]);
 
-  function watched(date = D18) {
+  function watched(date = D1) {
     const removals: (readonly string[] | undefined)[] = [];
     const ledger = new AutoBookLedger(date, released =>
       removals.push(released)
@@ -1084,20 +1084,20 @@ describe('AutoBookLedger booking dates', () => {
 
   // The roadmap's own "done means", stated as it states it.
   it('does not let a lock for one date block another', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ);
-    ledger.setBookingDate(D19);
+    ledger.setBookingDate(D2);
     expect(ledger.hasAttempted(BZ)).toBe(false);
-    ledger.setBookingDate(D18);
+    ledger.setBookingDate(D1);
     expect(ledger.hasAttempted(BZ)).toBe(true);
   });
 
   // The half with no release path at all: a move made for one date blocked
   // that action on every other date for the rest of the session.
   it('does not let a move for one date block another', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ, 'modify');
-    ledger.setBookingDate(D19);
+    ledger.setBookingDate(D2);
     expect(ledger.hasAttempted(BZ, 'modify')).toBe(false);
   });
 
@@ -1105,43 +1105,43 @@ describe('AutoBookLedger booking dates', () => {
   // what the provider actually asks and `already-attempted` is what the screen
   // actually said.
   it('offers an attraction attempted on another date', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ);
     expect(shouldAttempt(target(), ledger)).toEqual({
       ok: false,
       reason: 'already-attempted',
     });
-    ledger.setBookingDate(D19);
+    ledger.setBookingDate(D2);
     expect(shouldAttempt(target(), ledger)).toEqual({ ok: true });
   });
 
   it('publishes the date as part of the key', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ);
-    expect(ledger.publishableKeys()).toEqual([`${D18}:book:${BZ}`]);
+    expect(ledger.publishableKeys()).toEqual([`${D1}:book:${BZ}`]);
   });
 
   // The per-tick republish is what heals a write two instances interleaved and
   // lost. It has to cover the date the picker just moved off as much as the one
   // it moved to, or moving the picker quietly abandons a live lock.
   it('publishes locks for every date it holds', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ);
-    ledger.setBookingDate(D19);
+    ledger.setBookingDate(D2);
     ledger.markAttempted(HM);
     expect(ledger.publishableKeys().sort()).toEqual([
-      `${D18}:book:${BZ}`,
-      `${D19}:book:${HM}`,
+      `${D1}:book:${BZ}`,
+      `${D2}:book:${HM}`,
     ]);
   });
 
   // Routed by what the key says about itself, never by the date this ledger
   // happens to be on -- which is what makes two tabs on two dates safe.
   it('adopts a key into the date it names', () => {
-    const ledger = new AutoBookLedger(D18);
-    ledger.adoptAttempted([`${D19}:book:${BZ}`]);
+    const ledger = new AutoBookLedger(D1);
+    ledger.adoptAttempted([`${D2}:book:${BZ}`]);
     expect(ledger.hasAttempted(BZ)).toBe(false);
-    ledger.setBookingDate(D19);
+    ledger.setBookingDate(D2);
     expect(ledger.hasAttempted(BZ)).toBe(true);
   });
 
@@ -1150,10 +1150,10 @@ describe('AutoBookLedger booking dates', () => {
   // have succeeded. A ledger that reset on a date change would forget it and
   // rebook -- the exact case this must not get wrong.
   it('keeps a doubt-hold through a trip to another date and back', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ);
-    ledger.setBookingDate(D19);
-    ledger.setBookingDate(D18);
+    ledger.setBookingDate(D2);
+    ledger.setBookingDate(D1);
     for (let i = 0; i < CONFIRM_ABSENT_POLLS + 1; ++i) {
       ledger.resolveHeld(BZ, false);
     }
@@ -1164,22 +1164,22 @@ describe('AutoBookLedger booking dates', () => {
   // absence seen on each of two dates reaches CONFIRM_ABSENT_POLLS and releases
   // a live lock on a single observation per date.
   it('does not add an absence on one date to the count on another', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     // Booked and seen held on both dates, so both locks are one absence short
     // of a release and the two counters are the only thing keeping them apart.
     ledger.markAttempted(BZ);
     ledger.resolveHeld(BZ, true);
-    ledger.setBookingDate(D19);
+    ledger.setBookingDate(D2);
     ledger.markAttempted(BZ);
     ledger.resolveHeld(BZ, true);
 
-    ledger.setBookingDate(D18);
+    ledger.setBookingDate(D1);
     ledger.resolveHeld(BZ, false);
-    ledger.setBookingDate(D19);
+    ledger.setBookingDate(D2);
     ledger.resolveHeld(BZ, false);
 
     expect(ledger.hasAttempted(BZ)).toBe(true);
-    ledger.setBookingDate(D18);
+    ledger.setBookingDate(D1);
     expect(ledger.hasAttempted(BZ)).toBe(true);
   });
 
@@ -1187,10 +1187,10 @@ describe('AutoBookLedger booking dates', () => {
   // conditions a release needs; satisfied from the wrong day, two absences
   // release a lock on a booking that may well exist, and the engine rebooks it.
   it('does not let being held on one date release a lock on another', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ);
     ledger.resolveHeld(BZ, true);
-    ledger.setBookingDate(D19);
+    ledger.setBookingDate(D2);
     ledger.markAttempted(BZ);
     for (let i = 0; i < CONFIRM_ABSENT_POLLS; ++i) {
       ledger.resolveHeld(BZ, false);
@@ -1199,13 +1199,13 @@ describe('AutoBookLedger booking dates', () => {
   });
 
   // A doubt-hold is per reservation per date too: a booking that landed on the
-  // 19th says nothing about the request for the 18th whose reply was lost.
+  // second day says nothing about the request for the first whose reply was lost.
   it('does not let a booking on one date settle a doubt on another', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ);
-    ledger.setBookingDate(D19);
+    ledger.setBookingDate(D2);
     ledger.markBooked(BZ);
-    ledger.setBookingDate(D18);
+    ledger.setBookingDate(D1);
     ledger.resolveHeld(BZ, true);
     expect(ledger.bookedCount).toBe(2);
   });
@@ -1218,7 +1218,7 @@ describe('AutoBookLedger booking dates', () => {
       ledger.resolveHeld(BZ, false);
     }
     expect(ledger.hasAttempted(BZ, 'modify')).toBe(false);
-    expect(dropped(removals)).toContain(`${D18}:modify:${BZ}`);
+    expect(dropped(removals)).toContain(`${D1}:modify:${BZ}`);
   });
 
   it('releases a swap on the same evidence', () => {
@@ -1229,14 +1229,14 @@ describe('AutoBookLedger booking dates', () => {
       ledger.resolveHeld(BZ, false);
     }
     expect(ledger.hasAttempted(BZ, 'swap')).toBe(false);
-    expect(dropped(removals)).toContain(`${D18}:swap:${BZ}`);
+    expect(dropped(removals)).toContain(`${D1}:swap:${BZ}`);
   });
 
   // The gained attraction was not held when a swap lock was taken, so absence
   // cannot tell a failed swap from a lost response. Same reasoning as `book`,
   // and the same answer.
   it('holds a swap lock it has never seen held', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ, 'swap');
     for (let i = 0; i < CONFIRM_ABSENT_POLLS + 1; ++i) {
       ledger.resolveHeld(BZ, false);
@@ -1257,34 +1257,34 @@ describe('AutoBookLedger booking dates', () => {
       ledger.resolveHeld(BZ, false);
     }
     expect(dropped(removals).sort()).toEqual([
-      `${D18}:book:${BZ}`,
-      `${D18}:modify:${BZ}`,
+      `${D1}:book:${BZ}`,
+      `${D1}:modify:${BZ}`,
     ]);
-    ledger.adoptAttempted([`${D18}:swap:${BZ}`]);
+    ledger.adoptAttempted([`${D1}:swap:${BZ}`]);
     expect(ledger.hasAttempted(BZ, 'swap')).toBe(true);
   });
 
   // A release on one date must not refuse a lock another instance took for a
   // different one; `released` holds the whole key for exactly that reason.
   it('does not let a release on one date refuse adoption on another', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ);
     ledger.releaseAttempt(BZ, 'book');
-    ledger.adoptAttempted([`${D19}:book:${BZ}`]);
-    ledger.setBookingDate(D19);
+    ledger.adoptAttempted([`${D2}:book:${BZ}`]);
+    ledger.setBookingDate(D2);
     expect(ledger.hasAttempted(BZ)).toBe(true);
   });
 
   it('withdraws locks for every date it holds on reset', () => {
     const { ledger, removals } = watched();
     ledger.markAttempted(BZ);
-    ledger.setBookingDate(D19);
+    ledger.setBookingDate(D2);
     ledger.markAttempted(HM, 'modify');
     removals.length = 0;
     ledger.reset();
     expect(dropped(removals).sort()).toEqual([
-      `${D18}:book:${BZ}`,
-      `${D19}:modify:${HM}`,
+      `${D1}:book:${BZ}`,
+      `${D2}:modify:${HM}`,
     ]);
     expect(ledger.ownedKeys()).toEqual([]);
   });
@@ -1294,7 +1294,7 @@ describe('AutoBookLedger booking dates', () => {
   // while passing every test that only ever supplies a real one.
   it('refuses a date that is not a park date', () => {
     expect(() => new AutoBookLedger('')).toThrow(/Not a booking date/);
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     expect(() => ledger.setBookingDate('tomorrow')).toThrow(
       /Not a booking date/
     );
@@ -1310,7 +1310,7 @@ describe('AutoBookLedger booking dates', () => {
     expect(() => lockKey('tomorrow', 'modify', BZ)).toThrow(
       /Not a booking date/
     );
-    expect(lockKey(D18, 'book', BZ)).toBe(`${D18}:book:${BZ}`);
+    expect(lockKey(D1, 'book', BZ)).toBe(`${D1}:book:${BZ}`);
   });
 });
 
@@ -1323,13 +1323,13 @@ describe('AutoBookLedger booking dates', () => {
  * with it, so this one does too, and clears it on the same evidence.
  */
 describe('AutoBookLedger locks from an older build', () => {
-  const D18 = '2026-10-18';
-  const D19 = '2026-10-19';
+  const D1 = '2031-02-17';
+  const D2 = '2031-02-18';
 
   const dropped = (removals: (readonly string[] | undefined)[]) =>
     removals.flatMap(r => [...(r ?? [])]);
 
-  function watched(date = D18) {
+  function watched(date = D1) {
     const removals: (readonly string[] | undefined)[] = [];
     const ledger = new AutoBookLedger(date, released =>
       removals.push(released)
@@ -1338,16 +1338,16 @@ describe('AutoBookLedger locks from an older build', () => {
   }
 
   it('blocks on every date, since it cannot say which one it meant', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.adoptAttempted([`book:${BZ}`]);
     expect(ledger.hasAttempted(BZ)).toBe(true);
-    ledger.setBookingDate(D19);
+    ledger.setBookingDate(D2);
     expect(ledger.hasAttempted(BZ)).toBe(true);
   });
 
   it('says which kind of block it is', () => {
-    const ledger = new AutoBookLedger(D18);
-    ledger.adoptAttempted([`book:${BZ}`, `${D18}:modify:${BZ}`]);
+    const ledger = new AutoBookLedger(D1);
+    ledger.adoptAttempted([`book:${BZ}`, `${D1}:modify:${BZ}`]);
     expect(ledger.hasUndatedLock(BZ)).toBe(true);
     expect(ledger.hasUndatedLock(BZ, 'modify')).toBe(false);
   });
@@ -1367,7 +1367,7 @@ describe('AutoBookLedger locks from an older build', () => {
   // then clear in CONFIRM_ABSENT_POLLS polls, and not come back on the next
   // tick's re-read of the shared copy.
   it('clears on the same evidence as any other adopted lock', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.adoptAttempted([`book:${BZ}`]);
     for (let i = 0; i < CONFIRM_ABSENT_POLLS; ++i) {
       ledger.resolveHeld(BZ, false);
@@ -1402,7 +1402,7 @@ describe('AutoBookLedger locks from an older build', () => {
   // The `book:` half of the same key set is still swept, so an attraction
   // carrying both is reported once and for the right reason.
   it('still settles the date-less booking lock beside them', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.adoptAttempted([`book:${BZ}`, `modify:${BZ}`]);
     expect(ledger.settleableIds).toEqual([BZ]);
     for (let i = 0; i < CONFIRM_ABSENT_POLLS; ++i) {
@@ -1415,7 +1415,7 @@ describe('AutoBookLedger locks from an older build', () => {
   // NextLL's escape. Before the key carried a date, an adopted lock and the one
   // released here were the same string, so a release cleared both at once.
   it('is cleared by a deliberate release', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.adoptAttempted([`book:${BZ}`]);
     ledger.releaseAttempt(BZ, 'book');
     expect(ledger.hasAttempted(BZ)).toBe(false);
@@ -1427,7 +1427,7 @@ describe('AutoBookLedger locks from an older build', () => {
   it('drops a key of no known shape and says so once', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const ledger = new AutoBookLedger(D18);
+      const ledger = new AutoBookLedger(D1);
       ledger.adoptAttempted(['nonsense']);
       ledger.adoptAttempted(['nonsense']);
       expect(ledger.attemptedKeys()).toEqual([]);
@@ -1460,14 +1460,14 @@ describe('AutoBookLedger locks from an older build', () => {
  * yesterday says nothing about today.
  */
 describe('AutoBookLedger.startNewDay()', () => {
-  const D18 = '2026-10-18';
+  const D1 = '2031-02-17';
 
   // Without this the key survives in memory into the new park day, while the
   // new day's shared copy no longer holds it -- so nothing can re-read it,
   // nothing can settle it, and that attraction's move is blocked all day with
   // no log line that explains it.
   it('drops a date-less lock an older build left', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.adoptAttempted([`modify:${BZ}`]);
     expect(ledger.hasAttempted(BZ, 'modify')).toBe(true);
     ledger.startNewDay();
@@ -1479,17 +1479,17 @@ describe('AutoBookLedger.startNewDay()', () => {
   // give a lock back must not go on refusing a lock another instance takes
   // for that date today.
   it('forgets a release decided yesterday', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ, 'book');
     ledger.releaseAttempt(BZ, 'book');
     ledger.startNewDay();
-    ledger.adoptAttempted([`${D18}:book:${BZ}`]);
+    ledger.adoptAttempted([`${D1}:book:${BZ}`]);
     expect(ledger.hasAttempted(BZ)).toBe(true);
   });
 });
 
 describe('AutoBookLedger evidence per lock', () => {
-  const D18 = '2026-10-18';
+  const D1 = '2031-02-17';
 
   /**
    * The critical case, in the order a park day produces it.
@@ -1502,7 +1502,7 @@ describe('AutoBookLedger evidence per lock', () => {
    * doubt-hold protecting a request whose response was never seen.
    */
   it('does not let a move-era confirmation settle a later booking', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     // Held by hand, so the provider chooses `modify`.
     ledger.markAttempted(BZ, 'modify');
     // A poll sees it held: evidence about the move's lock, and only that one.
@@ -1530,7 +1530,7 @@ describe('AutoBookLedger evidence per lock', () => {
    * existed, or `CONFIRM_ABSENT_POLLS` collapses to a single observation for it.
    */
   it('clears the evidence when the same action is locked again', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ, 'modify');
     ledger.resolveHeld(BZ, true);
     ledger.resolveHeld(BZ, false);
@@ -1546,7 +1546,7 @@ describe('AutoBookLedger evidence per lock', () => {
   // Absence is still counted once per poll for each lock, so an attraction
   // carrying two locks is not released by a single observation.
   it('counts one poll once for each lock on the attraction', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ, 'book');
     ledger.markAttempted(BZ, 'modify');
     ledger.resolveHeld(BZ, true);
@@ -1568,8 +1568,8 @@ describe('AutoBookLedger evidence per lock', () => {
    * would block the attraction for the rest of the day.
    */
   it('releases an adopted lock beside a doubt-held lock of another kind', () => {
-    const ledger = new AutoBookLedger(D18);
-    ledger.adoptAttempted([`${D18}:book:${BZ}`]);
+    const ledger = new AutoBookLedger(D1);
+    ledger.adoptAttempted([`${D1}:book:${BZ}`]);
     ledger.markAttempted(BZ, 'swap');
     for (let i = 0; i < CONFIRM_ABSENT_POLLS; ++i) {
       ledger.resolveHeld(BZ, false);
@@ -1584,13 +1584,13 @@ describe('AutoBookLedger evidence per lock', () => {
    * Spell it `${date}:${undated}` instead and it collides *exactly* with the
    * dated lock for the same kind and attraction on the same date -- which is
    * the one pairing a deploy straddle produces, an un-reloaded tab's
-   * `book:80010114` beside this build's `2026-10-18:book:80010114`. Both locks
+   * `book:80010114` beside this build's `2031-02-17:book:80010114`. Both locks
    * then advance one counter, twice per poll, and `CONFIRM_ABSENT_POLLS`
    * collapses to a single observation for the pair.
    */
   it('keeps a date-less lock’s evidence off the dated key for the same action', () => {
-    const ledger = new AutoBookLedger(D18);
-    ledger.adoptAttempted([`book:${BZ}`, `${D18}:book:${BZ}`]);
+    const ledger = new AutoBookLedger(D1);
+    ledger.adoptAttempted([`book:${BZ}`, `${D1}:book:${BZ}`]);
     ledger.resolveHeld(BZ, false);
     // One poll is one absence for each of them, and neither releases on one.
     expect(ledger.hasUndatedLock(BZ)).toBe(true);
@@ -1610,7 +1610,7 @@ describe('AutoBookLedger evidence per lock', () => {
    * release gate again or restarts its count from nothing.
    */
   it('gives the standing lock its evidence back when the send is refused', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ, 'modify');
     // Seen held, then seen gone once: one absence short of a release.
     ledger.resolveHeld(BZ, true);
@@ -1634,7 +1634,7 @@ describe('AutoBookLedger evidence per lock', () => {
    * booking then lands and the ledger never accounts for it.
    */
   it('leaves a booking’s doubt-hold alone when a move on it is released', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     // Held by hand, so the move lock is taken and a poll confirms it.
     ledger.markAttempted(BZ, 'modify');
     ledger.resolveHeld(BZ, true);
@@ -1659,7 +1659,7 @@ describe('AutoBookLedger evidence per lock', () => {
    * lock inherits the absence this one banked and releases on a single poll.
    */
   it('does not hand a re-adopted lock the absences of the one it replaced', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ, 'modify');
     ledger.resolveHeld(BZ, true);
     ledger.resolveHeld(BZ, false);
@@ -1667,19 +1667,19 @@ describe('AutoBookLedger evidence per lock', () => {
     // The next tick reads a copy this instance's own withdrawal has left.
     ledger.adoptAttempted([]);
     // Another tab takes the move and publishes it.
-    ledger.adoptAttempted([`${D18}:modify:${BZ}`]);
+    ledger.adoptAttempted([`${D1}:modify:${BZ}`]);
     ledger.resolveHeld(BZ, false);
     expect(ledger.hasAttempted(BZ, 'modify')).toBe(true);
   });
 
   // A date-less lock blocks every date, so its evidence has to be counted per
-  // date too -- one absence seen on the 18th and one on the 19th are not two
+  // date too -- one absence seen on the first day and one on the second are not two
   // consecutive absences for either.
   it('does not add a legacy absence on one date to the count on another', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.adoptAttempted([`book:${BZ}`]);
     ledger.resolveHeld(BZ, false);
-    ledger.setBookingDate('2026-10-19');
+    ledger.setBookingDate('2031-02-18');
     ledger.resolveHeld(BZ, false);
     expect(ledger.hasAttempted(BZ)).toBe(true);
   });
@@ -1694,10 +1694,10 @@ describe('AutoBookLedger evidence per lock', () => {
  * the sweep was `book`-only.
  */
 describe('AutoBookLedger rehearsals across kinds', () => {
-  const D18 = '2026-10-18';
+  const D1 = '2031-02-17';
 
   it('keeps a rehearsed move out of the settle sweep', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ, 'modify', true);
     expect(ledger.settleableIds).toEqual([]);
   });
@@ -1706,7 +1706,7 @@ describe('AutoBookLedger rehearsals across kinds', () => {
   // attempt of another can coexist. A rehearsal keyed by bare id would suppress
   // settling of the real one, and its lock could never be released.
   it('lets a real attempt settle beside a rehearsal of another kind', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ, 'modify', true);
     ledger.markAttempted(BZ, 'book');
     expect(ledger.settleableIds).toEqual([BZ]);
@@ -1720,7 +1720,7 @@ describe('AutoBookLedger rehearsals across kinds', () => {
   });
 
   it('settles a real attempt made after rehearsing the same action', () => {
-    const ledger = new AutoBookLedger(D18);
+    const ledger = new AutoBookLedger(D1);
     ledger.markAttempted(BZ, 'book', true);
     ledger.markAttempted(BZ, 'book');
     expect(ledger.settleableIds).toEqual([BZ]);

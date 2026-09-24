@@ -425,7 +425,7 @@ describe("the day's action locks", () => {
    * removal above, and this is what would say so.
    */
   it('round-trips a dated key byte for byte', () => {
-    const key = '2026-10-18:book:80010114';
+    const key = '2031-02-17:book:80010114';
     saveLocks(OWNER, [key]);
     expect(loadLocks()).toEqual([key]);
     expect(holdsLock(key, OWNER)).toBe(true);
