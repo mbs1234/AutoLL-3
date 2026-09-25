@@ -5,11 +5,11 @@ import type { RequestControl } from '@/api/client';
 import { Booking } from '@/api/itinerary';
 import { LLMP, Offer, OfferError } from '@/api/ll';
 import { APP_NAME } from '@/appIdentity';
-import { ParkTime, parkDate } from '@/datetime';
+import { ParkTime } from '@/datetime';
 import { sleep } from '@/sleep';
 
 import { actionWasRejected } from './autobook';
-import { findExistingLL, offerBaseline } from './automodify';
+import { offerBaseline } from './automodify';
 import { mutationId } from './lease';
 import { MAX_MUTATION_MS, MutationOperation } from './mutation';
 import type { MutationEvidence } from './mutation';
@@ -78,6 +78,14 @@ export interface TimeSearchState {
   lastError?: string;
   /** Commit state; awaiting means a successful move is still settling in Plans. */
   phase: CommitPhase;
+  /**
+   * The user accepted the pending move and it is being made.
+   *
+   * Set the instant `accept` is called, not when the next cycle gets to it: a
+   * cycle can be a poll away, and a tap that changes nothing on the screen
+   * reads as a tap that did nothing -- which is exactly how it was reported.
+   */
+  accepting?: boolean;
 }
 
 export interface TimeSearchDeps {
@@ -91,11 +99,17 @@ export interface TimeSearchDeps {
   /** Silent plans refresh, for settling a move that was accepted. */
   pollPlans: () => Promise<Booking[]>;
   /**
-   * Locates the reservation after a modification. A same-attraction search
-   * uses the facility/date default; an attraction swap follows the original
-   * entitlement instead, because its facility intentionally changes.
+   * Locates the reservation this search was opened on, in fresh plans.
+   *
+   * Required, and deliberately without a default. The default used to be "the
+   * party's reservation for this attraction on this day", and when two people
+   * hold one attraction at different times that is the earlier one: a search
+   * opened on a 2:05 pm reservation re-read itself as someone else's 9:10 am
+   * and could never find a time that counted. A same-attraction search follows
+   * the reservation (`findSameReservation`); an attraction swap follows the
+   * original entitlement, because its facility intentionally changes.
    */
-  findHeld?: (plans: Booking[], booking: LLMP) => LLMP | undefined;
+  findHeld: (plans: Booking[], booking: LLMP) => LLMP | undefined;
   /** A swap is always explicit, even when its offered time is earlier. */
   confirmEveryMove?: boolean;
   /** A confirmed swap is one replacement, not an unattended chain of moves. */
@@ -301,6 +315,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       setState(s => ({
         ...s,
         running: false,
+        accepting: false,
         stop: stoppedReason,
         pending: undefined,
         phase: guard.phase,
@@ -321,6 +336,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
   const accept = useCallback(() => {
     if (!guardRef.current.requested) return;
     acceptedRef.current = true;
+    setState(s => ({ ...s, pending: undefined, accepting: true }));
   }, []);
 
   const start = useCallback(() => {
@@ -339,6 +355,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       running: true,
       stop: undefined,
       pending: undefined,
+      accepting: false,
       lastError: undefined,
       cycles: 0,
       moves: 0,
@@ -763,13 +780,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
      */
     async function readHeld(): Promise<LLMP | undefined> {
       const plans = await depsRef.current.pollPlans();
-      return depsRef.current.findHeld
-        ? depsRef.current.findHeld(plans, depsRef.current.booking)
-        : findExistingLL(
-            plans,
-            depsRef.current.booking.facilityId,
-            parkDate(depsRef.current.booking.start)
-          );
+      return depsRef.current.findHeld(plans, depsRef.current.booking);
     }
 
     async function cycle() {
@@ -783,28 +794,34 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         const want = guard.requested!;
         acceptedRef.current = false;
         setState(s => ({ ...s, pending: undefined }));
-        const current = await readHeld();
-        if (stopped()) return;
-        if (!current) {
-          guard.release();
+        // However this attempt ends -- moved, refused, overtaken, stopped --
+        // the screen stops saying it is being made.
+        try {
+          const current = await readHeld();
+          if (stopped()) return;
+          if (!current) {
+            guard.release();
+            return;
+          }
+          // The baseline moves with the offer. It was previously left at
+          // whatever the last idle cycle saw, so a reservation that changed
+          // while the offer sat waiting for the user quarantined against a
+          // time nobody held -- and the next plans read then cleared that doubt
+          // by finding the reservation exactly where it had been all along.
+          const fresh = await depsRef.current.createOffer(current);
+          if (stopped()) return;
+          baselineRef.current = offerBaseline(fresh, current);
+          const quoted = await depsRef.current.changeTime(fresh, want);
+          if (stopped()) return;
+          if (+quoted.start.time !== +want) {
+            guard.decline(want);
+            return;
+          }
+          await commitQuoted(quoted);
           return;
+        } finally {
+          setState(s => ({ ...s, accepting: false }));
         }
-        // The baseline moves with the offer. It was previously left at
-        // whatever the last idle cycle saw, so a reservation that changed while
-        // the offer sat waiting for the user quarantined against a time nobody
-        // held -- and the next plans read then cleared that doubt by finding
-        // the reservation exactly where it had been all along.
-        const fresh = await depsRef.current.createOffer(current);
-        if (stopped()) return;
-        baselineRef.current = offerBaseline(fresh, current);
-        const quoted = await depsRef.current.changeTime(fresh, want);
-        if (stopped()) return;
-        if (+quoted.start.time !== +want) {
-          guard.decline(want);
-          return;
-        }
-        await commitQuoted(quoted);
-        return;
       }
 
       // Settle a committed move before deciding anything else.

@@ -1,3 +1,4 @@
+import { Booking } from '@/api/itinerary';
 import { DEFAULT_SETTINGS, saveSettings } from '@/autopilot/storage';
 import { PollerStatus } from '@/autopilot/usePoller';
 import { WatchTarget, saveWatchList } from '@/autopilot/watchlist';
@@ -13,7 +14,12 @@ import {
   Script,
   hs,
   inMinutes,
+  llmp,
+  mickey,
+  minnie,
   mk,
+  parkPass,
+  sortPlans,
   wdw,
 } from './fakes/world';
 import { ScreenName } from './screens';
@@ -37,6 +43,8 @@ export interface Scenario {
   screen?: ScreenName;
   /** The Home tab to land on; Today unless a scenario is about another. */
   tab?: 'Today' | 'LL' | 'Times' | 'Plans' | 'NextLL';
+  /** What the party holds, when it is not the usual two passes and lunch. */
+  plans?: () => Booking[];
 }
 
 const nameOf = (id: string) => wdw.experience(id).name;
@@ -241,6 +249,21 @@ export const SCENARIOS: Scenario[] = [
       kvdb.setDaily(BOOKING_DATE_KEY, date);
       saveWatchList(dayPlan(date));
     },
+  },
+  {
+    id: 'split-party',
+    title: 'Two people hold one ride',
+    blurb:
+      'Mickey holds Haunted Mansion soon and Minnie holds it later. On NextLL, pick Haunted Mansion: with no party saved it says whose is whose and how to choose. Save Minnie alone in Party Selection and it works on hers.',
+    script: DEFAULT_SCRIPT,
+    plans: () =>
+      sortPlans([
+        parkPass(mk, parkDate()),
+        llmp(IDS.hauntedMansion, inMinutes(20), parkDate(), [mickey]),
+        llmp(IDS.hauntedMansion, inMinutes(100), parkDate(), [minnie]),
+      ]),
+    seed: seedCommon,
+    tab: 'NextLL',
   },
   {
     id: 'plancheck',

@@ -21,6 +21,7 @@ import PlansContext from '@/contexts/PlansContext';
 import TabsContext from '@/contexts/TabContext';
 import { DateTime, ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
+import { PARTY_IDS_KEY } from '@/savedParty';
 import { NEXTLL_WATCHLIST_KEY } from '@/storageNamespace';
 import { TODAY, TOMORROW } from '@/testing';
 
@@ -361,6 +362,61 @@ describe('NextLL', () => {
     });
     expect(screen.getByText(/that will do/)).toBeVisible();
     expect(screen.getByText('Done')).toBeVisible();
+  });
+
+  // As reported: moving one person's 2:05 pm up while another person held the
+  // same attraction at 9:10 am, the screen said "Holding 9:10 AM -- that will
+  // do", because it read the first reservation for the ride, whoever held it.
+  describe('when two people hold the attraction', () => {
+    const heldBy = (
+      guest: string,
+      name: string,
+      hour: number,
+      minute: number
+    ) =>
+      ({
+        ...heldAt(hour),
+        id: `ent-${guest}`,
+        start: new DateTime(TODAY, new ParkTime(hour, minute)),
+        guests: [{ id: guest, name, entitlementId: `ent-${guest}` }],
+      }) as unknown as Booking;
+    const plans = [
+      heldBy('p1', 'Mickey', 9, 10),
+      heldBy('p2', 'Minnie', 14, 5),
+    ];
+    const running = {
+      enabled: true,
+      status: RUNNING,
+      plans,
+      targets: [{ experienceId: BZ, before: new ParkTime(13) }],
+    };
+
+    it('works on the saved party’s reservation', () => {
+      kvdb.set(PARTY_IDS_KEY, ['p2']);
+      setup(running);
+      expect(screen.getByText(/Holding/)).toHaveTextContent('2:05 PM');
+      expect(
+        screen.getByText(/still looking for a time inside your window/)
+      ).toBeVisible();
+      expect(screen.queryByText(/that will do/)).not.toBeInTheDocument();
+    });
+
+    it('says whose reservations they are, and how to choose, when the saved party does not', () => {
+      setup(running);
+      const note = screen.getByText(
+        /More than one person holds/
+      ).parentElement!;
+      expect(note).toHaveTextContent('9:10 AM — Mickey');
+      expect(note).toHaveTextContent('2:05 PM — Minnie');
+      expect(note).toHaveTextContent('Party Selection');
+      expect(screen.queryByText(/Holding/)).not.toBeInTheDocument();
+    });
+
+    it('says so before a search starts, too', () => {
+      setup({ plans });
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: BZ } });
+      expect(screen.getByText(/More than one person holds/)).toBeVisible();
+    });
   });
 
   it('stops and clears its target', () => {

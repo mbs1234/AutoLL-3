@@ -37,6 +37,7 @@ import TabsContext from '@/contexts/TabContext';
 import { parkDate, upcomingTimes } from '@/datetime';
 import { PARTY_IDS_KEY } from '@/hooks/useSavedParty';
 import kvdb from '@/kvdb';
+import { loadSavedPartyIds } from '@/savedParty';
 import { PLAN_CHECK_REVIEW_KEY } from '@/storageNamespace';
 
 import Activity from './Activity';
@@ -155,6 +156,8 @@ export default function Today({ ref }: HomeTabProps) {
       pending.experienceId)
     : undefined;
   const unknown = unknownExperienceIds?.length ?? 0;
+  // Read each render and compared as text, so a changed party reaches the memo.
+  const partyKey = JSON.stringify(loadSavedPartyIds());
   const planCheckInput = useMemo(
     () => ({
       targets,
@@ -162,6 +165,7 @@ export default function Today({ ref }: HomeTabProps) {
       date: bookingDate,
       experiences,
       plans,
+      partyIds: JSON.parse(partyKey) as string[],
       requireWholeParty,
       avoidOverlaps,
       dryRun,
@@ -173,6 +177,7 @@ export default function Today({ ref }: HomeTabProps) {
       bookingDate,
       experiences,
       plans,
+      partyKey,
       requireWholeParty,
       avoidOverlaps,
       dryRun,

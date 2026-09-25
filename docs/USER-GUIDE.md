@@ -702,13 +702,22 @@ reads "Done" but it keeps checking until you tap it.
 **Modify a held Lightning Lane** lists the passes you hold and leads to the two
 search screens below.
 
+**When two people hold the same ride.** If more than one person holds the
+attraction at different times, NextLL works on the reservation your **saved
+party** holds. With no party saved, or a party that includes both, it cannot tell
+which you mean, so it says so and lists who holds what: save a party of only the
+people whose reservation should move — the gear, then **Party Selection** — and
+start again. Autopilot follows the same rule, and Plan Check warns about it
+ahead of time.
+
 ## 20. Time Search
 
 ![A search in progress](user-guide/time-search.png)
 
 NextLL → Modify a held Lightning Lane → pick one → **Improve return time**. Also
 reachable from a held pass: Plans → the row → **Change** → "Search for a better
-time".
+time". It works on the pass you opened it from, even when someone else in your
+party holds the same ride at another time.
 
 This is the one screen that can do what Autopilot structurally cannot. Autopilot
 sees only the single earliest time the tip board advertises, so it can only pull
@@ -727,8 +736,8 @@ time you type in — including **later on purpose**, for a dinner reservation.
 is a later slot, an amber box appears: "A later time is available: … Taking it
 gives up the earlier reservation you hold now." with a **Take it** button.
 Nothing is held for you while it waits — the slot can be gone by the time you
-tap, and the tap takes up to six seconds to act because the commit runs on the
-next cycle.
+tap. The move is made on the next cycle, up to six seconds later, and the screen
+says "Moving to …" from the moment you tap.
 
 Both searches take an exclusive, expiring lock on that one reservation from
 their first attempted change, so Autopilot cannot touch it mid-search. If
@@ -737,7 +746,8 @@ request…" box, and the search takes over as soon as that returns.
 
 **Change attraction** is the sister screen: it hunts a replacement ride for a
 pass you hold, and **always asks before replacing**, even if the offered time is
-earlier.
+earlier. Once you tap **Replace Lightning Lane** it says it is replacing, then
+that it is waiting for Plans, and finally **Replaced … Confirmed in Plans.**
 
 ## 21. The Activity screen
 
@@ -898,7 +908,7 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.4.0.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.4.1.** Known, recorded, and not fixed yet:
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.

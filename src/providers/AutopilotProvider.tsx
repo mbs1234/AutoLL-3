@@ -27,6 +27,7 @@ import {
   ModifyOutcome,
   attemptAutoModify,
   findExistingLL,
+  findPartyLL,
   shouldModify,
 } from '@/autopilot/automodify';
 import {
@@ -147,6 +148,7 @@ import {
   modifyDate,
   parkDate,
 } from '@/datetime';
+import { loadSavedPartyIds } from '@/savedParty';
 import { NOTIFICATION_TAG_NAMESPACE } from '@/storageNamespace';
 import { now as syncedNow } from '@/timesync';
 
@@ -862,8 +864,14 @@ export default function AutopilotProvider({
       // attraction dropping in the same tick is judged against what the party
       // actually holds now, not the snapshot from before the first action.
       let currentPlans = freshPlans ?? plansRef.current;
+      // The saved party's reservation, not merely the first one for the
+      // attraction: when two people hold it at different times, the saved
+      // party says whose to move, and `'several'` means it does not. Truthy,
+      // so the book-then-move and tier-hold checks read it as held. See
+      // `findPartyLL`.
+      const partyIds = loadSavedPartyIds();
       const heldToday = (experienceId: string) =>
-        findExistingLL(currentPlans, experienceId, date);
+        findPartyLL(currentPlans, experienceId, date, partyIds);
       let allHeldToday = heldMPToday(currentPlans, date);
       const planCarriesCommit = (commit: CommittedReturn, plan: Booking) => {
         if (
@@ -1162,7 +1170,14 @@ export default function AutopilotProvider({
         // Holding a reservation already makes booking a second one pointless --
         // Disney would reject it -- so the only useful action is re-timing. With
         // nothing held and every slot full, the only way in is to swap.
-        const existing = heldToday(experience.id);
+        const heldForParty = heldToday(experience.id);
+        // More than one reservation for it, and the saved party does not say
+        // which is to move. Not a booking either: one is already held.
+        if (heldForParty === 'several') {
+          bumpSkip('several-held', experience.name);
+          continue;
+        }
+        const existing = heldForParty;
         const kind = existing
           ? 'modify'
           : partyIsFull && wantsSwap

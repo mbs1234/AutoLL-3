@@ -28,6 +28,8 @@ export const SKIP_TEXT: Record<string, string> = {
   'no-longer-wanted': 'you changed the plan while the request was in flight',
   'not-enabled': 'that action is not switched on for this attraction',
   'no-existing-booking': 'there was no reservation to move',
+  'several-held':
+    'more than one person holds it; choose whose to move in Party Selection',
   'already-held': 'you already hold a pass for it',
   'slots-full': 'all three Multi Pass selections are already held',
   // Raised by the provider, not by a helper, which is how it was missed: a

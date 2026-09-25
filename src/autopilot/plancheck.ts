@@ -1,6 +1,6 @@
 import { Booking } from '@/api/itinerary';
 import { Experience } from '@/api/ll';
-import { findExistingLL } from '@/autopilot/automodify';
+import { findPartyLL } from '@/autopilot/automodify';
 import { clashablePlans, windowClash } from '@/autopilot/overlap';
 import { isTier1 } from '@/autopilot/priority';
 import { WatchTarget, targetActs, targetApplies } from '@/autopilot/watchlist';
@@ -35,6 +35,12 @@ export interface PlanCheckInput {
    * configuration conflicts" for a plan that could not act at all.
    */
   dryRun: boolean;
+  /**
+   * The saved party. When several people hold one attraction, it decides whose
+   * reservation a move is for, exactly as it does in the provider. Empty or
+   * absent means everyone.
+   */
+  partyIds?: readonly string[];
   /** Whether the day's Tier 1 restriction is already established as lifted. */
   tierLimitLifted: boolean;
 }
@@ -58,8 +64,17 @@ export interface PlanReview {
 function armedToBook(target: WatchTarget, input: PlanCheckInput) {
   if (target.paused) return false;
   if (!target.autoBook && !target.bookThenMove) return false;
-  return !findExistingLL(input.plans, target.experienceId, input.date);
+  return !heldForParty(target, input);
 }
+
+/** The provider's own answer to "whose reservation is this", `'several'` included. */
+const heldForParty = (target: WatchTarget, input: PlanCheckInput) =>
+  findPartyLL(
+    input.plans,
+    target.experienceId,
+    input.date,
+    input.partyIds ?? []
+  );
 
 const displayName = (target: WatchTarget, experiences: Experience[]) =>
   experiences.find(exp => exp.id === target.experienceId)?.name ??
@@ -131,6 +146,17 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
     );
   }
 
+  // The provider leaves such an attraction alone ('several-held'), which is
+  // right and also silent until the morning it matters. Said here instead.
+  for (const target of armedAtAll) {
+    if (heldForParty(target, input) !== 'several') continue;
+    push(
+      'review',
+      `More than one person holds ${displayName(target, input.experiences)}, and your saved party does not say whose reservation to change, so Autopilot will leave it alone. Save a party of only the people whose reservation should move.`,
+      { kind: 'target', experienceId: target.experienceId }
+    );
+  }
+
   const missing = new Set<string>();
   for (const target of active) {
     const name = displayName(target, input.experiences);
@@ -171,7 +197,9 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
       if (missing.has(target.experienceId)) continue;
       // The target's own reservation is excluded the way the provider excludes
       // it: moving a booking necessarily clashes with itself.
-      const own = findExistingLL(input.plans, target.experienceId, input.date);
+      const own = heldForParty(target, input);
+      // Left alone by the provider, and reported above.
+      if (own === 'several') continue;
       const candidates = clashablePlans(input.plans, {
         date: input.date,
         ...(own ? { ignoreIds: [own.id] } : {}),

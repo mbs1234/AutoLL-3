@@ -1,4 +1,12 @@
-import { createBooking, hm, jc, multiExp, sm } from '@/__fixtures__/ll';
+import {
+  createBooking,
+  hm,
+  jc,
+  mickey,
+  minnie,
+  multiExp,
+  sm,
+} from '@/__fixtures__/ll';
 import { mk } from '@/__fixtures__/resort';
 import { ParkTime } from '@/datetime';
 import { TODAY, TOMORROW, setTime } from '@/testing';
@@ -31,6 +39,26 @@ const texts = (input: PlanCheckInput, level?: string) =>
     .join('\n');
 
 describe('checkPlan', () => {
+  // Two people hold one attraction and the saved party does not say whose to
+  // move. The provider leaves it alone -- right, and silent until the morning
+  // it matters -- so Plan Check says it first.
+  it('warns when more than one person holds a target the party does not pick out', () => {
+    const input = {
+      ...base(),
+      targets: [{ experienceId: hm.id, autoModify: true }],
+      plans: [
+        createBooking(hm, { startTime: new ParkTime(9, 10), guests: [mickey] }),
+        createBooking(hm, { startTime: new ParkTime(14, 5), guests: [minnie] }),
+      ],
+    };
+    expect(texts(input, 'review')).toContain(
+      `More than one person holds ${hm.name}`
+    );
+    expect(texts({ ...input, partyIds: ['minnie'] }, 'review')).not.toContain(
+      'More than one person holds'
+    );
+  });
+
   it('blocks a plan with no targets for the selected park and date', () => {
     expect(
       checkPlan({

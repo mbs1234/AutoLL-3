@@ -1,4 +1,6 @@
-import { loadSavedPartyIds } from '@/savedParty';
+import { useSyncExternalStore } from 'react';
+
+import { loadSavedPartyIds, subscribeSavedParty } from '@/savedParty';
 
 /**
  * How many guests the saved party holds, without applying it.
@@ -8,9 +10,12 @@ import { loadSavedPartyIds } from '@/savedParty';
  * wants to say how big it is. Zero means no party was saved, which the app
  * treats as everyone eligible.
  *
- * Read on every render rather than held in state: the party is saved by a
- * different screen in the same document, and no event announces that.
+ * Subscribed rather than held in state: the party is saved by a different
+ * screen in the same document, and `saveSavedPartyIds` announces it.
  */
 export default function useSavedPartyCount(): number {
-  return loadSavedPartyIds().length;
+  return useSyncExternalStore(
+    subscribeSavedParty,
+    () => loadSavedPartyIds().length
+  );
 }

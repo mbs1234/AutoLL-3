@@ -2,6 +2,7 @@ import { use, useRef, useState } from 'react';
 
 import { RequestNotSent } from '@/api/client';
 import { LLMP } from '@/api/itinerary';
+import { findSameReservation } from '@/autopilot/automodify';
 import {
   acquire as acquireLease,
   keepAlive as keepLeaseAlive,
@@ -75,6 +76,9 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
   const search = useTimeSearch({
     booking,
     goal,
+    // This reservation, not "the party's reservation for this attraction":
+    // with two people holding it at different times, that was the other one.
+    findHeld: findSameReservation,
     createOffer: held =>
       ll.offer(held.experience, held.guests, { booking: held }),
     getTimes: offer => ll.times(offer),
@@ -184,7 +188,12 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
       {search.running && (
         <>
           <p className="mt-3">
-            {search.phase === 'awaiting' ? (
+            {search.accepting && search.guard.requested ? (
+              <>
+                Moving to <Time time={search.guard.requested} />
+                &hellip;{' '}
+              </>
+            ) : search.phase === 'awaiting' ? (
               <>
                 Waiting for Plans to confirm the move to{' '}
                 <Time time={search.guard.requested!} />

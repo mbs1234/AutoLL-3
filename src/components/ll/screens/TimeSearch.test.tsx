@@ -1,6 +1,6 @@
 import { act, screen } from '@testing-library/react';
 
-import { createBooking, hm } from '@/__fixtures__/ll';
+import { createBooking, hm, mickey, minnie } from '@/__fixtures__/ll';
 import { RequestControl, RequestNotSent } from '@/api/client';
 import { LLMP, Offer } from '@/api/ll';
 import useTimeSearch from '@/autopilot/useTimeSearch';
@@ -94,6 +94,38 @@ describe('TimeSearch', () => {
       capturedDeps.startCommit?.(() => false, send)
     ).rejects.toBeInstanceOf(RequestNotSent);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  // As reported: opened on one person's 2:05 pm reservation while another
+  // person held the same attraction at 9:10 am, the search re-read itself as
+  // the 9:10. The screen must hand the search a matcher for *this* one.
+  it('follows the reservation it was opened on, not the first for the ride', () => {
+    const nine = createBooking(hm, {
+      startTime: new ParkTime(9, 10),
+      guests: [mickey],
+    });
+    const two = createBooking(hm, {
+      startTime: new ParkTime(14, 5),
+      guests: [minnie],
+    });
+    renderScreen(<TimeSearch booking={two} />);
+    expect(capturedDeps.findHeld([nine, two], two)).toBe(two);
+  });
+
+  it('says a later move is being made the moment it is accepted', () => {
+    const booking = createBooking(hm);
+    mockedUseTimeSearch.mockReturnValue(
+      fakeSearch(booking.start.time, {
+        running: true,
+        accepting: true,
+        phase: 'committing',
+        guard: { requested: new ParkTime(16) } as ReturnType<
+          typeof useTimeSearch
+        >['guard'],
+      })
+    );
+    renderScreen(<TimeSearch booking={booking} />);
+    expect(screen.getByText(/Moving to/)).toHaveTextContent('4:00 PM');
   });
 
   it('shows a protection error alongside an unresolved move', () => {

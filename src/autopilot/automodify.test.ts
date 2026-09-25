@@ -9,6 +9,8 @@ import {
   MIN_TARGETED_IMPROVEMENT_MINUTES,
   attemptAutoModify,
   findExistingLL,
+  findPartyLL,
+  findSameReservation,
   improvementBar,
   improvementMinutes,
   shouldModify,
@@ -131,6 +133,110 @@ describe('findExistingLL()', () => {
       start: new DateTime('2026-09-05', at(1)),
     } as unknown as Booking;
     expect(findExistingLL([lateNight], BZ, DATE)).toBeDefined();
+  });
+});
+
+/** One person's reservation for the attraction, as Plans reports it. */
+const heldBy = (time: ParkTime, guestId: string, facilityId = BZ) =>
+  existingLL(
+    time,
+    {
+      id: `ent-${guestId}-${facilityId}`,
+      guests: [
+        {
+          id: guestId,
+          name: guestId,
+          entitlementId: `ent-${guestId}-${facilityId}`,
+        },
+      ],
+    } as Partial<LLMP>,
+    facilityId
+  );
+
+// Two people in one party can hold the same attraction at different times. As
+// reported: asked to move a 2:05 pm Big Thunder up, the search set out to beat
+// the 9:10 am one somebody else held, because "the party's reservation" was
+// always the first -- plans are sorted by time.
+describe('findPartyLL()', () => {
+  const nine = heldBy(at(9, 10), 'p1');
+  const two = heldBy(at(14, 5), 'p2');
+
+  it('picks the saved party’s reservation when two people hold the attraction', () => {
+    expect(findPartyLL([nine, two], BZ, DATE, ['p2'])).toBe(two);
+    expect(findPartyLL([nine, two], BZ, DATE, ['p1'])).toBe(nine);
+  });
+
+  // Held, so nothing books a duplicate; and not one of them, so nothing moves a
+  // reservation nobody picked.
+  it('says several when the saved party does not pick one out', () => {
+    expect(findPartyLL([nine, two], BZ, DATE, [])).toBe('several');
+    expect(findPartyLL([nine, two], BZ, DATE, ['p1', 'p2'])).toBe('several');
+  });
+
+  it('answers as before when one reservation is all there is', () => {
+    expect(findPartyLL([two], BZ, DATE, [])).toBe(two);
+    expect(findPartyLL([two], BZ, DATE, ['p2'])).toBe(two);
+  });
+
+  // Somebody else's reservation is not the saved party's to move -- and the
+  // saved party holding nothing is what lets it book one of its own.
+  it('does not hand the saved party a reservation somebody else holds', () => {
+    expect(findPartyLL([nine], BZ, DATE, ['p2'])).toBeUndefined();
+  });
+
+  // Every guest redeemed, so Plans lists no one on it. It must not make a
+  // live reservation ambiguous...
+  it('lets a spent reservation make nothing ambiguous', () => {
+    const spent = existingLL(at(9, 10), { id: 'ent-spent' });
+    expect(findPartyLL([spent, two], BZ, DATE, [])).toBe(two);
+    expect(findPartyLL([spent, two], BZ, DATE, ['p2'])).toBe(two);
+  });
+
+  // ...but it is still this attraction held today, and reading it as held keeps
+  // the old answer instead of booking a second one on a guess.
+  it('still reads a spent reservation as held when nothing live is the party’s', () => {
+    const spent = existingLL(at(9, 10), { id: 'ent-spent' });
+    expect(findPartyLL([spent], BZ, DATE, ['p2'])).toBe(spent);
+  });
+
+  it('ignores other attractions and other park days', () => {
+    const elsewhere = heldBy(at(10), 'p2', DB);
+    const tomorrow = {
+      ...heldBy(at(10), 'p2'),
+      start: new DateTime('2026-09-05', at(10)),
+    } as unknown as LLMP;
+    expect(
+      findPartyLL([elsewhere, tomorrow], BZ, DATE, ['p2'])
+    ).toBeUndefined();
+  });
+});
+
+describe('findSameReservation()', () => {
+  const nine = heldBy(at(9, 10), 'p1');
+  const two = heldBy(at(14, 5), 'p2');
+
+  it('follows the reservation it was opened on, not the first for the ride', () => {
+    expect(findSameReservation([nine, two], two)).toBe(two);
+  });
+
+  // The entitlement survives a change of time: that is how a search finds its
+  // reservation again after moving it.
+  it('finds it again after its time has moved', () => {
+    const moved = {
+      ...two,
+      id: 'new-id',
+      start: new DateTime(DATE, at(11, 30)),
+    };
+    expect(findSameReservation([nine, moved], two)).toBe(moved);
+  });
+
+  it('does not follow an entitlement to another attraction or park day', () => {
+    const swapped = { ...two, facilityId: DB } as LLMP;
+    const tomorrow = {
+      ...two,
+      start: new DateTime('2026-09-05', at(14, 5)),
+    } as unknown as LLMP;
+    expect(findSameReservation([nine, swapped, tomorrow], two)).toBeUndefined();
   });
 });
 

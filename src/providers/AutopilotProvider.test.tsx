@@ -66,6 +66,7 @@ import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
 import { DateTime, ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
+import { PARTY_IDS_KEY } from '@/savedParty';
 import {
   NEXTLL_WATCHLIST_KEY,
   NOTIFICATION_TAG_NAMESPACE,
@@ -1098,6 +1099,64 @@ describe('AutopilotProvider auto-move', () => {
     await enable();
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
     expect(offerOptions[0]).toHaveProperty('date');
+    expect(offerOptions[0]).not.toHaveProperty('booking');
+  });
+});
+
+// As reported: one person held an attraction at 9:10 am and another at
+// 2:05 pm, and asked to move the later one up, the engine worked on the 9:10 --
+// the first reservation for the ride -- so an 11:00 offer, three hours better
+// for the 2:05, never counted.
+describe('AutopilotProvider when two people hold one attraction', () => {
+  function heldBy(guest: string, hour: number, minute = 0): Booking {
+    return {
+      type: 'LL',
+      subtype: 'MP',
+      id: `ent-${guest}`,
+      facilityId: BZ,
+      name: 'Held',
+      start: new DateTime(TODAY, new ParkTime(hour, minute)),
+      end: new DateTime(TODAY, new ParkTime(hour + 1, minute)),
+      modifiable: true,
+      guests: [{ id: guest, name: guest, entitlementId: `ent-${guest}` }],
+    } as unknown as Booking;
+  }
+  const bothHeld = () => [heldBy('p1', 9, 10), heldBy('p2', 14, 5)];
+
+  it('moves the saved party’s reservation', async () => {
+    kvdb.set(PARTY_IDS_KEY, ['p2']);
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { book, offerOptions } = setupBooking({
+      offerHour: 11,
+      plans: bothHeld(),
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(offerOptions[0]).toHaveProperty('booking.id', 'ent-p2');
+  });
+
+  // Held, so it must not book a duplicate; and not one of them, so it must not
+  // move a reservation nobody picked.
+  it('leaves it alone, and says why, when the saved party does not pick one', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true, autoModify: true }]);
+    const { book } = setupBooking({ offerHour: 11, plans: bothHeld() });
+    await enable();
+    await runTicks(3);
+    expect(book).not.toHaveBeenCalled();
+    expect(screen.getByTestId('lastSkip')).toHaveTextContent('several-held');
+  });
+
+  // The saved party holding nothing is what lets it book one of its own, even
+  // though somebody else in the account holds the attraction.
+  it('books for the saved party when only somebody else holds it', async () => {
+    kvdb.set(PARTY_IDS_KEY, ['p2']);
+    saveWatchList([{ experienceId: BZ, autoBook: true, autoModify: true }]);
+    const { book, offerOptions } = setupBooking({
+      offerHour: 11,
+      plans: [heldBy('p1', 9, 10)],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
     expect(offerOptions[0]).not.toHaveProperty('booking');
   });
 });
