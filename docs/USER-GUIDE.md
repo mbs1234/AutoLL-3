@@ -318,8 +318,8 @@ Three limits worth knowing:
 
 ![The pre-trip checklist](user-guide/pretrip-checklist.png)
 
-When the day on screen is **not today**, the Today tab becomes a readiness list.
-Five items, each with a button that opens the screen that fixes it:
+When the day on screen is **not today**, the Today tab becomes a readiness list
+of five items:
 
 - Party saved
 - At least one target selected
@@ -327,10 +327,18 @@ Five items, each with a button that opens the screen that fixes it:
 - Notifications allowed
 - Plan Check reviewed
 
+Each item still to do has a button: **Open** goes to the screen that fixes it,
+and **Enable** asks the browser for notification permission. A finished item
+has no button, except Plan Check, which keeps **Review** so you can look again.
+
 It is a local readiness summary, not a live check of Disney — it makes no
 requests. The panel disappears the moment the booking date is today.
 
-> The "Plan Check reviewed" tick is not saved. Reload the page and it reverts.
+> The "Plan Check reviewed" tick is saved, so a reload keeps it. It counts only
+> for the park, day and plan you reviewed. Add, remove or change a target,
+> switch a safeguard, or change anything else that alters what Plan Check
+> finds, and the tick goes. Only the latest review is kept, so checking another
+> park or day unticks the first.
 
 ## 9. The night before
 
@@ -666,8 +674,10 @@ A read-only park guide: standby waits, show and character times, and Individual
 Lightning Lane prices, grouped by land. Names in bold and in the land's colour
 are the ones the data file flags as popular.
 
-Symbols: `–` no posted wait, `❌` showing but standby not open, `VQ` virtual
-queue only.
+Symbols: `–` no posted wait, `❌` standby not open, `VQ` virtual queue only.
+The tab's own legend calls `❌` "Temporarily down", which is one reason, not
+the only one: a ride with an Individual Lightning Lane on sale shows `❌`
+whenever its standby is not open.
 
 This tab is also the **only** way to request a DAS return time: a **DAS** button
 appears in the header if Disney reports at least one registered party on your
@@ -839,10 +849,17 @@ The switch still reads "Turn off autopilot", so restarting is **two taps**: off,
 then on. (The exception is a stop caused by an expired session — signing back in
 remounts the app with Autopilot off, so there it is one tap.)
 
-Nothing notifies you that it stopped. You find out by looking at Today, by the
-footer strip on other tabs, or by noticing the header clock has turned red — or
-by your phone starting to sleep normally again, because the wake lock is
-released.
+When it gives up it raises one alert, "AutoLL-3 has stopped", on every channel
+it can. On an iPhone in Safari that is the sound alone: there is no
+notification to carry the words and no vibration, so what reaches you is one
+two-note chime, the same as every other alert. Nothing in it says the run has
+ended, so look whenever you hear it — and if the sound is not armed, nothing
+reaches you at all. An expired session raises no alert on any phone: the app
+just goes back to asking you to sign in.
+
+You also find out by looking at Today, by the footer strip on other tabs, or by
+noticing the header clock has turned red — or by your phone starting to sleep
+normally again, because the wake lock is released.
 
 > The screenshot says "5 failed checks" because that is a hand-set harness
 > fixture. The real app always stops at **8**.
