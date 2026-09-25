@@ -1,7 +1,8 @@
 import { use, useCallback, useEffect, useState } from 'react';
 
 import { isLLMP } from '@/api/itinerary';
-import { Guest, Offer, OfferError, OfferExperience } from '@/api/ll';
+import { Guest, LLMP, Offer, OfferError, OfferExperience } from '@/api/ll';
+import { outcomeIsUnknown } from '@/autopilot/autobook';
 import FloatingButton from '@/components/FloatingButton';
 import LandLine from '@/components/LandLine';
 import Screen from '@/components/Screen';
@@ -23,6 +24,7 @@ import { ping } from '@/ping';
 import BookingDate from '../BookingDate';
 import ExistingBookings from '../ExistingBookings';
 import RebookingHeader from '../RebookingHeader';
+import UnansweredNotice from '../UnansweredNotice';
 import YourDayButton from '../YourDayButton';
 import NoEligibleGuests from './BookExperience/NoEligibleGuests';
 import NoGuestsFound from './BookExperience/NoGuestsFound';
@@ -48,6 +50,7 @@ export default function BookExperience({
   const [party, setParty] = useState<Party>();
   const [offer, setOffer] = useState<Offer | null | undefined>();
   const { loadData, loaderElem } = useDataLoader();
+  const [unanswered, setUnanswered] = useState(false);
 
   useEffect(() => {
     if (!isActiveScreen) return;
@@ -63,31 +66,48 @@ export default function BookExperience({
   async function book() {
     if (!offer || !party) return;
     loadData(async flash => {
+      let booking: LLMP;
       try {
-        const booking = await ll.book(offer, party.selected);
-        rebooking.end();
-        const selectedIds = new Set(party.selected.map(g => g.id));
-        const guestsToCancel = booking.guests.filter(
-          g => !selectedIds.has(g.id)
-        );
-        if (guestsToCancel.length > 0) {
-          await ll.cancelBooking(guestsToCancel);
-          booking.guests = booking.guests.filter(g => selectedIds.has(g.id));
-        }
-        goTo(<BookingDetails booking={booking} isNew={true} />, {
-          replace: true,
-        });
-        refreshPlans();
-        ping(resort, 'G');
+        booking = await ll.book(offer, party.selected);
       } catch (error: any) {
         const status = error?.response?.status;
         if (status === 410) {
           flash('Offer expired — refreshing…', 'error');
           setOffer(undefined); // triggers auto-refresh
-        } else {
-          throw error; // let useDataLoader handle other errors
+          return;
+        }
+        // No answer is not a failure: the booking may exist. The button used
+        // to stay live under a three-second error, one tap from a second
+        // booking. It gives way to a pointer to Plans instead.
+        if (outcomeIsUnknown(error)) {
+          setUnanswered(true);
+          refreshPlans();
+        }
+        throw error; // let useDataLoader handle other errors
+      }
+      rebooking.end();
+      const selectedIds = new Set(party.selected.map(g => g.id));
+      const guestsToCancel = booking.guests.filter(g => !selectedIds.has(g.id));
+      let warning: string | undefined;
+      if (guestsToCancel.length > 0) {
+        try {
+          await ll.cancelBooking(guestsToCancel);
+          booking.guests = booking.guests.filter(g => selectedIds.has(g.id));
+        } catch (error) {
+          // The booking went through, for everyone on the offer. Staying on
+          // this screen made it look as though nothing had been booked.
+          console.error(error);
+          warning = `Booked for everyone on the offer, but removing ${guestsToCancel
+            .map(g => g.name)
+            .join(', ')} failed. Cancel them here if they should not have it.`;
         }
       }
+      goTo(
+        <BookingDetails booking={booking} isNew={true} warning={warning} />,
+        { replace: true }
+      );
+      refreshPlans();
+      ping(resort, 'G');
     });
   }
 
@@ -293,9 +313,15 @@ export default function BookExperience({
           ) : (
             <>
               <OfferDetails offer={offer} onOfferChange={setOffer} />
-              <FloatingButton onClick={book}>{`${
-                rebooking.current ? 'Modify' : 'Book'
-              } Lightning Lane`}</FloatingButton>
+              {unanswered ? (
+                <UnansweredNotice
+                  action={rebooking.current ? 'change' : 'booking'}
+                />
+              ) : (
+                <FloatingButton onClick={book}>{`${
+                  rebooking.current ? 'Modify' : 'Book'
+                } Lightning Lane`}</FloatingButton>
+              )}
             </>
           )}
         </PartyContext>

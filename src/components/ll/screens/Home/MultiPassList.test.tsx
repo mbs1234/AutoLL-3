@@ -194,4 +194,19 @@ describe('MultiPassList', () => {
     click('Standby');
     expect(getExperiences()).toEqual(names([sm, hm, db]));
   });
+
+  // The list used to be a component defined inside this one: a new type on
+  // every render, so each update -- one per check during a drop -- rebuilt
+  // every row, and a tap on a return time could land on a row being replaced.
+  it('keeps its rows across an update', async () => {
+    setTime('09:00');
+    ll.experiences.mockClear();
+    renderList();
+    await loading();
+    const row = see(sm.name).closest('li')!;
+    click('Refresh Experiences');
+    await loading();
+    expect(ll.experiences).toHaveBeenCalledTimes(2);
+    expect(row).toBeInTheDocument();
+  });
 });

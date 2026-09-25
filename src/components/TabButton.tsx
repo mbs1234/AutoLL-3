@@ -12,7 +12,7 @@ export default function TabButton<N extends string>({ name, icon }: TabDef<N>) {
     ? `border-black/20 bg-white/90 ${theme.text}`
     : `border-transparent ${theme.bg} text-white`;
   return (
-    <button className="px-2.5 py-2" onClick={() => changeTab(name)}>
+    <button className="px-1 py-2" onClick={() => changeTab(name)}>
       <div className={`min-w-12 rounded-full py-1.25 border ${iconStyles}`}>
         {icon}
       </div>

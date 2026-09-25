@@ -12,6 +12,13 @@ import SettingsButton from './SettingsButton';
 // exists -- not once the page is on the Home Screen, which is how this is
 // used. The tab bar used to carry the name; five tabs left it no room.
 describe('SettingsButton', () => {
+  // Laid over the end of the tab row, the gear covered part of the NextLL
+  // tab. jsdom does no hit-testing, so the positioning is what is asserted.
+  it('sits in the tab row rather than over it', () => {
+    render(<SettingsButton />);
+    expect(screen.getByTitle('Settings Menu')).not.toHaveClass('absolute');
+  });
+
   it('names the build in its menu', () => {
     render(<SettingsButton />);
     fireEvent.click(screen.getByTitle('Settings Menu'));

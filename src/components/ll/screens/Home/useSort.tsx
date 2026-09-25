@@ -106,7 +106,10 @@ export default function useSort() {
     [coords, park, sortType, isToday]
   );
 
-  const SortSelect = (props: { className?: string }) => (
+  // A render function, not a component. As a component defined here it was a
+  // new type on every render, so each update -- one per check during a drop --
+  // remounted it, and an open Sort menu closed by itself mid-choice.
+  const sortSelect = (props: { className?: string } = {}) => (
     <Select
       {...props}
       options={sortOptions}
@@ -119,5 +122,5 @@ export default function useSort() {
     />
   );
 
-  return { sortType, sorter, SortSelect };
+  return { sortType, sorter, sortSelect };
 }

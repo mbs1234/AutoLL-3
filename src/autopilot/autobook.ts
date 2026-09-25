@@ -96,6 +96,27 @@ export function actionWasRejected(error: unknown): boolean {
 }
 
 /**
+ * Whether a change Disney was asked to make may have happened anyway.
+ *
+ * The screens' question, where `actionWasRejected` is the engine's. A request
+ * that never left, or that Disney answered with a client error, changed
+ * nothing. No answer at all, or a server error mid-request, may have: those are
+ * shown as unknown -- "check Plans" -- and never as a failure that a second tap
+ * could safely repeat. Hand-made bookings, moves and cancels all used to report
+ * them as ordinary failures, with the same button still live beneath.
+ */
+export function outcomeIsUnknown(error: unknown): boolean {
+  if (error instanceof RequestNotSent) return false;
+  if (error instanceof RateLimitExceeded) return false;
+  const status = (error as { response?: { status?: number } })?.response
+    ?.status;
+  // Only a request that left carries a response, even an empty one. With none
+  // at all the failure was this app's own, and is reported as the error it is.
+  if (status === undefined) return false;
+  return status === 0 || status >= 500;
+}
+
+/**
  * Put fallible local attempt persistence before the irreversible transport
  * marker, and roll it back if final dispatch authorization refuses the send.
  */

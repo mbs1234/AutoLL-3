@@ -1,6 +1,7 @@
 import { use, useEffect, useState } from 'react';
 
 import { LLMP, Offer } from '@/api/ll';
+import { outcomeIsUnknown } from '@/autopilot/autobook';
 import Button from '@/components/Button';
 import FloatingButton from '@/components/FloatingButton';
 import GuestList from '@/components/GuestList';
@@ -18,6 +19,7 @@ import BookingDate from '../BookingDate';
 import OverlappingPlans from '../OverlappingPlans';
 import RebookingHeader from '../RebookingHeader';
 import ReturnTime from '../ReturnTime';
+import UnansweredNotice from '../UnansweredNotice';
 import YourDayButton from '../YourDayButton';
 import BookingDetails from './BookingDetails';
 import Home from './Home';
@@ -35,6 +37,7 @@ export default function BookNewReturnTime({
   const { loadData, loaderElem } = useDataLoader();
   const { refreshPlans } = use(PlansContext);
   const [offer, setOffer] = useState(initialOffer);
+  const [unanswered, setUnanswered] = useState(false);
   const { booking } = offer;
 
   useEffect(() => {
@@ -45,7 +48,18 @@ export default function BookNewReturnTime({
 
   function book() {
     loadData(async () => {
-      const booking = await ll.book(offer);
+      let booking: LLMP;
+      try {
+        booking = await ll.book(offer);
+      } catch (error) {
+        // No answer is not a failure: the move may have happened. Stop
+        // offering the same tap, and send the person to Plans.
+        if (outcomeIsUnknown(error)) {
+          setUnanswered(true);
+          refreshPlans();
+        }
+        throw error;
+      }
       refreshPlans();
       await goBack({ screen: Home });
       goTo(<BookingDetails booking={booking} isNew />);
@@ -84,7 +98,11 @@ export default function BookNewReturnTime({
       <h3>Your Party</h3>
       <GuestList guests={offer.guests.eligible} />
       {loaderElem}
-      <FloatingButton onClick={book}>Modify Lightning Lane</FloatingButton>
+      {unanswered ? (
+        <UnansweredNotice action="change" />
+      ) : (
+        <FloatingButton onClick={book}>Modify Lightning Lane</FloatingButton>
+      )}
     </Screen>
   );
 }
