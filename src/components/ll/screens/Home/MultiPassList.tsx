@@ -58,7 +58,7 @@ export default function MultiPassList({ ref }: HomeTabProps) {
   const { experiences, refreshExperiences, loaderElem } =
     use(ExperiencesContext);
   const { bookingDate } = use(BookingDateContext);
-  const { sortType, sorter, SortSelect } = useSort();
+  const { sortType, sorter, sortSelect } = useSort();
   const firstUpdate = useRef(true);
 
   useEffect(() => {
@@ -78,7 +78,7 @@ export default function MultiPassList({ ref }: HomeTabProps) {
       buttons={
         <>
           {ll.rules.prebook && <BookingDateSelect />}
-          <SortSelect />
+          {sortSelect()}
           <ParkSelect />
           <AutopilotButton />
           <RefreshButton name="Experiences" onClick={refreshExperiences} />
@@ -155,13 +155,11 @@ const Experiences = memo(function Experiences({
 
   const LLButtonOrTime = ll.rules.book ? LLButton : LLTime;
 
-  const ExperienceList = ({
-    experiences,
-    type,
-  }: {
-    experiences: ExtFlexExp[];
-    type: string;
-  }) => (
+  // A render function, not a component. As a component defined inside this
+  // one it was a new type on every render, so each update -- one per check
+  // during a drop -- tore the whole list down and rebuilt it, and a tap on a
+  // return time could land on a row being replaced.
+  const experienceList = (experiences: ExtFlexExp[], type: string) => (
     <ul className="dividers" data-testid={type}>
       {experiences.map(exp => {
         const nextDropTime = isBookingToday
@@ -309,23 +307,18 @@ const Experiences = memo(function Experiences({
 
   return (
     <>
-      {tierGroups ? (
-        [...tierGroups].map(([tier, exps]) => (
-          <div key={tier ?? 'none'}>
-            <div
-              className={`-mx-3 px-3 py-1 text-sm uppercase text-center font-semibold ${theme.bg} text-white`}
-            >
-              {tier !== undefined ? `Tier ${tier}` : 'Other'}
+      {tierGroups
+        ? [...tierGroups].map(([tier, exps]) => (
+            <div key={tier ?? 'none'}>
+              <div
+                className={`-mx-3 px-3 py-1 text-sm uppercase text-center font-semibold ${theme.bg} text-white`}
+              >
+                {tier !== undefined ? `Tier ${tier}` : 'Other'}
+              </div>
+              {experienceList(exps, `tier-${tier ?? 'none'}`)}
             </div>
-            <ExperienceList
-              experiences={exps}
-              type={`tier-${tier ?? 'none'}`}
-            />
-          </div>
-        ))
-      ) : (
-        <ExperienceList experiences={unexperienced} type="unexperienced" />
-      )}
+          ))
+        : experienceList(unexperienced, 'unexperienced')}
       {experienced.length > 0 && (
         <>
           <h2
@@ -333,7 +326,7 @@ const Experiences = memo(function Experiences({
           >
             Experienced or Expired
           </h2>
-          <ExperienceList experiences={experienced} type="experienced" />
+          {experienceList(experienced, 'experienced')}
         </>
       )}
       {flexExps.length > 0 && (

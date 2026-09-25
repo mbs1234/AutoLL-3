@@ -8,7 +8,7 @@ import useSort from './useSort';
 const experiences = [hm, jc, sm];
 
 function SortTest() {
-  const { sorter, SortSelect } = useSort();
+  const { sorter, sortSelect } = useSort();
   return (
     <div>
       <div data-testid="ids">
@@ -17,7 +17,7 @@ function SortTest() {
           .map(exp => exp.id)
           .join(',')}
       </div>
-      <SortSelect />
+      {sortSelect()}
     </div>
   );
 }
@@ -30,7 +30,49 @@ function sortBy(type: string) {
   click(type);
 }
 
+function Contexts({
+  exps,
+  children,
+}: {
+  exps: typeof experiences;
+  children: React.ReactNode;
+}) {
+  return (
+    <ParkContext value={{ park: mk, setPark: () => {} }}>
+      <ExperiencesContext
+        value={{
+          experiences: exps,
+          refreshExperiences: () => null,
+          pollExperiences: async () => [],
+          loaderElem: null,
+        }}
+      >
+        {children}
+      </ExperiencesContext>
+    </ParkContext>
+  );
+}
+
 describe('useSort()', () => {
+  // Returned as a component defined inside the hook, the control was a new
+  // type on every render, so each update remounted it and an open Sort menu
+  // closed by itself -- during a drop, before anyone could choose.
+  it('keeps the Sort menu open across an update', () => {
+    const { rerender } = render(
+      <Contexts exps={experiences}>
+        <SortTest />
+      </Contexts>
+    );
+    click('Sort By');
+    const menu = screen.getByRole('form', { name: 'Sort By Selection' });
+    rerender(
+      <Contexts exps={[...experiences]}>
+        <SortTest />
+      </Contexts>
+    );
+    expect(menu).toBeInTheDocument();
+  });
+
   it('sorts', async () => {
     render(
       <ParkContext value={{ park: mk, setPark: () => {} }}>
