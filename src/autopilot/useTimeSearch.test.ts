@@ -84,6 +84,9 @@ function setup({
   startCommit,
   beforeCommitStart,
   getTimes,
+  createOffer,
+  hint,
+  clashes,
 }: {
   goal?: SearchGoal;
   held?: ParkTime;
@@ -103,6 +106,12 @@ function setup({
   startCommit?: TimeSearchDeps['startCommit'];
   beforeCommitStart?: (control?: RequestControl) => Promise<void>;
   getTimes?: TimeSearchDeps['getTimes'];
+  /** Handed the live held time, since the default fake reads it too. */
+  createOffer?: (
+    held: () => ParkTime
+  ) => jest.Mock<Promise<Offer<LLMP>>, [LLMP, ParkTime?]>;
+  hint?: TimeSearchDeps['hint'];
+  clashes?: TimeSearchDeps['clashes'];
 } = {}) {
   let current = held;
   const rawCommit =
@@ -128,7 +137,11 @@ function setup({
     booking: booking(held),
     goal,
     // The offer echoes the reservation it was handed, as Disney's does.
-    createOffer: jest.fn(async (b: LLMP) => offerAt(current, b.start.time)),
+    createOffer: createOffer
+      ? createOffer(() => current)
+      : jest.fn(async (b: LLMP) => offerAt(current, b.start.time)),
+    hint,
+    clashes,
     getTimes: getTimes ?? jest.fn(async () => times),
     changeTime: quoted ?? jest.fn(async (_o, t: ParkTime) => offerAt(t)),
     commit: controlledCommit,
@@ -1102,5 +1115,129 @@ describe('useTimeSearch restarting mid-settle', () => {
     await runCycles(2);
     expect(result.current.guard.phase).not.toBe('awaiting');
     expect(`${result.current.held}`).toBe('11:00:00');
+  });
+});
+
+/**
+ * Times the grid leaves out.
+ *
+ * As reported: holding Big Thunder at 2:50 pm beside another pass at 2:05, a
+ * manual "Show all" found and booked 1:40 -- and this search stayed at 2:50,
+ * because Disney's list of times omits any that would overlap the party's
+ * other plans. Disney grants such a time when asked for it by name, so the
+ * search now asks, and takes what the offer comes back on.
+ */
+describe('useTimeSearch and the times the grid leaves out', () => {
+  const grantsWhatIsNamed = (held: () => ParkTime) =>
+    jest.fn(async (b: LLMP, target?: ParkTime) =>
+      offerAt(target ?? held(), b.start.time)
+    );
+
+  it('asks for the tip board time by name and takes it', async () => {
+    const { result, deps } = setup({
+      held: at(14, 50),
+      times: [[at(14, 50)], [at(15, 30)]],
+      hint: () => at(13, 40),
+      createOffer: grantsWhatIsNamed,
+    });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.moves).toBe(1));
+    expect(`${result.current.held}`).toBe('13:40:00');
+    expect(deps.createOffer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ent-1' }),
+      at(13, 40)
+    );
+    // The offer already sat on 1:40, so nothing asked for it a second time.
+    expect(deps.changeTime).not.toHaveBeenCalled();
+  });
+
+  it('asks for the time an aimed search is aiming at', async () => {
+    const { result, deps } = setup({
+      goal: { kind: 'at', target: at(13, 40) },
+      held: at(14, 50),
+      times: [[at(14, 50)]],
+      createOffer: grantsWhatIsNamed,
+    });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.moves).toBe(1));
+    expect(`${result.current.held}`).toBe('13:40:00');
+    expect(deps.createOffer).toHaveBeenCalledWith(
+      expect.anything(),
+      at(13, 40)
+    );
+  });
+
+  it('does not ask for a time that clashes when clashes are to be avoided', async () => {
+    const { result, deps } = setup({
+      held: at(14, 50),
+      times: [[at(14, 50)]],
+      hint: () => at(13, 40),
+      clashes: time => +time === +at(13, 40),
+      createOffer: grantsWhatIsNamed,
+    });
+    act(() => result.current.start());
+    await runCycles(2);
+    expect(deps.createOffer).toHaveBeenCalled();
+    for (const call of jest.mocked(deps.createOffer).mock.calls) {
+      expect(call).toHaveLength(1);
+    }
+    expect(deps.commit).not.toHaveBeenCalled();
+    expect(`${result.current.held}`).toBe('14:50:00');
+  });
+
+  it('drops clashing times from the grid as well', async () => {
+    const { result } = setup({
+      held: at(15),
+      times: [[at(11)], [at(12)]],
+      clashes: time => +time === +at(11),
+    });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.moves).toBe(1));
+    expect(`${result.current.held}`).toBe('12:00:00');
+  });
+
+  it('stops asking for a time the offer never comes back on', async () => {
+    // Disney will not give 1:40 by name: every offer lands on what is held.
+    const { result, deps } = setup({
+      held: at(14, 50),
+      times: [[at(14, 50)]],
+      hint: () => at(13, 40),
+    });
+    act(() => result.current.start());
+    await runCycles(2);
+    const calls = jest.mocked(deps.createOffer).mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(calls[0]).toEqual([expect.anything(), at(13, 40)]);
+    expect(calls.slice(1).every(call => call.length === 1)).toBe(true);
+    expect(deps.commit).not.toHaveBeenCalled();
+    expect(result.current.running).toBe(true);
+  });
+
+  it('still takes that time from the grid once the grid lists it', async () => {
+    // Unanswered by name is not refused: a time the offer did not land on
+    // stays eligible when Disney's own list offers it.
+    const { result, deps } = setup({
+      held: at(14, 50),
+      times: [[at(13, 40)]],
+      hint: () => at(13, 40),
+    });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.moves).toBe(1));
+    expect(`${result.current.held}`).toBe('13:40:00');
+    expect(deps.changeTime).toHaveBeenCalledWith(expect.anything(), at(13, 40));
+  });
+
+  it('leaves a swap to its own grid', async () => {
+    // A replacement's offer is for the incoming attraction; its own time is
+    // not a candidate, exactly as before.
+    const { result } = setup({
+      goal: { kind: 'replace' },
+      held: at(10, 5),
+      times: [[at(16)]],
+      confirmEveryMove: true,
+    });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.pending).toBeDefined());
+    expect(`${result.current.pending}`).toBe('16:00:00');
   });
 });

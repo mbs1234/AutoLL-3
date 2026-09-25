@@ -1,11 +1,12 @@
 import { act, screen } from '@testing-library/react';
 
-import { createBooking, hm, mickey, minnie } from '@/__fixtures__/ll';
+import { createBooking, hm, mickey, minnie, sm } from '@/__fixtures__/ll';
 import { RequestControl, RequestNotSent } from '@/api/client';
-import { LLMP, Offer } from '@/api/ll';
+import { LLClient, LLMP, Offer } from '@/api/ll';
 import useTimeSearch from '@/autopilot/useTimeSearch';
 import type { TimeSearchDeps } from '@/autopilot/useTimeSearch';
 import { ParkTime } from '@/datetime';
+import { TOMORROW } from '@/testing';
 
 import TimeSearch from './TimeSearch';
 import { renderScreen } from './screenTestSetup';
@@ -144,5 +145,64 @@ describe('TimeSearch', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'could not be saved safely'
     );
+  });
+});
+
+/**
+ * The times Disney's grid leaves out. As reported: a 2:50 pm Big Thunder
+ * beside a 2:05 pass for another ride, where "Show all" booked 1:40 by hand
+ * and this search stayed put. The screen supplies what the search needs to
+ * reach such a time -- the tip board's earliest, a way to ask for it by name,
+ * and the same clash rule Autopilot uses.
+ */
+describe('TimeSearch and the times the grid leaves out', () => {
+  it("hints the tip board's earliest for this ride, from this day's board", () => {
+    renderScreen(<TimeSearch booking={createBooking(hm)} />, {
+      experiences: [hm],
+    });
+    expect(`${capturedDeps.hint?.()}`).toBe('11:10:00');
+  });
+
+  it("gives no hint from another day's board", () => {
+    renderScreen(<TimeSearch booking={createBooking(hm)} />, {
+      experiences: [hm],
+      bookingDate: TOMORROW,
+    });
+    expect(capturedDeps.hint?.()).toBeUndefined();
+  });
+
+  it('asks the client for a named time', async () => {
+    const booking = createBooking(hm);
+    const offer = jest.fn(async () => ({}) as Offer<LLMP>);
+    renderScreen(<TimeSearch booking={booking} />, {
+      ll: { offer: offer as unknown as LLClient['offer'] },
+    });
+    await capturedDeps.createOffer(booking, new ParkTime(13, 40));
+    expect(offer).toHaveBeenCalledWith(booking.experience, booking.guests, {
+      booking,
+      targetTime: new ParkTime(13, 40),
+    });
+  });
+
+  it('refuses a clashing time only when Avoid clashes is on', () => {
+    const booking = createBooking(hm, { startTime: new ParkTime(14, 50) });
+    const other = createBooking(sm, { startTime: new ParkTime(14, 5) });
+    renderScreen(<TimeSearch booking={booking} />, {
+      plans: [booking, other],
+      avoidOverlaps: true,
+    });
+    expect(capturedDeps.clashes?.(new ParkTime(13, 40), booking)).toBe(true);
+    // The reservation being moved cannot clash with itself.
+    expect(capturedDeps.clashes?.(new ParkTime(14, 50), booking)).toBe(false);
+  });
+
+  it('allows a clashing time when Avoid clashes is off, as the manual screen does', () => {
+    const booking = createBooking(hm, { startTime: new ParkTime(14, 50) });
+    const other = createBooking(sm, { startTime: new ParkTime(14, 5) });
+    renderScreen(<TimeSearch booking={booking} />, {
+      plans: [booking, other],
+      avoidOverlaps: false,
+    });
+    expect(capturedDeps.clashes?.(new ParkTime(13, 40), booking)).toBe(false);
   });
 });

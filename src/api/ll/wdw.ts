@@ -14,6 +14,7 @@ import {
   OfferError,
   OfferExperience,
   OfferItineraryItem,
+  OfferOptions,
   OrderDetails,
   replaceTimeStrings,
   throwOnNotModifiable,
@@ -293,12 +294,20 @@ export class LLClientWDW extends LLClient {
   async offer<B extends Offer['booking']>(
     experience: OfferExperience,
     guests: Guest[],
-    options?: { date: string } | { booking?: B }
+    options?: OfferOptions<B>
   ): Promise<Offer<B>> {
     const today = parkDate();
-    const { date, booking } = { date: today, booking: undefined, ...options };
+    const { date, booking, targetTime } = {
+      date: today,
+      booking: undefined,
+      targetTime: undefined,
+      ...options,
+    };
     throwOnNotModifiable(booking);
-    const { nextAvailableTime } = experience.flex ?? {};
+    // The time to ask for: one the caller names, or the tip board's earliest.
+    // Both are asked for the same way, and the correction below walks the
+    // offer toward either.
+    const nextAvailableTime = targetTime ?? experience.flex?.nextAvailableTime;
     const { data } = await this.request<OfferSetResponse>({
       path: `/ea-vas/planning/api/v1/experiences${booking ? '/mod' : ''}/offerset/generate`,
       data: {

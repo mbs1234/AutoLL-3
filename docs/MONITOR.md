@@ -286,7 +286,7 @@ sites, all in `src/api/ll/wdw.ts`, all on the booking path.
 |---|---|---|
 | `guests` | 288 | who in the party is eligible |
 | `offer` | 320 | ask Disney for a return time |
-| `times` | 403 | the full return-time grid |
+| `times` | 403 | the return-time grid (Disney's list, which leaves out times that overlap other plans) |
 | `changeOfferTime` | 436 | move an offer to a different time |
 | `book` | 471 | commit a booking |
 | `modify` | 504 | change or swap a held pass |

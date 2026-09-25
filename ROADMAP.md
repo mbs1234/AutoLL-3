@@ -1126,6 +1126,28 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 19. Reach the times Disney's grid leaves out — _completed in 1.4.2_
+
+Found from a friend's report. Holding Big Thunder at 2:50 beside a pass for
+another ride at 2:05, the manual screen's **Show all** found and booked 1:40,
+while NextLL's Time Search left the reservation at 2:50. Nothing in the search
+refused the overlap: it never saw 1:40. It chose only from `ll.times()`, and
+Disney's list omits a time that would overlap the party's other plans. Nor did
+it pass the tip board's earliest into its offer, the one route by which the
+engine reaches such a time.
+
+**Shipped.** `ll.offer()` takes a `targetTime`, asked for by name in the
+request and walked toward by the existing correction. Time Search names one --
+the tip board's earliest, from a board showing this reservation's day, or the
+time aimed at -- and counts the offer's own time as a candidate beside the
+grid, taking it as quoted without a second fulfil. A named time the offer did
+not land on is not asked for again that run, but stays eligible when the grid
+lists it; only `changeOfferTime` refusals bar a time. With Avoid clashes on,
+every candidate goes through the engine's own `overlappingPlans`, so the search
+and Autopilot refuse the same times; off, the default, it allows what Show all
+allows. A swap is left to its grid, as before. Harness scenario: "Time Search: a
+sooner time the grid leaves out".
+
 ### 18. Move the reservation that was asked for, when two people hold one attraction — _completed in 1.4.1_
 
 Found from a friend's report. One person held an attraction at 9:10 and another

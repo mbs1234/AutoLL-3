@@ -13,6 +13,7 @@ import {
   resolveDoubtAndAcquire,
   startWhileHeld,
 } from '@/autopilot/lease';
+import { overlappingPlans } from '@/autopilot/overlap';
 import { saveCommit } from '@/autopilot/storage';
 import { SearchGoal, SearchStop } from '@/autopilot/timesearch';
 import useTimeSearch from '@/autopilot/useTimeSearch';
@@ -20,9 +21,13 @@ import { parseBound } from '@/autopilot/watchlist';
 import Button from '@/components/Button';
 import Screen from '@/components/Screen';
 import { Time } from '@/components/Time';
+import AutopilotContext from '@/contexts/AutopilotContext';
+import BookingDateContext from '@/contexts/BookingDateContext';
 import ClientsContext from '@/contexts/ClientsContext';
+import ExperiencesContext from '@/contexts/ExperiencesContext';
 import NavContext from '@/contexts/NavContext';
 import PlansContext from '@/contexts/PlansContext';
+import TopAutopilotContext from '@/contexts/TopAutopilotContext';
 import { parkDate } from '@/datetime';
 
 import Home from './Home';
@@ -44,8 +49,13 @@ const STOPPED: Record<Exclude<SearchStop, 'failed'>, string> = {
  * Distinct from Autopilot and NextLL because it reasons over a different set
  * of facts. Those two see one candidate per tick -- the earliest time the
  * tipboard advertises -- which is why they can only ever move a reservation
- * earlier. This screen owns a `/mod` offer and polls the full return-time
- * grid behind it, so it can aim at a particular time, including a later one.
+ * earlier. This screen owns a `/mod` offer and polls the return-time grid
+ * behind it, so it can aim at a particular time, including a later one.
+ *
+ * The grid is not every time there is. Disney leaves out any that would
+ * overlap the party's other plans, and grants one when asked for it by name,
+ * so the search also asks for the tip board's earliest (or the time aimed at)
+ * directly, unless the person has asked Autopilot to avoid clashes.
  *
  * It is its own screen rather than part of Select Return Time because the
  * offer is the thing being managed: `changeOfferTime` replaces both the offer
@@ -54,7 +64,14 @@ const STOPPED: Record<Exclude<SearchStop, 'failed'>, string> = {
  */
 export default function TimeSearch({ booking }: { booking: LLMP }) {
   const { ll } = use(ClientsContext);
-  const { pollPlans } = use(PlansContext);
+  const { plans, pollPlans } = use(PlansContext);
+  const { experiences } = use(ExperiencesContext);
+  const { bookingDate: boardDate } = use(BookingDateContext);
+  // One stored setting whichever provider is nearest; the day plan's is read
+  // first so a NextLL search nested above this screen cannot shadow it.
+  const topAutopilot = use(TopAutopilotContext);
+  const autopilot = use(AutopilotContext);
+  const avoidOverlaps = (topAutopilot ?? autopilot).avoidOverlaps;
   const { goBack } = use(NavContext);
   const bookingDate = parkDate(booking.start);
   const reservation = leaseKey(booking.facilityId, bookingDate);
@@ -79,8 +96,25 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
     // This reservation, not "the party's reservation for this attraction":
     // with two people holding it at different times, that was the other one.
     findHeld: findSameReservation,
-    createOffer: held =>
-      ll.offer(held.experience, held.guests, { booking: held }),
+    createOffer: (held, targetTime) =>
+      ll.offer(held.experience, held.guests, { booking: held, targetTime }),
+    // The tip board's earliest, only when the board on screen is for this
+    // reservation's day: another date's board says nothing about this one.
+    hint: () => {
+      if (boardDate !== bookingDate) return undefined;
+      const listed = experiences.find(exp => exp.id === booking.facilityId);
+      return listed?.flex?.available
+        ? listed.flex.nextAvailableTime
+        : undefined;
+    },
+    // The engine's own clash rule, so this search and Autopilot refuse the
+    // same times when the person asked for that, and allow the same otherwise.
+    clashes: (time, held) =>
+      avoidOverlaps &&
+      overlappingPlans(time, plans, {
+        date: bookingDate,
+        ignoreIds: [held.id],
+      }).length > 0,
     getTimes: offer => ll.times(offer),
     changeTime: (offer, time) => ll.changeOfferTime(offer, time),
     commit: (offer, control) => ll.book(offer, undefined, control),

@@ -721,9 +721,17 @@ party holds the same ride at another time.
 
 This is the one screen that can do what Autopilot structurally cannot. Autopilot
 sees only the single earliest time the tip board advertises, so it can only pull
-a pass **earlier**. Time Search opens a real modify offer and reads the **whole
-return-time grid** behind it, so it can walk a pass in either direction toward a
-time you type in — including **later on purpose**, for a dinner reservation.
+a pass **earlier**. Time Search opens a real modify offer and reads the
+**return-time grid** behind it, so it can walk a pass in either direction toward
+a time you type in — including **later on purpose**, for a dinner reservation.
+
+**The grid is Disney's list, and it leaves times out.** It omits any time that
+would overlap another of your plans, though Disney books such a time when asked
+for it by name — which is how the manual screen's **Show all** reaches it. So
+Time Search asks by name as well: for the tip board's earliest when finding the
+earliest, and for your time when aiming. With **Avoid clashes** on, it skips any
+time that overlaps another plan, exactly as Autopilot does; off, the default, it
+takes an overlapping time the same way Show all lets you.
 
 - **Find the earliest** chases the soonest slot.
 - **Or aim for** + **Aim for this time** walks toward a named time, accepting
@@ -908,7 +916,7 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.4.1.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.4.2.** Known, recorded, and not fixed yet:
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
