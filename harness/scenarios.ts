@@ -326,6 +326,15 @@ export const SCENARIOS: Scenario[] = [
     screen: 'timesearch',
   },
   {
+    id: 'search-unlisted',
+    title: 'Time Search: a sooner time the grid leaves out',
+    blurb:
+      "The grid lists nothing sooner than the held Haunted Mansion, as Disney's leaves out a time that would overlap another pass, but the tip board shows one forty minutes sooner. Find the earliest asks for it by name and moves there.",
+    script: { ...DEFAULT_SCRIPT, grid: 'same' },
+    seed: seedCommon,
+    screen: 'timesearch',
+  },
+  {
     id: 'search-later',
     title: 'Time Search: only later times',
     blurb:

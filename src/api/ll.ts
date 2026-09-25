@@ -166,6 +166,19 @@ export interface GuestsResponse {
 
 export type OfferExperience = Omit<Experience, 'standby'>;
 
+/**
+ * Which day or reservation an offer is for, and the time to ask for.
+ *
+ * `targetTime` names the return time to ask Disney for. Left out, it is the
+ * tip board's earliest for the attraction, as it always was. Disney's list of
+ * times behind an offer leaves out any that would overlap the party's other
+ * plans, yet it grants such a time when asked for it by name -- which is how
+ * the manual screen's "Show all" reaches it, and why a search names one.
+ */
+export type OfferOptions<B> = ({ date: string } | { booking?: B }) & {
+  targetTime?: ParkTime;
+};
+
 interface Overlap {
   contains: (time: ParkTime) => boolean;
 }
@@ -405,7 +418,7 @@ export abstract class LLClient extends ApiClient {
   abstract offer<B extends Offer['booking']>(
     experience: OfferExperience,
     guests: Guest[],
-    options?: { date: string } | { booking?: B }
+    options?: OfferOptions<B>
   ): Promise<Offer<B>>;
 
   abstract times(offer: Offer): Promise<HourlyTimes>;

@@ -91,8 +91,15 @@ export interface TimeSearchState {
 export interface TimeSearchDeps {
   booking: LLMP;
   goal: SearchGoal;
-  /** `ll.offer(exp, guests, { booking })`, re-derived each time it is called. */
-  createOffer: (booking: LLMP) => Promise<Offer<LLMP>>;
+  /**
+   * `ll.offer(exp, guests, { booking, targetTime })`, re-derived each call.
+   *
+   * `targetTime` is a return time to ask Disney for by name. Disney's grid of
+   * times leaves out any that would overlap the party's other plans, but it
+   * grants one when asked for it directly -- so the offer is the only way this
+   * search can reach such a time at all.
+   */
+  createOffer: (booking: LLMP, targetTime?: ParkTime) => Promise<Offer<LLMP>>;
   getTimes: (offer: Offer<LLMP>) => Promise<ParkTime[][]>;
   changeTime: (offer: Offer<LLMP>, time: ParkTime) => Promise<Offer<LLMP>>;
   commit: (offer: Offer<LLMP>, control?: RequestControl) => Promise<LLMP>;
@@ -110,6 +117,25 @@ export interface TimeSearchDeps {
    * original entitlement, because its facility intentionally changes.
    */
   findHeld: (plans: Booking[], booking: LLMP) => LLMP | undefined;
+  /**
+   * The tip board's earliest return time for this attraction, on this
+   * reservation's day, when one is known.
+   *
+   * Asked for by name on a `soonest` search, because it may be a time the grid
+   * never lists: a manual "Show all" found 1:40 for a reservation this search
+   * had left at 2:50, since 1:40 overlapped another pass and Disney's list
+   * simply omitted it. An `at` search asks for its own target instead.
+   */
+  hint?: () => ParkTime | undefined;
+  /**
+   * Whether a return time lands on another of the party's plans, when the
+   * person has asked Autopilot to avoid that ("Avoid clashes").
+   *
+   * Absent, or false for every time, when the setting is off -- the default,
+   * and what the manual screen has always allowed. `held` is the reservation
+   * being moved, which cannot clash with itself.
+   */
+  clashes?: (time: ParkTime, held: LLMP) => boolean;
   /** A swap is always explicit, even when its offered time is earlier. */
   confirmEveryMove?: boolean;
   /** A confirmed swap is one replacement, not an unattended chain of moves. */
@@ -370,6 +396,17 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     let failures = 0;
     let barren = 0;
     let settling = 0;
+    /**
+     * Times asked for by name that the offer did not come back on, this run.
+     *
+     * Kept apart from the guard's `declined` on purpose. That set is times
+     * `changeOfferTime` was asked for and refused, and it bars them from the
+     * grid as well. An offer that lands elsewhere proves much less -- it walks
+     * toward a named time only when it would otherwise land later -- so it
+     * must not stop the grid offering the same time. It only stops the search
+     * spending a request each cycle asking again.
+     */
+    const unanswered = new Set<number>();
     let offer: Offer<LLMP> | undefined;
     // Captured at effect scope for the cleanup below: the guard is created once
     // and never replaced, so this is the same object either way, but reading a
@@ -878,15 +915,49 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       setState(s => ({ ...s, held: current.start.time }));
       if (goalMet(goal, current.start.time)) return stop('goal-met');
 
+      const clashes = (time: ParkTime) =>
+        depsRef.current.clashes?.(time, current) ?? false;
+
+      // A time worth asking for by name: the one aimed at, or the tip
+      // board's earliest. Only if it would beat what is held, has not already
+      // been refused, and does not clash when clashes are to be avoided --
+      // otherwise the ask spends a request to learn nothing.
+      const named =
+        goal.kind === 'at'
+          ? goal.target
+          : goal.kind === 'soonest'
+            ? depsRef.current.hint?.()
+            : undefined;
+      const ask =
+        named &&
+        !guard.declined.has(+named) &&
+        !unanswered.has(+named) &&
+        !clashes(named) &&
+        bestCandidate(goal, current.start.time, [[named]])
+          ? named
+          : undefined;
+
       // A fresh offer every cycle: `changeOfferTime` replaces both ids, and
       // `times()` is scoped to the offer that produced it, so a grid outlives
       // nothing.
-      offer = await depsRef.current.createOffer(current);
+      offer = ask
+        ? await depsRef.current.createOffer(current, ask)
+        : await depsRef.current.createOffer(current);
       if (stopped()) return;
       baselineRef.current = offerBaseline(offer, current);
+      const offered = offer.start.time;
+      if (ask && +offered !== +ask) unanswered.add(+ask);
       const times = await depsRef.current.getTimes(offer);
       if (stopped()) return;
-      const want = bestCandidate(goal, current.start.time, times, {
+      // The grid, plus -- for a search on this same ride -- the offer's own
+      // time: the grid is Disney's list and leaves out overlapping times, and
+      // the offer may be sitting on one. A swap's offer is for the incoming
+      // attraction and is left to its grid, as before. Clashing times are
+      // dropped from both when the person asked for that.
+      const pool = (
+        goal.kind === 'replace' ? times : [...times, [offered]]
+      ).map(group => group.filter(time => !clashes(time)));
+      const want = bestCandidate(goal, current.start.time, pool, {
         exclude: guard.declined,
       });
       if (!want) {
@@ -907,7 +978,12 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         return;
       }
       if (!guard.begin(want)) return;
-      const quoted = await depsRef.current.changeTime(offer, want);
+      // The offer already sits on the time wanted: take it as quoted. Asking
+      // again would spend a request and re-fulfil the same slot.
+      const quoted =
+        +want === +offered
+          ? offer
+          : await depsRef.current.changeTime(offer, want);
       if (stopped()) return;
       // Disney answers with the nearest slot it can rather than refusing, so
       // a different time is a decline, not an error -- and it is remembered,

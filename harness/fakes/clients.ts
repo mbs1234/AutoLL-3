@@ -10,6 +10,7 @@ import {
   LLClient,
   Offer,
   OfferExperience,
+  OfferOptions,
 } from '@/api/ll';
 import { Park, Resort } from '@/api/resort';
 import { Clients } from '@/contexts/ClientsContext';
@@ -112,7 +113,7 @@ export class FakeLLClient extends LLClient {
   async offer<B extends Offer['booking']>(
     experience: OfferExperience,
     guests: Guest[],
-    options?: { date: string } | { booking?: B }
+    options?: OfferOptions<B>
   ): Promise<Offer<B>> {
     await sleep(LATENCY_MS);
     const booking =
@@ -129,7 +130,10 @@ export class FakeLLClient extends LLClient {
     const advertised = listed?.flex.available
       ? listed.flex.nextAvailableTime
       : undefined;
-    const start = booking?.start.time ?? advertised ?? inMinutes(30);
+    // A time asked for by name is granted, as Disney grants one the grid
+    // leaves out; otherwise modifying starts from what is held.
+    const start =
+      options?.targetTime ?? booking?.start.time ?? advertised ?? inMinutes(30);
     const offer = this.makeOffer(experience, guests, date, start, booking as B);
     return this.updateLastOffer(offer, start);
   }

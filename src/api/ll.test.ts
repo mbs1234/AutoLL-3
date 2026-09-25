@@ -380,6 +380,53 @@ describe('LLClientWDW', () => {
       });
     });
 
+    // Disney's list of times omits any that would overlap the party's other
+    // plans, and grants one when asked for it by name. A named time replaces
+    // the tip board's as what is asked for, in the request and the correction.
+    it('asks for a named time instead of the tip board time', async () => {
+      await expectOffer(
+        sm,
+        guests,
+        { booking, targetTime: ParkTime.from('10:05') },
+        {
+          ...offer,
+          experience: sm,
+          start: new DateTime(TODAY, ParkTime.from('10:05')),
+          end: new DateTime(TODAY, ParkTime.from('11:05')),
+          booking,
+        }
+      );
+      expectFetch('/ea-vas/planning/api/v1/experiences/mod/offerset/generate', {
+        data: {
+          date: booking.start.date,
+          guestIds: guests.map(g => g.id),
+          parkId: mk.id,
+          experienceId: sm.id,
+          originalExperienceId: hm.id,
+          originalEntitlementIds: booking.guests.map(g => g.entitlementId),
+          targetedTime: ParkTime.from('10:05'),
+          ignoredBookedExperienceIds: null,
+        },
+      });
+      expect(client.changeOfferTime).not.toHaveBeenCalled();
+    });
+
+    it('walks the offer toward a named time when it lands later', async () => {
+      respondOffer({
+        ...offer,
+        start: new DateTime(TODAY, ParkTime.from('14:50')),
+        end: new DateTime(TODAY, ParkTime.from('15:50')),
+      });
+      await client.offer(hm, offer.guests.eligible, {
+        date: TODAY,
+        targetTime: ParkTime.from('13:40'),
+      });
+      expect(client.changeOfferTime).toHaveBeenCalledWith(
+        expect.anything(),
+        ParkTime.from('13:40')
+      );
+    });
+
     it('preserves existing reservation identity in the offer itinerary', async () => {
       const res = offerResponse(offer);
       res.data.itinerary.items.splice(1, 0, {
