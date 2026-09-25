@@ -1126,6 +1126,29 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 18. Move the reservation that was asked for, when two people hold one attraction — _completed in 1.4.1_
+
+Found from a friend's report. One person held an attraction at 9:10 and another
+at 2:05, and asked to move the 2:05 earlier, every search set out to beat the
+9:10: "the party's reservation" was `findExistingLL`, the *first* one for the
+ride, and plans are sorted by time. Time Search re-read itself as the other
+person's reservation on its first check; NextLL said it was already holding a
+good enough time; Autopilot would have moved the wrong one.
+
+**Shipped.** Time Search follows the reservation it was opened on
+(`findSameReservation`, and `findHeld` is now required so no screen can fall back
+to the ride-level match). NextLL, Autopilot and Plan Check use the saved party to
+decide whose reservation it is (`findPartyLL`); when that does not pick out one,
+the engine skips with `several-held`, NextLL lists who holds what, and Plan Check
+warns ahead of time. The same report said a switch gave no sign the tap had
+worked: the screen now says it is replacing from the moment of the tap, then that
+it is waiting for Plans, then that it is done.
+
+Found in the harness on the way: each screen kept the saved party it read when it
+mounted, so after Party Selection saved a party of one, NextLL -- mounted
+underneath -- kept warning. Saving now announces itself (`saveSavedPartyIds`),
+and every screen that shows or uses the party follows at once.
+
 ### 10. Give the attempt lock a date, as every other store already has — _completed in `15b2985`_
 
 Found 2026-09-19, while working out what the on-site booking rule changes. It

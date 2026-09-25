@@ -7,6 +7,7 @@ import { LLMP, Offer, OfferError } from '@/api/ll';
 import { DateTime, ParkTime } from '@/datetime';
 import { TODAY } from '@/testing';
 
+import { findSameReservation } from './automodify';
 import { MAX_MUTATION_MS } from './mutation';
 import { SearchGoal } from './timesearch';
 import useTimeSearch, {
@@ -73,7 +74,7 @@ function setup({
   plans,
   confirmEveryMove,
   stopAfterConfirmedMove,
-  findHeld,
+  findHeld = findSameReservation,
   claimCommit,
   releaseCommit,
   quarantineCommit,
@@ -236,6 +237,66 @@ describe('useTimeSearch', () => {
     await runCycles(2);
     expect(deps.commit).toHaveBeenCalled();
     expect(result.current.moves).toBe(1);
+  });
+
+  // As reported of the switch screen: the tap changed nothing on screen until
+  // the next cycle reached it, and read as a tap that did nothing.
+  it('shows an accepted move at once, and clears it once the move is made', async () => {
+    const { result, deps } = setup({
+      goal: { kind: 'at', target: at(15) },
+      held: at(11),
+      times: [[at(15)]],
+    });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.pending).toBeDefined());
+    act(() => result.current.accept());
+    expect(result.current.pending).toBeUndefined();
+    expect(result.current.accepting).toBe(true);
+    expect(deps.commit).not.toHaveBeenCalled();
+    await runCycles(2);
+    expect(deps.commit).toHaveBeenCalled();
+    expect(result.current.accepting).toBe(false);
+  });
+
+  it('stops saying a move is being made when the search is stopped', async () => {
+    const { result } = setup({
+      goal: { kind: 'at', target: at(15) },
+      held: at(11),
+      times: [[at(15)]],
+    });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.pending).toBeDefined());
+    act(() => result.current.accept());
+    act(() => result.current.cancel());
+    expect(result.current.accepting).toBe(false);
+  });
+
+  // As reported: opened on one person's 2:05 pm reservation while another
+  // person held the same attraction at 9:10 am, the search re-read itself as
+  // the 9:10 -- so 11:00, earlier than 2:05, counted as later and never moved.
+  it('moves the reservation it was opened on, not the first for the ride', async () => {
+    let mine = at(14, 5);
+    const someoneElse = booking(at(9, 10), { id: 'ent-other' });
+    const plans = jest.fn(async () => [someoneElse, booking(mine)]);
+    const commit = jest.fn(async (o: Offer<LLMP>) => {
+      mine = o.start.time;
+      return booking(mine);
+    });
+    const { result, deps } = setup({
+      held: at(14, 5),
+      times: [[at(11)]],
+      plans,
+      commit,
+    });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.moves).toBe(1));
+    expect(`${result.current.held}`).toBe('11:00:00');
+    expect(deps.createOffer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ent-1' })
+    );
+    expect(deps.createOffer).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ent-other' })
+    );
   });
 
   it('does not commit when Stop is pressed while a quoted time is loading', async () => {

@@ -107,6 +107,75 @@ export function findExistingLL(
 }
 
 /**
+ * The reservation the saved party holds for an attraction on a park day --
+ * `'several'` when that does not pick out exactly one.
+ *
+ * Two people in one party can hold the same attraction at different times.
+ * `findExistingLL` answers "the party's reservation" with the first one, and
+ * plans are sorted by time, so it always answered with the earlier: asked to
+ * move a 2:05 pm Big Thunder up, a search set out to beat the 9:10 am one
+ * somebody else held, and could never find a time that counted. The owner's
+ * choice is that the saved party decides. A reservation belongs to it when any
+ * of its guests is in the party; with no party saved, every guest is in it.
+ * When that still leaves more than one, the answer is `'several'` -- held, so
+ * nothing books a duplicate, and not one of them, so nothing moves a
+ * reservation nobody picked.
+ *
+ * A spent reservation -- every guest redeemed, so the parser kept no one -- is
+ * counted only when nothing live belongs to the party. It cannot be
+ * attributed, so it must not make a live one ambiguous; but it is still this
+ * attraction held today, and reading it as held keeps the old, safe answer
+ * (unmodifiable, so skipped) instead of booking a second one on a guess.
+ */
+export function findPartyLL(
+  plans: Booking[],
+  experienceId: string,
+  date: string,
+  partyIds: Iterable<string>
+): LLMP | 'several' | undefined {
+  const party = new Set(partyIds);
+  const all = plans.filter(
+    (booking): booking is LLMP =>
+      isLLMP(booking) &&
+      booking.facilityId === experienceId &&
+      parkDate(booking.start) === date
+  );
+  const live = all.filter(
+    booking =>
+      booking.guests.length > 0 &&
+      (party.size === 0 || booking.guests.some(guest => party.has(guest.id)))
+  );
+  if (live.length > 1) return 'several';
+  if (live.length === 1) return live[0];
+  return all.find(booking => booking.guests.length === 0);
+}
+
+/**
+ * The same reservation, in plans read after it was opened: same attraction,
+ * same park day, and the same reservation id or one of its entitlements.
+ *
+ * A search opened on one reservation must follow that one. Matching on the
+ * attraction alone drifted to another guest's reservation for the same ride,
+ * and a search then measured -- and would have moved -- the wrong one. The
+ * entitlements survive a change of time, which is what lets this find the
+ * reservation again after a move.
+ */
+export function findSameReservation(
+  plans: Booking[],
+  original: LLMP
+): LLMP | undefined {
+  const entitlements = new Set(original.guests.map(g => g.entitlementId));
+  return plans.find(
+    (plan): plan is LLMP =>
+      isLLMP(plan) &&
+      plan.facilityId === original.facilityId &&
+      parkDate(plan.start) === parkDate(original.start) &&
+      (plan.id === original.id ||
+        plan.guests.some(guest => entitlements.has(guest.entitlementId)))
+  );
+}
+
+/**
  * Minutes earlier `candidate` is than `current`. Negative means later.
  *
  * `ParkTime.valueOf()` measures from a 4am day start, so an evening booking

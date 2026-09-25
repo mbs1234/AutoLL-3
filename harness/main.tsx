@@ -31,7 +31,7 @@ if (params.get('keep') !== '1') kvdb.clear();
 scenario.seed?.();
 if (scenario.tab) kvdb.set(HOME_TAB_KEY, scenario.tab);
 
-const world = new World(scenario.script);
+const world = new World(scenario.script, scenario.plans?.());
 const clients = createFakeClients(world);
 document.title = `${APP_NAME} harness: ${scenario.title}`;
 

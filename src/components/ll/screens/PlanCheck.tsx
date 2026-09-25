@@ -24,6 +24,7 @@ import PlansContext from '@/contexts/PlansContext';
 import { formatDate } from '@/datetime';
 import useDataLoader from '@/hooks/useDataLoader';
 import { RATE_LIMIT_EXCEEDED } from '@/ratelimit';
+import { loadSavedPartyIds } from '@/savedParty';
 
 import Configure from './Configure';
 
@@ -68,6 +69,8 @@ export default function PlanCheck({
   const doubts = useQuarantine();
   const relevantDoubts = doubts.filter(doubt => doubt.date === bookingDate);
   const coordinated = leaseCoordinationAvailable();
+  // Read each render and compared as text, so a changed party reaches the memo.
+  const partyKey = JSON.stringify(loadSavedPartyIds());
   const input = useMemo(
     () => ({
       targets,
@@ -75,6 +78,7 @@ export default function PlanCheck({
       date: bookingDate,
       experiences,
       plans,
+      partyIds: JSON.parse(partyKey) as string[],
       requireWholeParty,
       avoidOverlaps,
       dryRun,
@@ -90,6 +94,7 @@ export default function PlanCheck({
       bookingDate,
       experiences,
       plans,
+      partyKey,
       requireWholeParty,
       avoidOverlaps,
       dryRun,

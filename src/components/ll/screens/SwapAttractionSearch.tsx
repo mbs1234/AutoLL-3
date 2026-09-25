@@ -230,6 +230,36 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
               </p>
             </div>
           )}
+          {/* From the instant of the tap: the cycle that makes the change can
+              be a poll away, and a tap that changed nothing on the screen was
+              reported as a tap that did nothing. */}
+          {(search.accepting || search.phase === 'awaiting') && target && (
+            <div
+              role="status"
+              className="mt-3 rounded-sm bg-blue-100 p-2 text-blue-900"
+            >
+              <p className="font-semibold">
+                {search.phase === 'awaiting' ? (
+                  <>
+                    Replaced &mdash; waiting for Plans to confirm {target.name}{' '}
+                    at <Time time={search.guard.requested!} />
+                    &hellip;
+                  </>
+                ) : (
+                  <>
+                    Replacing {booking.name} with {target.name}
+                    {search.guard.requested && (
+                      <>
+                        {' '}
+                        at <Time time={search.guard.requested} />
+                      </>
+                    )}
+                    &hellip;
+                  </>
+                )}
+              </p>
+            </div>
+          )}
           {search.pending && target && (
             <div className="mt-3 rounded-sm bg-amber-100 p-2 text-amber-900">
               <p className="font-semibold">
@@ -280,7 +310,25 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
           {search.lastError}
         </p>
       )}
-      {search.stop && !search.unresolved && (
+      {search.stop === 'goal-met' && !search.unresolved && target && (
+        <div
+          role="status"
+          className="mt-3 rounded-sm bg-green-100 p-2 text-green-900"
+        >
+          <p className="font-semibold">
+            Replaced {booking.name} with {target.name}
+            {search.held && (
+              <>
+                {' '}
+                at <Time time={search.held} />
+              </>
+            )}
+            .
+          </p>
+          <p className="mt-1 text-sm">Confirmed in Plans.</p>
+        </div>
+      )}
+      {search.stop && search.stop !== 'goal-met' && !search.unresolved && (
         <div className="mt-3 text-sm text-gray-600">
           <p>
             {search.stop === 'failed'

@@ -1,9 +1,10 @@
 import { ReactNode, use, useEffect, useRef, useState } from 'react';
 
+import { Booking, LLMP, isLLMP } from '@/api/itinerary';
 import { Experience } from '@/api/ll';
 import {
   MIN_TARGETED_IMPROVEMENT_MINUTES,
-  findExistingLL,
+  findPartyLL,
 } from '@/autopilot/automodify';
 import {
   clearPendingSearch,
@@ -78,6 +79,54 @@ function GoalLine({ target }: { target: WatchTarget }) {
     );
   }
   return null;
+}
+
+/**
+ * More than one person holds the chosen attraction, and the saved party does
+ * not pick out whose reservation to move. Name the reservations and the one
+ * thing that settles it, rather than quietly working on the earliest.
+ */
+function SeveralHeld({
+  name,
+  plans,
+  experienceId,
+  date,
+}: {
+  name?: string;
+  plans: Booking[];
+  experienceId: string;
+  date: string;
+}) {
+  const reservations = plans.filter(
+    (booking): booking is LLMP =>
+      isLLMP(booking) &&
+      booking.facilityId === experienceId &&
+      parkDate(booking.start) === date &&
+      booking.guests.length > 0
+  );
+  return (
+    <div
+      role="status"
+      className="mt-3 rounded-sm bg-amber-100 p-2 text-amber-900"
+    >
+      <p className="font-semibold">
+        More than one person holds {name ?? 'this attraction'}.
+      </p>
+      <ul className="mt-1">
+        {reservations.map(booking => (
+          <li key={booking.id}>
+            <Time time={booking.start.time} /> &mdash;{' '}
+            {booking.guests.map(guest => guest.name).join(', ')}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-sm">
+        NextLL moves the one your saved party holds. Save a party of only the
+        people whose reservation should move &mdash; the gear menu, then Party
+        Selection &mdash; and start again.
+      </p>
+    </div>
+  );
 }
 
 function GoalText({ children }: { children: ReactNode }) {
@@ -195,7 +244,13 @@ export function NextLL({
   const chosen = bookable.find(
     exp => exp.id === (target?.experienceId ?? choice)
   );
-  const held = chosen && findExistingLL(plans, chosen.id, bookingDate);
+  // By the engine's own rule, so the screen never names a different
+  // reservation from the one the engine would move: the saved party's, and
+  // `'several'` when that does not pick out one. See `findPartyLL`.
+  const heldForParty =
+    chosen && findPartyLL(plans, chosen.id, bookingDate, partyIds);
+  const several = heldForParty === 'several';
+  const held = several ? undefined : heldForParty;
   // The engine's own predicate, not a second one. Reading `before` alone said
   // "that will do" about a 9:40 return for a search asked to return after 3pm,
   // and offered Done beside it.
@@ -389,6 +444,14 @@ export function NextLL({
               ? `Books for your saved party of ${partyIds.size}. Change it from the LL tab.`
               : 'Books for everyone eligible. Choose a smaller party from the LL tab if you want fewer.'}
           </p>
+          {several && chosen && (
+            <SeveralHeld
+              name={chosen.name}
+              plans={plans}
+              experienceId={chosen.id}
+              date={bookingDate}
+            />
+          )}
 
           {bookable.length === 0 && (
             <p className="mt-3 text-sm text-gray-600">
@@ -410,6 +473,13 @@ export function NextLL({
                 <> &mdash; still looking for a time inside your window.</>
               )}
             </p>
+          ) : several && chosen ? (
+            <SeveralHeld
+              name={chosen.name}
+              plans={plans}
+              experienceId={chosen.id}
+              date={bookingDate}
+            />
           ) : (
             <p className="mt-2">
               Nothing held yet. Checking&hellip;{' '}

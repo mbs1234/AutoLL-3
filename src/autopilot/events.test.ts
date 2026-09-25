@@ -261,6 +261,9 @@ describe('SKIP_TEXT', () => {
       // is to reload the other tabs, and "already-attempted" would have the
       // owner wait instead.
       'stale-lock',
+      // Two people hold one attraction and the saved party does not say whose
+      // to move. The words carry the only thing that fixes it.
+      'several-held',
     ];
     expect(declared.length).toBeGreaterThan(10);
     expect(declared.filter(reason => !(reason in SKIP_TEXT))).toEqual([]);

@@ -552,7 +552,7 @@
       stops working.
     </p>
     <div class="masthead-meta">
-      <span>Version 1.4.0</span>
+      <span>Version 1.4.1</span>
       <span>Three parts · 23 sections</span>
       <span>Unofficial · not endorsed by Disney</span>
     </div>
@@ -1699,6 +1699,16 @@
         met the button reads <span class="ui">Done</span> but it keeps checking
         until you tap it.
       </p>
+      <p>
+        <strong>When two people hold the same ride.</strong> If more than one
+        person holds the attraction at different times, NextLL works on the
+        reservation your <strong>saved party</strong> holds. With no party
+        saved, or a party that includes both, it cannot tell which you mean, so
+        it says so and lists who holds what: save a party of only the people
+        whose reservation should move — the gear, then
+        <span class="ui">Party Selection</span> — and start again. Autopilot
+        follows the same rule, and Plan Check warns about it ahead of time.
+      </p>
     </section>
 
     <section id="time-search">
@@ -1717,7 +1727,8 @@
         NextLL → Modify a held Lightning Lane → pick one →
         <span class="ui">Improve return time</span>. Also reachable from a held
         pass: Plans → the row → <span class="ui">Change</span> → “Search for a
-        better time”.
+        better time”. It works on the pass you opened it from, even when
+        someone else in your party holds the same ride at another time.
       </p>
       <p>
         This is the one screen that can do what Autopilot structurally cannot.
@@ -1742,8 +1753,9 @@
           appears: “A later time is available… Taking it gives up the earlier
           reservation you hold now.” with a <span class="ui">Take it</span>
           button. Nothing is held for you while it waits — the slot can be gone
-          by the time you tap, and the tap takes up to six seconds to act because
-          the commit runs on the next cycle.
+          by the time you tap. The move is made on the next cycle, up to six
+          seconds later, and the screen says “Moving to …” from the moment you
+          tap.
         </p>
       </div>
       <p>
@@ -1756,7 +1768,10 @@
       <p>
         <strong>Change attraction</strong> is the sister screen: it hunts a
         replacement ride for a pass you hold, and <strong>always asks before
-        replacing</strong>, even if the offered time is earlier.
+        replacing</strong>, even if the offered time is earlier. Once you tap
+        <span class="ui">Replace Lightning Lane</span> it says it is replacing,
+        then that it is waiting for Plans, and finally
+        <strong>Replaced … Confirmed in Plans.</strong>
       </p>
     </section>
 
@@ -2012,7 +2027,7 @@
         well, or it may start empty next time.
       </p>
       <p>
-        <strong>Rough edges, as of 1.4.0.</strong> Known, recorded, and not
+        <strong>Rough edges, as of 1.4.1.</strong> Known, recorded, and not
         fixed yet:
       </p>
       <ul>

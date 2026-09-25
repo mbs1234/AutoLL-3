@@ -109,6 +109,67 @@ describe('SwapAttractionSearch', () => {
     expect(screen.getByText(/always ask before replacing/)).toBeInTheDocument();
   });
 
+  // As reported: after "Replace Lightning Lane" nothing on the screen changed
+  // until the next check, so the tap looked like it had done nothing -- and
+  // the only word that it had worked was a small grey line at the end.
+  describe('while and after replacing', () => {
+    const shown: Partial<ReturnType<typeof useTimeSearch>> = {};
+    beforeEach(() => {
+      for (const key of Object.keys(shown)) {
+        delete shown[key as keyof typeof shown];
+      }
+      mockedUseTimeSearch.mockImplementation(deps => ({
+        running: false,
+        held: deps.booking.start.time,
+        cycles: 0,
+        moves: 0,
+        phase: 'idle',
+        start: jest.fn(),
+        accept: jest.fn(),
+        cancel: jest.fn(),
+        guard: { requested: undefined } as ReturnType<
+          typeof useTimeSearch
+        >['guard'],
+        ...shown,
+      }));
+    });
+    /** Render, then pick the new attraction: the pick is what re-renders. */
+    function replacing(state: Partial<ReturnType<typeof useTimeSearch>>) {
+      renderScreen(<SwapAttractionSearch booking={held(BZ)} />, {
+        experiences: [llExperience(BZ), llExperience(DB)],
+      });
+      Object.assign(shown, state);
+      fireEvent.change(chooser(), { target: { value: DB } });
+    }
+    const four = new ParkTime(16);
+    const guard = { requested: four } as ReturnType<
+      typeof useTimeSearch
+    >['guard'];
+
+    it('says the replacement is being made from the moment it is accepted', () => {
+      replacing({ running: true, accepting: true, phase: 'committing', guard });
+      expect(screen.getByRole('status')).toHaveTextContent(
+        `Replacing ${wdw.experience(BZ).name} with ${wdw.experience(DB).name} at 4:00 PM`
+      );
+    });
+
+    it('says when it is waiting for Plans to confirm', () => {
+      replacing({ running: true, phase: 'awaiting', guard });
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'waiting for Plans to confirm'
+      );
+    });
+
+    it('says plainly when the replacement is done', () => {
+      replacing({ stop: 'goal-met', held: four });
+      const done = screen.getByRole('status');
+      expect(done).toHaveTextContent(
+        `Replaced ${wdw.experience(BZ).name} with ${wdw.experience(DB).name} at 4:00 PM.`
+      );
+      expect(done).toHaveTextContent('Confirmed in Plans.');
+    });
+  });
+
   it('claims both the victim and the attraction being gained', async () => {
     renderScreen(<SwapAttractionSearch booking={held(BZ)} />, {
       experiences: [llExperience(BZ), llExperience(DB)],
