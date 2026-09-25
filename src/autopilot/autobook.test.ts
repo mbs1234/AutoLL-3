@@ -11,6 +11,7 @@ import {
   attemptAutoBook,
   lockKey,
   offerIsAcceptable,
+  outcomeIsUnknown,
   shouldAttempt,
 } from './autobook';
 import { wholePartyEligible } from './party';
@@ -1724,5 +1725,31 @@ describe('AutoBookLedger rehearsals across kinds', () => {
     ledger.markAttempted(BZ, 'book', true);
     ledger.markAttempted(BZ, 'book');
     expect(ledger.settleableIds).toEqual([BZ]);
+  });
+});
+
+describe('outcomeIsUnknown', () => {
+  const answered = (status: number) =>
+    new RequestError({ ok: false, status, data: {} });
+
+  // No answer, or a server failing mid-request: the change may have landed.
+  it.each([0, 500, 503])('calls status %s unknown', status => {
+    expect(outcomeIsUnknown(answered(status))).toBe(true);
+  });
+
+  // An answer that refused it: nothing changed.
+  it.each([400, 403, 409, 410, 429])('calls status %s known', status => {
+    expect(outcomeIsUnknown(answered(status))).toBe(false);
+  });
+
+  it('knows a request that never left changed nothing', () => {
+    expect(outcomeIsUnknown(new RequestNotSent('refused at dispatch'))).toBe(
+      false
+    );
+    expect(outcomeIsUnknown(new RateLimitExceeded())).toBe(false);
+  });
+
+  it("reports this app's own errors as the errors they are", () => {
+    expect(outcomeIsUnknown(new Error('oops'))).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import { use, useState } from 'react';
 
 import { DasBooking, LightningLane } from '@/api/itinerary';
+import { outcomeIsUnknown } from '@/autopilot/autobook';
 import FloatingButton from '@/components/FloatingButton';
 import GuestList from '@/components/GuestList';
 import LandLine from '@/components/LandLine';
@@ -11,6 +12,7 @@ import PlansContext from '@/contexts/PlansContext';
 import useDataLoader from '@/hooks/useDataLoader';
 
 import ReturnTime from '../ReturnTime';
+import UnansweredNotice from '../UnansweredNotice';
 
 export default function CancelGuests<B extends LightningLane | DasBooking>({
   booking,
@@ -29,6 +31,7 @@ export default function CancelGuests<B extends LightningLane | DasBooking>({
     Set<LightningLane['guests'][0]>
   >(new Set());
   const { loadData, loaderElem } = useDataLoader();
+  const [unanswered, setUnanswered] = useState(false);
 
   const { name, park, guests } = booking;
   const cancelingNone = guestsToCancel.size === 0;
@@ -36,10 +39,24 @@ export default function CancelGuests<B extends LightningLane | DasBooking>({
 
   async function cancelBooking() {
     if (cancelingNone) return;
+    let cancelled = false;
     await loadData(async () => {
-      await client.cancelBooking([...guestsToCancel]);
-      refreshPlans();
+      try {
+        await client.cancelBooking([...guestsToCancel]);
+        cancelled = true;
+      } catch (error) {
+        if (outcomeIsUnknown(error)) setUnanswered(true);
+        throw error;
+      } finally {
+        // Either way. A cancel whose answer was lost may still have landed,
+        // and a refused one must not leave Plans showing what it assumed.
+        refreshPlans();
+      }
     });
+    // Only a cancel Disney confirmed leaves this screen. A failed one used to
+    // go back anyway and redraw the party without those guests, so a refusal
+    // read exactly like success -- with the error gone with the screen.
+    if (!cancelled) return;
     await goBack();
     onCancel(guests.filter(g => !guestsToCancel.has(g)));
   }
@@ -101,7 +118,11 @@ export default function CancelGuests<B extends LightningLane | DasBooking>({
           />
         </div>
       )}
-      <FloatingButton disabled={cancelingNone} onClick={cancelBooking}>
+      {unanswered && <UnansweredNotice action="cancel" />}
+      <FloatingButton
+        disabled={cancelingNone || unanswered}
+        onClick={cancelBooking}
+      >
         {'Cancel ' + (cancelingAll ? 'Reservation' : 'Guests')}
       </FloatingButton>
 
