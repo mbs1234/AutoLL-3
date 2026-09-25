@@ -7,9 +7,12 @@ import { DateFormat, modifyDate, parkDate, toDate } from '@/datetime';
 import useUpdateParkFromPlans from '@/hooks/useUpdateParkFromPlans';
 import { NUM_BOOKING_DAYS } from '@/providers/BookingDateProvider';
 
+import useScopeGuard, { dayLabel } from '../../useScopeGuard';
+
 export default function BookingDateSelect(props: { className?: string }) {
   const { bookingDate, setBookingDate } = use(BookingDateContext);
   const updateParkFromPlans = useUpdateParkFromPlans();
+  const { guard, dialog } = useScopeGuard();
   const today = parkDate();
 
   const options = useMemo(() => {
@@ -25,18 +28,23 @@ export default function BookingDateSelect(props: { className?: string }) {
   }, [today]);
 
   return (
-    <MenuButton
-      {...props}
-      title="Booking Date"
-      options={options}
-      selected={bookingDate}
-      onChange={(date: string) => {
-        if (date === bookingDate) return;
-        setBookingDate(date);
-        updateParkFromPlans(date);
-      }}
-      menuType={CalendarMenu}
-    />
+    <>
+      <MenuButton
+        {...props}
+        title="Booking Date"
+        options={options}
+        selected={bookingDate}
+        onChange={(date: string) => {
+          if (date === bookingDate) return;
+          guard(dayLabel(date), () => {
+            setBookingDate(date);
+            updateParkFromPlans(date);
+          });
+        }}
+        menuType={CalendarMenu}
+      />
+      {dialog}
+    </>
   );
 }
 
