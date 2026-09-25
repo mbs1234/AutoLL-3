@@ -312,10 +312,42 @@ describe('BookExperience', () => {
     await renderComponent();
     await mockBook(410);
     expect(ll.offer).toHaveBeenCalledTimes(2);
-    await mockBook(0);
-    see('Network request failed (no response)');
     await mockBook(-1);
     see('Unknown error occurred');
+    // A failure that did not reach Disney leaves Book to try again.
+    see('Book Lightning Lane');
+  });
+
+  // No answer is not a failure: the booking may exist. The button used to stay
+  // live under a three-second error, one tap from trying the same thing again.
+  it('stops offering Book when Disney does not answer', async () => {
+    await renderComponent();
+    await mockBook(0);
+    see('Network request failed (no response)');
+    see('Disney did not answer.');
+    see('Open Plans');
+    see.no('Book Lightning Lane');
+  });
+
+  // The booking went through for everyone on the offer; only trimming the
+  // party back failed. Staying on this screen made it look as though nothing
+  // had been booked at all.
+  it('shows the booking when removing extra guests fails', async () => {
+    await renderComponent();
+    // Disney books everyone on the offer; here that includes a guest the
+    // party did not select, so the screen has to trim him back off.
+    ll.book.mockResolvedValueOnce({
+      ...booking,
+      guests: [...booking.guests, { ...donald, entitlementId: 'donald-ent' }],
+    });
+    errorMock.mockImplementationOnce(() => null);
+    ll.cancelBooking.mockRejectedValueOnce(
+      new RequestError({ ok: false, status: 500, data: {} })
+    );
+    click('Book Lightning Lane');
+    await loading();
+    see('Your Lightning Lane');
+    expect(screen.getByText(/removing Donald Duck failed/)).toBeVisible();
   });
 
   it('limits offers to maxPartySize', async () => {

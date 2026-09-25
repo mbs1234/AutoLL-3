@@ -27,10 +27,13 @@ export default function BookingDetails({
   booking,
   isNew,
   unmodifiable,
+  warning,
 }: {
   booking: Booking;
   isNew?: boolean;
   unmodifiable?: boolean;
+  /** Something the screen that made this booking could not finish. */
+  warning?: string;
 }) {
   const { goTo, goBack } = use(NavContext);
   const { parks } = use(ResortContext);
@@ -78,6 +81,14 @@ export default function BookingDetails({
       buttons={!unmodifiable && !isNew && <ModifyButton booking={booking} />}
       subhead={<Day>{parkDate(start)}</Day>}
     >
+      {warning && (
+        <p
+          role="alert"
+          className="mt-3 rounded-sm bg-amber-100 p-2 text-amber-900"
+        >
+          {warning}
+        </p>
+      )}
       {choices ? (
         <h2>Multiple Experiences</h2>
       ) : (
