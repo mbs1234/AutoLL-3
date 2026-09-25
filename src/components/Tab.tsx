@@ -31,15 +31,20 @@ export default function Tab({
       subhead={subhead}
       footer={
         <>
-          {/* Five tabs across a 360 px phone leave no room beside them, so
-              which build this is now says so in the settings menu. */}
+          {/* Above the tabs, never below them. Below, it appeared only while
+              Autopilot ran and only off Today, so the tabs rode 28 px higher
+              on every other tab and a thumb aimed at them met this row --
+              which on NextLL ended the search. */}
+          <AutopilotStatusRow />
+          {/* The gear is the row's last item rather than laid over its end,
+              where it covered part of NextLL. Five tabs and the gear fit a
+              360 px phone. */}
           <div className="relative flex items-center justify-center">
             {tabs.map(tab => (
               <TabButton {...tab} key={tab.name} />
             ))}
+            {footer}
           </div>
-          <AutopilotStatusRow />
-          {footer}
         </>
       }
       ref={ref}

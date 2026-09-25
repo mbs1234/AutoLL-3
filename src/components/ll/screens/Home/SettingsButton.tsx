@@ -62,7 +62,7 @@ export default function SettingsButton() {
   return (
     <>
       <button
-        className="absolute top-0 right-0 h-full px-4"
+        className="min-w-11 self-stretch px-2.5 py-2"
         onClick={() => showMenu(true)}
         title="Settings Menu"
       >
