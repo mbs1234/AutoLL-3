@@ -244,6 +244,45 @@ async function runTicks(count: number, intervalMs = IDLE_INTERVAL_MS) {
 }
 
 /**
+ * Let the tick in progress finish, without reaching the next one.
+ *
+ * A tick runs on for a dozen awaits past anything a test can wait for -- the
+ * settle sweep, the action loop it feeds, the re-read of plans after an action
+ * -- and advancing by zero drains them, where the next tick is ~45s away.
+ */
+async function drainTick() {
+  await act(async () => {
+    for (let drain = 0; drain < 20; ++drain) {
+      await jest.advanceTimersByTimeAsync(0);
+    }
+  });
+}
+
+/**
+ * Step until `count` more plans polls have run, and let the last one's tick
+ * finish.
+ *
+ * For a case that turns on which *poll* something lands on. The poll interval
+ * carries +/-20% jitter, so a fixed number of 45-second advances does not map
+ * one to one onto ticks: ten of them can end just short of the tenth tick,
+ * and the poll a case was counting on has not happened. Every call counts,
+ * the re-read after an action included, so step with nothing left to act on.
+ */
+async function untilPlansPolls(pollPlans: jest.Mock, count = 1) {
+  await drainTick();
+  const target = pollPlans.mock.calls.length + count;
+  // Generously: at the slowest jitter, ten ticks take twelve intervals.
+  for (let i = 0; i < count * PLANS_EVERY_N_TICKS * 2; ++i) {
+    await runTicks(1);
+    if (pollPlans.mock.calls.length >= target) {
+      await drainTick();
+      return;
+    }
+  }
+  throw new Error(`fewer than ${count} plans polls happened`);
+}
+
+/**
  * Ticks needed for a booking lock to release, with margin.
  *
  * Any test asserting that something happens *at most once* has to outlast this
@@ -4019,13 +4058,14 @@ describe('AutopilotProvider across booking dates', () => {
   // the lock sitting in the day's shared copy for every other instance to adopt.
   it('releases a move lock once the reservation is gone', async () => {
     saveWatchList([{ experienceId: BZ, autoModify: true }]);
-    const { book, setPolledPlans } = setupBooking({
+    const { book, pollPlans, setPolledPlans } = setupBooking({
       offerHour: 11,
       plans: [heldOn(TODAY, 19, 'ent-1')],
     });
     await enable();
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
-    await runTicks(PLANS_EVERY_N_TICKS + 1);
+    // The next plans poll, which sees the moved pass.
+    await untilPlansPolls(pollPlans);
     expect(loadLocks()).toEqual([`${TODAY}:modify:${BZ}`]);
 
     // Paused, so the only thing that can touch the lock from here is the
@@ -4034,9 +4074,37 @@ describe('AutopilotProvider across booking dates', () => {
       screen.getByText('pause BZ').click();
     });
     // Cancelled by hand. Two consecutive plans polls without it are what the
-    // release needs, and the first one of those also has to have seen it held.
+    // release needs.
     setPolledPlans([]);
-    await runTicks(RELEASE_TICKS);
+    await untilPlansPolls(pollPlans, CONFIRM_ABSENT_POLLS);
+    expect(loadLocks()).toEqual([]);
+  });
+
+  // The same release when no poll has seen the moved pass. Only a scheduled
+  // plans poll feeds the settle sweep, and the next is ten ticks off: a pass
+  // cancelled by hand before it was never seen held, and a lock never seen held
+  // never released, however long the pass stayed gone. The next pass for the
+  // attraction could not be moved.
+  it('releases a move lock when the pass goes before a poll sees it', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { book, pollPlans, setPolledPlans } = setupBooking({
+      offerHour: 11,
+      plans: [heldOn(TODAY, 19, 'ent-1')],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    await drainTick();
+    // The poll that found the pass, which ran before the lock existed, and the
+    // re-read after the move, which settles nothing. No poll has seen the pass
+    // since the lock was taken.
+    expect(pollPlans).toHaveBeenCalledTimes(2);
+    expect(loadLocks()).toEqual([`${TODAY}:modify:${BZ}`]);
+
+    await act(async () => {
+      screen.getByText('pause BZ').click();
+    });
+    setPolledPlans([]);
+    await untilPlansPolls(pollPlans, CONFIRM_ABSENT_POLLS);
     expect(loadLocks()).toEqual([]);
   });
 

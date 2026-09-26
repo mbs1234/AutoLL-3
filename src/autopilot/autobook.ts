@@ -358,7 +358,8 @@ export class AutoBookLedger {
   protected absences = new Map<string, number>();
   /**
    * Locks whose reservation has been seen held in plans at least once *since
-   * that lock was taken*.
+   * that lock was taken* -- or, for a move, whose request Disney answered
+   * (`markMoved`).
    *
    * The gate on releasing a lock. Absence only means "cancelled" for a
    * reservation we watched exist; for one we never saw, it is indistinguishable
@@ -958,6 +959,39 @@ export class AutoBookLedger {
   }
 
   /**
+   * Take Disney's answer to a move as the sighting its lock is waiting for.
+   *
+   * An owned lock is released on absence only once its reservation has been
+   * seen held since the lock was taken. For a move that was meant to be a
+   * formality -- the provider chooses `modify` only having found the
+   * reservation, so the next poll should confirm it -- but only a scheduled
+   * plans poll feeds the settle sweep, and the next one can be ten ticks away:
+   * about 7.5 minutes at the idle cadence. A pass moved and then cancelled by
+   * hand inside that window was never seen held, so no number of absences could
+   * release its lock. It stayed in the shared copy, and the next pass for that
+   * attraction could not be moved.
+   *
+   * The answer says what that poll would have said: the reservation exists,
+   * now. It counts for this one lock and nothing else. The cost is a lock
+   * released early should plans miss the moved pass twice running, and that
+   * buys at most one more move, to a better time. `book` and `swap` must not be
+   * given the same shortcut. A new pass can lag in the itinerary, "seen held" is
+   * what stops that lag being read as a cancellation, and for them an early
+   * release can spend a second entitlement on the same attraction.
+   *
+   * Harmless if the lock has gone while the request was out: `confirmed` is
+   * consulted only for a lock this instance owns, and `markAttempted` clears it
+   * whenever one is taken.
+   */
+  markMoved(experienceId: string): void {
+    const key = this.key('modify', experienceId);
+    // As a sighting does. The answer is newer than any absence counted while
+    // the request was out, and a pass mid-move is exactly what plans can miss.
+    this.absences.delete(key);
+    this.confirmed.add(key);
+  }
+
+  /**
    * Settle every action lock on one attraction against observed plans.
    *
    * Disney permits booking, cancelling, and rebooking the same attraction; the
@@ -1004,9 +1038,10 @@ export class AutoBookLedger {
    * action:
    *
    * - For `modify` the reservation demonstrably existed when the lock was taken
-   *   -- the provider only chooses that kind having found one -- so the very
-   *   next poll confirms it and the lock then releases only once the reservation
-   *   is genuinely gone, at which point there is nothing left to move.
+   *   -- the provider only chooses that kind having found one -- so Disney's
+   *   answer to the move confirms it (`markMoved`), or failing that the next
+   *   poll does, and the lock then releases only once the reservation is
+   *   genuinely gone, at which point there is nothing left to move.
    * - For `swap` the gained attraction was *not* held when the lock was taken,
    *   so absence cannot tell a failed swap from one that succeeded and was
    *   cancelled from an itinerary that has not caught up -- which is `book`'s
@@ -1182,7 +1217,7 @@ export function offerIsAcceptable(
  */
 export type BookLedger = Pick<
   AutoBookLedger,
-  'hasAttempted' | 'markAttempted' | 'markBooked' | 'bookedCount'
+  'hasAttempted' | 'markAttempted' | 'markBooked' | 'markMoved' | 'bookedCount'
 >;
 
 export interface AutoBookDeps {
