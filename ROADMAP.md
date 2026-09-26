@@ -1126,6 +1126,23 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 21. Free a move's lock when the pass is cancelled before the next poll — _completed in 1.4.4_
+
+Found from a test that failed about one run in four hundred, and real on a park
+day. A move's lock is released on absence only once the pass has been seen held
+since the lock was taken, and only a scheduled plans poll feeds that sweep: up
+to ten ticks, about 7.5 minutes idle, after the move. A pass Autopilot moved and
+someone then cancelled by hand inside that window was never seen held, so its
+lock was never released. It stayed in the shared copy, and the next pass for
+that attraction could not be moved until Autopilot was switched off and on.
+
+**Shipped.** Disney's answer to a move is taken as that sighting, for the move's
+own lock only (`AutoBookLedger.markMoved`). A booking or a swap still waits for
+plans: a new pass can lag in the itinerary, and releasing its lock early can
+spend a second entitlement. The test that found it now steps by plans poll
+rather than by tick, since the poll interval's ±20% jitter could stretch ten
+ticks past the time it allowed.
+
 ### 20. Stop the screens saying what is not so — _completed in 1.4.3_
 
 Found by a usability review of the whole app. Six defects, each one a screen

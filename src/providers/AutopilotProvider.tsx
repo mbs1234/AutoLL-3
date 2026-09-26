@@ -714,11 +714,11 @@ export default function AutopilotProvider({
        * They take a structural `BookLedger` rather than the instance precisely
        * so this can be handed in. Their calls are the ones the wrapper above
        * cannot reach from here: `markAttempted` runs inside the dispatch
-       * boundary and `markBooked` runs *after* the booking round trip, where
-       * the tick may long since have been abandoned. `markBooked` is the one
-       * that costs something -- it clears the doubt-hold for a lost response,
-       * and on the wrong date that is the only thing stopping a second
-       * entitlement being spent there.
+       * boundary, and `markBooked` and `markMoved` run *after* the booking
+       * round trip, where the tick may long since have been abandoned.
+       * `markBooked` is the one that costs something -- it clears the
+       * doubt-hold for a lost response, and on the wrong date that is the only
+       * thing stopping a second entitlement being spent there.
        */
       const datedLedger: BookLedger = {
         hasAttempted: (id, kind) =>
@@ -732,6 +732,7 @@ export default function AutopilotProvider({
           return () => onBookingDate(rollback);
         },
         markBooked: id => onBookingDate(() => ledgerRef.current.markBooked(id)),
+        markMoved: id => onBookingDate(() => ledgerRef.current.markMoved(id)),
         // Read-through, not a snapshot: the count moves while a helper runs.
         get bookedCount() {
           return ledgerRef.current.bookedCount;
