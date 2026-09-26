@@ -1056,6 +1056,75 @@ describe('AutoBookLedger.resolveRejected()', () => {
 });
 
 /**
+ * A move Disney answered, taken as the sighting its lock waits for.
+ *
+ * Only a scheduled plans poll feeds the settle sweep, and one can be ten ticks
+ * away. A pass moved and cancelled by hand before it was never seen held, so
+ * its lock could not be released by any number of absences.
+ */
+describe('AutoBookLedger.markMoved()', () => {
+  /** Every key the persister was told to drop, flattened. */
+  const dropped = (removals: (readonly string[] | undefined)[]) =>
+    removals.flatMap(r => [...(r ?? [])]);
+
+  function seeAbsent(ledger: AutoBookLedger, times: number) {
+    for (let i = 0; i < times; ++i) ledger.resolveHeld(BZ, false);
+  }
+
+  it('releases a moved pass that goes before any poll sees it', () => {
+    const removals: (readonly string[] | undefined)[] = [];
+    const ledger = new AutoBookLedger(DATE, released =>
+      removals.push(released)
+    );
+    ledger.markAttempted(BZ, 'modify');
+    ledger.markMoved(BZ);
+    // On the same evidence as a lock seen held: every absence, and no fewer.
+    seeAbsent(ledger, CONFIRM_ABSENT_POLLS - 1);
+    expect(ledger.hasAttempted(BZ, 'modify')).toBe(true);
+    seeAbsent(ledger, 1);
+    expect(ledger.hasAttempted(BZ, 'modify')).toBe(false);
+    expect(dropped(removals)).toContain(`${DATE}:modify:${BZ}`);
+  });
+
+  // A pass mid-move is what plans can miss. An absence counted while the move
+  // was out is older than the answer saying the pass is there.
+  it('counts absences again from the answer', () => {
+    const ledger = new AutoBookLedger(DATE);
+    ledger.markAttempted(BZ, 'modify');
+    ledger.resolveHeld(BZ, true);
+    seeAbsent(ledger, CONFIRM_ABSENT_POLLS - 1);
+    ledger.markMoved(BZ);
+    seeAbsent(ledger, CONFIRM_ABSENT_POLLS - 1);
+    expect(ledger.hasAttempted(BZ, 'modify')).toBe(true);
+  });
+
+  // The move's answer says nothing about another request whose own answer was
+  // lost. Released on absences, that lock would let the engine act again on a
+  // pass that may already exist.
+  it.each(['book', 'swap'] as const)('does not vouch for a %s', kind => {
+    const ledger = new AutoBookLedger(DATE);
+    ledger.markAttempted(BZ, kind);
+    ledger.markAttempted(BZ, 'modify');
+    ledger.markMoved(BZ);
+    seeAbsent(ledger, CONFIRM_ABSENT_POLLS * 3);
+    expect(ledger.hasAttempted(BZ, 'modify')).toBe(false);
+    expect(ledger.hasAttempted(BZ, kind)).toBe(true);
+  });
+
+  // NextLL moves the same pass again once the last move lands. That request is
+  // a new question, and the last one's answer is not its answer.
+  it('gives the next move on the pass no head start', () => {
+    const ledger = new AutoBookLedger(DATE);
+    ledger.markAttempted(BZ, 'modify');
+    ledger.markMoved(BZ);
+    ledger.releaseAttempt(BZ, 'modify');
+    ledger.markAttempted(BZ, 'modify');
+    seeAbsent(ledger, CONFIRM_ABSENT_POLLS * 3);
+    expect(ledger.hasAttempted(BZ, 'modify')).toBe(true);
+  });
+});
+
+/**
  * Roadmap item 10: an action lock is about one booking date, and so is the
  * evidence that settles it.
  *

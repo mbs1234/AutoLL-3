@@ -473,6 +473,10 @@ export async function attemptAutoModify(
     );
     const booking = await book(offer, control);
     ledger.markBooked();
+    // The sighting the next plans poll would have supplied, and that poll can
+    // be ten ticks away: a pass cancelled before it kept its move lock. See
+    // `markMoved`.
+    ledger.markMoved(target.experienceId);
     return { status: 'modified', booking, from, to };
   } catch (error) {
     if (error instanceof OfferError) {
