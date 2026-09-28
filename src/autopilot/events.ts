@@ -1,4 +1,5 @@
-import { CALL_TEXT, RefusalState, refusedCalls } from '@/autopilot/refusal';
+import { syncedParkTimeAt } from '@/autopilot/schedule';
+import { modeText } from '@/autopilot/status';
 import { PollerStatus } from '@/autopilot/usePoller';
 import {
   AutopilotHit,
@@ -60,7 +61,6 @@ export interface AutopilotEvent {
 
 export interface EventFacts {
   status: PollerStatus;
-  refusals?: RefusalState;
   /** Newest first, as the provider keeps it. */
   bookingLog: BookingLogEntry[];
   lastSkip?: Skip;
@@ -179,16 +179,19 @@ export function latestActivity(
 /**
  * The one line worth showing about Autopilot right now.
  *
- * Most urgent first: a poller that has given up; Disney refusing the booking
- * path; the newest action or skip; the cadence, when the poller is busy around
+ * Most urgent first: a poller that has given up, and why; a wait Disney asked
+ * for; the newest action or skip; the cadence, when the poller is busy around
  * a drop and nothing has happened in the last two minutes; the last find; and
  * finally the fact that it is watching. Off with nothing to report says
  * nothing, so a screen can leave the line out.
  */
 export function latestEvent(facts: EventFacts): AutopilotEvent | undefined {
-  const { status, refusals, bookingLog, lastSkip, lastHit, now } = facts;
+  const { status, bookingLog, lastSkip, lastHit, now } = facts;
 
   if (status.mode === 'stopped') {
+    if (status.stopReason && status.stopReason !== 'failures') {
+      return { at: now, level: 'error', text: modeText(status) };
+    }
     const why = status.lastError ? `: ${status.lastError}` : '';
     return {
       at: now,
@@ -197,13 +200,12 @@ export function latestEvent(facts: EventFacts): AutopilotEvent | undefined {
     };
   }
 
-  const refused =
-    status.mode === 'off' || !refusals ? [] : refusedCalls(refusals, now);
-  if (refused.length > 0) {
+  // Still running, so a warning and not an error: it carries on by itself.
+  if (status.mode === 'waiting' && status.waitUntil !== undefined) {
     return {
       at: now,
-      level: 'error',
-      text: `Disney is refusing ${refused.map(c => CALL_TEXT[c]).join(' and ')}`,
+      level: 'warn',
+      text: `Disney asked to slow down: waiting until ${fmt(syncedParkTimeAt(status.waitUntil))}`,
     };
   }
 

@@ -14,6 +14,13 @@ import { mutationId } from './lease';
 import { MAX_MUTATION_MS, MutationOperation } from './mutation';
 import type { MutationEvidence } from './mutation';
 import {
+  noteRefusal,
+  noteThrottle,
+  pushbackOf,
+  refusalCount,
+  subscribePushback,
+} from './pushback';
+import {
   CommitGuard,
   CommitPhase,
   SearchGoal,
@@ -39,7 +46,11 @@ export const CYCLE_MS = 6000;
 /** Consecutive failed cycles before the search gives up. */
 export const MAX_FAILURES = 5;
 
-/** Cycles with nothing worth taking before it stops looking. */
+/**
+ * Cycles with nothing worth taking before it stops looking: about twenty
+ * minutes. It stops as a session, and says to take a break, because hours of
+ * back-to-back searches are how an account gets paused.
+ */
 export const MAX_BARREN_CYCLES = 200;
 
 /** Moves per run. A search that has moved this often is not converging. */
@@ -239,6 +250,9 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     };
   }, []);
   const runningRef = useRef(false);
+  // The refusal count when this search started. A different count later means
+  // Disney has refused some routine's request since, and this search stops.
+  const refusalsAtStartRef = useRef(refusalCount());
   /** Set when the user has approved the later move the guard is holding. */
   const acceptedRef = useRef(false);
   /**
@@ -365,8 +379,22 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     setState(s => ({ ...s, pending: undefined, accepting: true }));
   }, []);
 
+  // Another routine refused mid-search: stop now, not six seconds from now.
+  // The search's own refusal stops it first, so this finds it stopped.
+  useEffect(() => {
+    if (!state.running) return;
+    return subscribePushback(() => {
+      if (runningRef.current && refusalCount() !== refusalsAtStartRef.current) {
+        stop('refused');
+      }
+    });
+  }, [state.running, stop]);
+
   const start = useCallback(() => {
     if (runningRef.current) return;
+    // Refusals from here on stop this search; those before it do not. So a
+    // search started after a refusal runs until the next one.
+    refusalsAtStartRef.current = refusalCount();
     // Two different questions. `startable` is whether a run may begin at all:
     // no, while a commit's outcome is unknown. `reset()` is whether the
     // per-run limits are cleared: not while a committed move is still waiting
@@ -961,7 +989,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         exclude: guard.declined,
       });
       if (!want) {
-        if (++barren >= MAX_BARREN_CYCLES) stop('nothing-better');
+        if (++barren >= MAX_BARREN_CYCLES) stop('session');
         return;
       }
       barren = 0;
@@ -997,10 +1025,25 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
 
     async function run() {
       while (!cancelled) {
+        // Refused since this search started, by anyone: stop before asking.
+        if (refusalCount() !== refusalsAtStartRef.current) {
+          stop('refused');
+          return;
+        }
         try {
           await cycle();
           failures = 0;
         } catch (error) {
+          // Disney pushing back ends the search at once and says why, rather
+          // than spending the failure budget knocking again. A 403 stops
+          // every other routine too. See `pushback.ts`.
+          const pushback = pushbackOf(error);
+          if (pushback) {
+            stop(pushback.kind);
+            if (pushback.kind === 'refused') noteRefusal();
+            else noteThrottle(pushback.retryAfterMs);
+            return;
+          }
           // No offer available right now is an ordinary outcome mid-day, not
           // a fault: it must not burn the failure budget.
           const fatal =

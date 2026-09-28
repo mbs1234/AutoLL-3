@@ -1,6 +1,6 @@
 import { use } from 'react';
 
-import { MODE_TEXT } from '@/autopilot/status';
+import { modeText } from '@/autopilot/status';
 import { targetActs } from '@/autopilot/watchlist';
 import TabsContext from '@/contexts/TabContext';
 import TopAutopilotContext from '@/contexts/TopAutopilotContext';
@@ -26,7 +26,7 @@ export default function AutopilotStatusRow() {
       onClick={() => changeTab('Today')}
     >
       <span className="font-semibold">Autopilot:</span>{' '}
-      {MODE_TEXT[autopilot.status.mode]}
+      {modeText(autopilot.status)}
       {autopilot.dryRun && ' · Dry run'} · {armed} armed
     </button>
   );

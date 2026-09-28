@@ -310,8 +310,9 @@ repository:
   the first 401, so the app cannot be used to find out without losing the
   session.
 - Whether a sensor-free read is refused in practice for reasons other than the
-  header. `src/autopilot/refusal.ts` only tracks `eligibility | offer | book`;
-  a refused tip board read would produce no instrumentation at all.
+  header. Since 1.4.5 a 403 on any of Autopilot's reads, the tip board
+  included, stops everything (`src/autopilot/pushback.ts`), but it records only
+  that Disney refused, not why.
 
 Note also that every Disney request is authenticated regardless:
 `ApiClient.request` destructures `authStore.getData()` at `client.ts:103`

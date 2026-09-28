@@ -2,7 +2,41 @@ export type JsonOK<T = any> = { ok: true; status: number; data: T };
 
 export type JsonResponse<T = any> =
   | JsonOK<T>
-  | { ok: false; status: number; data: any };
+  | {
+      ok: false;
+      status: number;
+      data: any;
+      /**
+       * How long the server asked for before the next request, from its
+       * `Retry-After` header. Present only when a failed response sent one we
+       * could read: a 429 is Disney asking to slow down, and this is by how
+       * much. See `pushback.ts`.
+       */
+      retryAfterMs?: number;
+    };
+
+/**
+ * A `Retry-After` header as milliseconds from `now`.
+ *
+ * The header is either a number of seconds or an HTTP date. Anything else,
+ * including no header at all, is undefined rather than a guess: a wait the
+ * server never asked for is a policy choice, and belongs with the caller.
+ */
+export function parseRetryAfter(
+  value: string | null | undefined,
+  now = Date.now()
+): number | undefined {
+  const text = value?.trim();
+  if (!text) return undefined;
+  if (/^\d+$/.test(text)) return Number(text) * 1000;
+  // Not seconds, so it has to be an HTTP date, which always names its day and
+  // month. Without that test `Date.parse` reads "-5" as a year long past, and
+  // a malformed header would mean "ask again at once".
+  if (!/[a-z]/i.test(text)) return undefined;
+  const at = Date.parse(text);
+  if (Number.isNaN(at)) return undefined;
+  return Math.max(0, at - now);
+}
 
 const DEFAULT_TIMEOUT_MS = 8000;
 
@@ -61,6 +95,9 @@ export async function fetchJson<T = any>(
 
     try {
       const response = await fetch(url, init);
+      const retryAfterMs = response.ok
+        ? undefined
+        : parseRetryAfter(response.headers.get('Retry-After'));
       return {
         ok: response.ok,
         status: response.status,
@@ -69,6 +106,7 @@ export async function fetchJson<T = any>(
         )
           ? await response.json()
           : {},
+        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
       };
     } catch (error) {
       // Status 0 for a body that never finished arriving as well as for a

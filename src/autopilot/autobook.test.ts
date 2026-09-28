@@ -677,8 +677,8 @@ describe('actionWasRejected()', () => {
     expect(actionWasRejected(withStatus(status))).toBe(false);
   });
 
-  // Both mean stop asking. A 403 is the bot filter, which refusal.ts watches
-  // and which hammering makes worse; a 429 is being throttled.
+  // Both mean stop asking. A 403 is the bot filter, which stops everything
+  // (pushback.ts) and which hammering makes worse; a 429 is being throttled.
   it.each([403, 429])('is false for a %i', status => {
     expect(actionWasRejected(withStatus(status))).toBe(false);
   });

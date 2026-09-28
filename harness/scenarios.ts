@@ -204,17 +204,35 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     id: 'refused',
-    title: 'Disney refusing requests (static)',
+    title: 'Disney refused a request (static)',
     blurb:
-      'Eligibility and offer calls refused for minutes; watching continues.',
+      'A 403 stopped everything, Autopilot and any search. Starting again is allowed; the next 403 stops it all again.',
     script: DEFAULT_SCRIPT,
     seed: seedCommon,
     autopilot: {
       ...running,
-      status: idle,
-      refusals: {
-        eligibility: { count: 6, since: inMinutes(-3) },
-        offer: { count: 4, since: inMinutes(-2) },
+      status: {
+        ...idle,
+        mode: 'stopped',
+        stopReason: 'refused',
+        lastError: 'Disney refused a request',
+      },
+    },
+  },
+  {
+    id: 'waiting',
+    title: 'Waiting after a 429 (static)',
+    blurb:
+      'Disney asked Autopilot to slow down: still on and armed, it waits until the time shown and then carries on.',
+    script: DEFAULT_SCRIPT,
+    seed: seedCommon,
+    autopilot: {
+      ...running,
+      status: {
+        ...idle,
+        mode: 'waiting',
+        waitUntil: Date.now() + 4 * 60_000,
+        lastError: 'Disney asked to slow down',
       },
     },
   },

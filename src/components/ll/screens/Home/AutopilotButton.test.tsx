@@ -82,6 +82,46 @@ describe('AutopilotButton', () => {
       status: { mode: 'stopped', consecutiveFailures: 5, polls: 9 },
     });
     expect(button).toHaveClass('bg-red-700');
-    expect(button).toHaveAttribute('title', 'Autopilot stopped after errors');
+    expect(button).toHaveAttribute(
+      'title',
+      'Autopilot stopped after repeated errors'
+    );
+  });
+
+  // A refusal and a run of errors call for opposite responses, so the light
+  // says which it was.
+  it('says when the stop was Disney refusing', () => {
+    const { button } = setup({
+      enabled: true,
+      status: {
+        mode: 'stopped',
+        stopReason: 'refused',
+        consecutiveFailures: 0,
+        polls: 9,
+      },
+    });
+    expect(button).toHaveClass('bg-red-700');
+    expect(button).toHaveAttribute(
+      'title',
+      'Autopilot stopped: Disney refused a request'
+    );
+  });
+
+  // Still on and still armed: amber, not the red of a stop.
+  it('shows a wait Disney asked for as neither running nor stopped', () => {
+    const { button } = setup({
+      enabled: true,
+      status: {
+        mode: 'waiting',
+        waitUntil: Date.now() + 60_000,
+        consecutiveFailures: 0,
+        polls: 9,
+      },
+    });
+    expect(button).toHaveClass('bg-amber-600');
+    expect(button).toHaveAttribute(
+      'title',
+      'Autopilot waiting: Disney asked to slow down'
+    );
   });
 });

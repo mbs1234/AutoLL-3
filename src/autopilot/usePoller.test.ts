@@ -8,7 +8,7 @@ import {
   MAX_CONSECUTIVE_FAILURES,
   TICK_DEADLINE_MS,
 } from './schedule';
-import usePoller from './usePoller';
+import usePoller, { PollerStop, PollerWait } from './usePoller';
 
 jest.mock('@/timesync');
 
@@ -316,6 +316,97 @@ describe('usePoller deadline', () => {
         (TICK_DEADLINE_MS + BACKOFF_CAP_MS) * (MAX_CONSECUTIVE_FAILURES + 2)
       );
     });
+    expect(result.current.mode).toBe('stopped');
+  });
+});
+
+/**
+ * Disney pushing back is not a failure to retry. A stop ends the run and says
+ * why; a wait sits the run out and carries on. See `pushback.ts`.
+ */
+describe('usePoller pushback', () => {
+  it('stops at once on a PollerStop, and says why', async () => {
+    const onTick = jest.fn(async () => {
+      throw new PollerStop('refused', 'Disney refused a request');
+    });
+    const { result } = renderHook(() => usePoller({ enabled: true, onTick }));
+    await waitFor(() => expect(result.current.mode).toBe('stopped'));
+    expect(result.current.stopReason).toBe('refused');
+    expect(result.current.lastError).toBe('Disney refused a request');
+    // Not a failure: nothing counted, and nothing retried.
+    expect(result.current.consecutiveFailures).toBe(0);
+    await advancePastNextTick();
+    expect(onTick).toHaveBeenCalledTimes(1);
+  });
+
+  it('names repeated failures as the reason for that kind of stop', async () => {
+    const onTick = jest.fn(async () => {
+      throw new Error('nope');
+    });
+    const { result } = renderHook(() => usePoller({ enabled: true, onTick }));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(BACKOFF_CAP_MS * 20);
+    });
+    expect(result.current.mode).toBe('stopped');
+    expect(result.current.stopReason).toBe('failures');
+  });
+
+  it('sits out a PollerWait, still running, and carries on by itself', async () => {
+    let until = 0;
+    let calls = 0;
+    const onTick = jest.fn(async () => {
+      if (++calls === 1) {
+        until = Date.now() + 5 * 60_000;
+        throw new PollerWait(until, 'Disney asked to slow down');
+      }
+    });
+    const { result } = renderHook(() => usePoller({ enabled: true, onTick }));
+    await waitFor(() => expect(result.current.mode).toBe('waiting'));
+    expect(result.current.waitUntil).toBe(until);
+    expect(result.current.consecutiveFailures).toBe(0);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(until - Date.now() - 1000);
+    });
+    expect(onTick).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1000);
+    });
+    expect(onTick).toHaveBeenCalledTimes(2);
+    expect(result.current.mode).toBe('idle');
+    expect(result.current.waitUntil).toBeUndefined();
+  });
+
+  // The refusal need not be this loop's: any routine's stops every loop, and
+  // without waiting for this one's next tick.
+  it('stops when the refusal count moves, whoever was refused', async () => {
+    const onTick = jest.fn(async () => undefined);
+    const { result, rerender } = renderHook(
+      ({ stopEpoch }) => usePoller({ enabled: true, onTick, stopEpoch }),
+      { initialProps: { stopEpoch: 3 } }
+    );
+    await waitFor(() => expect(result.current.mode).toBe('idle'));
+    rerender({ stopEpoch: 4 });
+    expect(result.current.mode).toBe('stopped');
+    expect(result.current.stopReason).toBe('refused');
+    const ticks = onTick.mock.calls.length;
+    await advancePastNextTick();
+    expect(onTick).toHaveBeenCalledTimes(ticks);
+  });
+
+  // Starting again is allowed, and runs until the next refusal.
+  it('runs again after a restart, from the new count', async () => {
+    const onTick = jest.fn(async () => undefined);
+    const { result, rerender } = renderHook(
+      ({ enabled, stopEpoch }) => usePoller({ enabled, onTick, stopEpoch }),
+      { initialProps: { enabled: true, stopEpoch: 0 } }
+    );
+    await waitFor(() => expect(result.current.mode).toBe('idle'));
+    rerender({ enabled: true, stopEpoch: 1 });
+    expect(result.current.mode).toBe('stopped');
+    rerender({ enabled: false, stopEpoch: 1 });
+    rerender({ enabled: true, stopEpoch: 1 });
+    await waitFor(() => expect(result.current.mode).toBe('idle'));
+    rerender({ enabled: true, stopEpoch: 2 });
     expect(result.current.mode).toBe('stopped');
   });
 });

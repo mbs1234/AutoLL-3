@@ -11,15 +11,8 @@ import {
 import { ParkTime } from '@/datetime';
 import { RateLimitExceeded } from '@/ratelimit';
 
-import { REFUSAL_STATUS } from './refusal';
+import { REFUSED_STATUS, THROTTLED_STATUS } from './pushback';
 import { WatchTarget, inWindow } from './watchlist';
-
-/**
- * Backpressure status: retrying is the one guaranteed way to make it worse.
- * Kept beside `REFUSAL_STATUS` (imported, not redefined) so the two together
- * are the one place "which status means stop asking" is decided.
- */
-const THROTTLE_STATUS = 429;
 
 /**
  * Consecutive plans polls that must show an attraction unheld before its
@@ -49,6 +42,8 @@ export type AutoBookOutcome =
       status: 'failed';
       error: string;
       /** The HTTP status, when there was one. */ httpStatus?: number;
+      /** How long Disney asked for before the next request, on a 429. */
+      retryAfterMs?: number;
       /** Whether nothing was booked, so trying again is safe. */
       rejected?: boolean;
       /** Dispatched, and no answer came back. Set by the provider, not here. */
@@ -73,9 +68,10 @@ export type AutoBookOutcome =
  * - `RateLimitExceeded`, which our own limiter throws at the actual send
  *   boundary, before anything is sent.
  * - A client error the server returned, other than the two that mean stop
- *   asking. `REFUSAL_STATUS` is the bot filter, which `refusal.ts` watches and
- *   which is made worse by hammering; `THROTTLE_STATUS` is being throttled,
- *   where retrying is the one guaranteed way to make it worse still.
+ *   asking, both decided in `pushback.ts`. `REFUSED_STATUS` is the bot filter,
+ *   which stops every routine and is made worse by hammering;
+ *   `THROTTLED_STATUS` is being throttled, where retrying is the one
+ *   guaranteed way to make it worse still.
  *
  * Everything else -- no response at all, or a 5xx -- leaves the outcome
  * genuinely unknown, and the lock stands.
@@ -91,7 +87,7 @@ export function actionWasRejected(error: unknown): boolean {
   const status = (error as { response?: { status?: number } })?.response
     ?.status;
   if (status === undefined) return false;
-  if (status === REFUSAL_STATUS || status === THROTTLE_STATUS) return false;
+  if (status === REFUSED_STATUS || status === THROTTLED_STATUS) return false;
   return status >= 400 && status < 500;
 }
 
@@ -1344,6 +1340,8 @@ export async function attemptAutoBook(
       // out of a formatted string would be guesswork.
       httpStatus: (error as { response?: { status?: number } })?.response
         ?.status,
+      retryAfterMs: (error as { response?: { retryAfterMs?: number } })
+        ?.response?.retryAfterMs,
       rejected: actionWasRejected(error),
     };
   }

@@ -76,6 +76,8 @@ export type ModifyOutcome =
       status: 'failed';
       error: string;
       /** The HTTP status, when there was one. */ httpStatus?: number;
+      /** How long Disney asked for before the next request, on a 429. */
+      retryAfterMs?: number;
       /** Whether the reservation certainly did not move, so a retry is safe. */
       rejected?: boolean;
       /** Dispatched, and no answer came back. Set by the provider, not here. */
@@ -491,6 +493,8 @@ export async function attemptAutoModify(
       // out of a formatted string would be guesswork.
       httpStatus: (error as { response?: { status?: number } })?.response
         ?.status,
+      retryAfterMs: (error as { response?: { retryAfterMs?: number } })
+        ?.response?.retryAfterMs,
       rejected: actionWasRejected(error),
     };
   }

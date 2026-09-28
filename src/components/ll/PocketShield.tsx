@@ -5,13 +5,15 @@ import {
   audioStatus,
   subscribeAudioStatus,
 } from '@/autopilot/alert';
-import { MODE_TEXT } from '@/autopilot/status';
+import { syncedParkTimeAt } from '@/autopilot/schedule';
+import { modeText } from '@/autopilot/status';
 import {
   ScreenAwakeStatus,
   screenAwakeStatus,
   subscribeScreenAwakeStatus,
 } from '@/autopilot/wakelock';
 import { targetActs } from '@/autopilot/watchlist';
+import { Time } from '@/components/Time';
 import TopAutopilotContext from '@/contexts/TopAutopilotContext';
 
 import {
@@ -291,15 +293,28 @@ export default function PocketShield({
               {stopped ? 'Stopped' : 'Off'}
             </div>
             <p className="mt-3 max-w-xs text-base text-red-100">
-              {stopped
-                ? 'Autopilot stopped after repeated errors and is no longer checking.'
-                : 'Autopilot is off and is no longer checking.'}{' '}
+              {!stopped
+                ? 'Autopilot is off and is no longer checking.'
+                : autopilot?.status.stopReason === 'refused'
+                  ? 'Disney refused a request, so Autopilot and any search have stopped.'
+                  : 'Autopilot stopped after repeated errors and is no longer checking.'}{' '}
               Lift the shield and start it again.
             </p>
           </>
         ) : (
           <>
-            <div className="text-4xl font-bold">{MODE_TEXT[mode]}</div>
+            <div className="text-4xl font-bold">
+              {autopilot ? modeText(autopilot.status) : modeText({ mode })}
+            </div>
+            {/* Still running, so not the alarm above: Disney asked it to wait,
+                and it carries on by itself at this time. */}
+            {mode === 'waiting' &&
+              autopilot?.status.waitUntil !== undefined && (
+                <div className="mt-1 text-lg text-amber-200">
+                  Checking again at{' '}
+                  <Time time={syncedParkTimeAt(autopilot.status.waitUntil)} />
+                </div>
+              )}
             <div className="mt-3 text-lg text-gray-300">
               {armed} armed
               {autopilot?.dryRun ? ' · Dry run' : ''}

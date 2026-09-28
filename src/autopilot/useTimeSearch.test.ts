@@ -9,9 +9,16 @@ import { TODAY } from '@/testing';
 
 import { findSameReservation } from './automodify';
 import { MAX_MUTATION_MS } from './mutation';
+import {
+  lastPushback,
+  noteRefusal,
+  refusalCount,
+  resetPushback,
+} from './pushback';
 import { SearchGoal } from './timesearch';
 import useTimeSearch, {
   CYCLE_MS,
+  MAX_BARREN_CYCLES,
   MAX_SETTLE_CYCLES,
   TimeSearchDeps,
 } from './useTimeSearch';
@@ -1239,5 +1246,85 @@ describe('useTimeSearch and the times the grid leaves out', () => {
     act(() => result.current.start());
     await waitFor(() => expect(result.current.pending).toBeDefined());
     expect(`${result.current.pending}`).toBe('16:00:00');
+  });
+});
+
+/**
+ * Disney pushing back ends a search at once and says why, rather than
+ * spending the failure budget knocking again every six seconds. A 403 stops
+ * every other routine too. See `pushback.ts`.
+ */
+describe('useTimeSearch when Disney pushes back', () => {
+  beforeEach(() => resetPushback());
+
+  const refused = () => new RequestError({ ok: false, status: 403, data: {} });
+
+  it('stops at the first 403, and tells every other routine', async () => {
+    const getTimes = jest.fn(async () => {
+      throw refused();
+    });
+    const { result } = setup({ getTimes });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.stop).toBe('refused'));
+    expect(result.current.running).toBe(false);
+    expect(refusalCount()).toBe(1);
+    await runCycles(3);
+    expect(getTimes).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops at a 429 and says why, with Disney’s suggested wait noted', async () => {
+    const createOffer = () =>
+      jest.fn(async (_held: LLMP, _time?: ParkTime): Promise<Offer<LLMP>> => {
+        void _held;
+        void _time;
+        throw new RequestError({
+          ok: false,
+          status: 429,
+          data: {},
+          retryAfterMs: 60_000,
+        });
+      });
+    const { result } = setup({ createOffer });
+    act(() => result.current.start());
+    await waitFor(() => expect(result.current.stop).toBe('throttled'));
+    expect(lastPushback()).toMatchObject({ kind: 'throttled' });
+    expect(lastPushback()?.until).toBeDefined();
+    // A throttle is this search's alone: nothing else is told to stop.
+    expect(refusalCount()).toBe(0);
+  });
+
+  // The refusal need not be this search's own, and it should not wait six
+  // seconds for the next cycle to notice.
+  it('stops at once when another routine is refused', async () => {
+    const { result } = setup({ times: [[]] });
+    act(() => result.current.start());
+    await runCycles(1);
+    expect(result.current.running).toBe(true);
+    act(() => noteRefusal());
+    expect(result.current.running).toBe(false);
+    expect(result.current.stop).toBe('refused');
+  });
+
+  // Allowed, and not given a grace period: the next refusal stops it again.
+  it('runs again after a restart, until the next refusal', async () => {
+    const { result } = setup({ times: [[]] });
+    act(() => result.current.start());
+    act(() => noteRefusal());
+    expect(result.current.stop).toBe('refused');
+    act(() => result.current.start());
+    await runCycles(1);
+    expect(result.current.running).toBe(true);
+    act(() => noteRefusal());
+    expect(result.current.stop).toBe('refused');
+  });
+
+  // Hours of back-to-back searches are how an account gets paused, so the
+  // long barren run ends as a session and says to take a break.
+  it('ends a long search with nothing to take as a session', async () => {
+    const { result } = setup({ times: [[]] });
+    act(() => result.current.start());
+    await runCycles(MAX_BARREN_CYCLES + 1);
+    expect(result.current.running).toBe(false);
+    expect(result.current.stop).toBe('session');
   });
 });

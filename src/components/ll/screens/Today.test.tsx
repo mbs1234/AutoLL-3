@@ -7,6 +7,7 @@ import { primeAudio, resetAudioForTests } from '@/autopilot/alert';
 import { leaseKey, quarantine } from '@/autopilot/lease';
 import { savePendingSearch } from '@/autopilot/nextll';
 import { planReview } from '@/autopilot/plancheck';
+import { noteRefusal, noteThrottle, resetPushback } from '@/autopilot/pushback';
 import { holdScreenAwake, releaseScreenAwake } from '@/autopilot/wakelock';
 import TabsContext from '@/contexts/TabContext';
 import { ParkTime, parkDate } from '@/datetime';
@@ -393,35 +394,71 @@ describe('Today', () => {
   });
 });
 
-describe('Today refusal warning', () => {
-  const refusing = {
-    eligibility: { count: 5, since: new ParkTime(8, 55) },
-  };
+describe('Today when Disney pushes back', () => {
+  beforeEach(() => resetPushback());
 
-  // A refusal lands on eligibility, one step before an offer exists, so
-  // autopilot keeps polling, alerting and learning drops while never acting.
-  // Without this the screen reads as perfectly healthy.
-  it('says so when Disney is refusing requests', () => {
+  // A refusal stops everything, and the two things worth knowing are that it
+  // was Disney, not errors, and that starting again is allowed but risky.
+  it('says a stop was Disney refusing, and how to start again', () => {
     setup({
-      status: { mode: 'idle', consecutiveFailures: 0, polls: 40 },
-      refusals: refusing,
+      enabled: true,
+      status: {
+        mode: 'stopped',
+        stopReason: 'refused',
+        consecutiveFailures: 0,
+        polls: 40,
+      },
     });
-    expect(screen.getByText(/Disney is refusing these requests/)).toBeVisible();
-    expect(screen.getByText(/checking who is eligible/)).toBeVisible();
+    expect(
+      screen.getByText(/Disney refused a request, so everything has stopped/)
+    ).toBeVisible();
+    expect(
+      screen.getByText(/the next refusal stops everything again/)
+    ).toBeVisible();
   });
 
-  // Off, this describes earlier today rather than why nothing is happening.
-  it('says nothing while switched off', () => {
-    setup({ refusals: refusing });
+  // A wait is not a stop: without saying when, and that it is still on, it
+  // reads as the engine having died.
+  it('says Autopilot is waiting, still on and armed, and until when', () => {
+    setup({
+      enabled: true,
+      status: {
+        mode: 'waiting',
+        waitUntil: Date.now() + 5 * 60_000,
+        consecutiveFailures: 0,
+        polls: 40,
+      },
+    });
     expect(
-      screen.queryByText(/Disney is refusing these requests/)
-    ).not.toBeInTheDocument();
+      screen.getByText(/Disney asked Autopilot to slow down/)
+    ).toHaveTextContent(/waiting until .*still on and still armed/);
   });
 
-  it('says nothing when requests are going through', () => {
-    setup({ status: { mode: 'idle', consecutiveFailures: 0, polls: 40 } });
+  // User beware: starting again is allowed, and the switch says what it risks.
+  it('warns beside the switch after a refusal, without blocking it', () => {
+    noteRefusal();
+    setup();
     expect(
-      screen.queryByText(/Disney is refusing these requests/)
+      screen.getByText(/next refusal stops everything again/)
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Turn on autopilot' })
+    ).toBeEnabled();
+  });
+
+  it('warns beside the switch after Disney asked to slow down', () => {
+    noteThrottle(10 * 60_000);
+    setup();
+    expect(screen.getByText(/Disney asked to slow down at/)).toHaveTextContent(
+      /suggested waiting until/
+    );
+  });
+
+  it('says nothing beside the switch before any pushback', () => {
+    setup();
+    expect(screen.queryByText(/Disney refused/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Disney asked to slow down/)
     ).not.toBeInTheDocument();
   });
 });
