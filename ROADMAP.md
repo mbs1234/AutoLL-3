@@ -1126,6 +1126,40 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 25. Change attraction into whichever of several rides opens first — _completed in 1.5.0_
+
+A friend's request from a park day: change a held Small World into Big Thunder
+Mountain **or** Haunted Mansion, whichever could be had. Change attraction took
+one ride, and asked Disney for a change offer for it on every check, open or
+not. Autopilot's Swap in could not stand in: it acts only when all three slots
+are full, and chooses which pass to give up itself.
+
+**Shipped**, to the owner's choices (whichever opens first; no ranking; no
+"not this one"):
+
+- **Up to three attractions** (`MAX_RIDES`). Once one is chosen, an "Or" choice
+  appears for the next.
+- **Each check reads the tip board once**, and asks Disney for an offer only
+  for a chosen ride the board shows open, the one opening soonest when several
+  are (`rideToAsk` in `SwapAttractionSearch`). The board is one request for
+  every ride and carries no sensor payload; each offer does. So three rides
+  cost no more offer requests than one, and none are sent while nothing is
+  open: `createOffer` throws `NothingOpen`, which counts toward the session
+  like a check with no offer. A board read in the last check (by Autopilot,
+  say) is used as it is.
+- A board for another day, or one listing none of the rides, says nothing
+  about the pass's day, so the rides take turns, one offer per check, as a
+  search over one ride always did.
+- A ride Disney made no offer for is left out for five checks
+  (`OFFER_COOLDOWN_MS`), so a board that shows it open cannot take every
+  request.
+- The question names the ride that came up, and accepting it re-makes that
+  ride's offer, not whichever is open by then (`useTimeSearch` passes the
+  question's attraction to `createOffer`, and records it as `ride`). The
+  commit names the ride gained from the offer it commits.
+- Every chosen ride is claimed with the reservation, so Autopilot does not book
+  one of them while this search changes into it.
+
 ### 24. Count a check with no offer toward a search's session — _completed in 1.4.7_
 
 Found while planning an "either of these" Change attraction. Time Search and

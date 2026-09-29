@@ -15,7 +15,7 @@ import {
   refusalCount,
   resetPushback,
 } from './pushback';
-import { SearchGoal } from './timesearch';
+import { NothingOpen, SearchGoal } from './timesearch';
 import useTimeSearch, {
   CYCLE_MS,
   MAX_BARREN_CYCLES,
@@ -116,7 +116,7 @@ function setup({
   /** Handed the live held time, since the default fake reads it too. */
   createOffer?: (
     held: () => ParkTime
-  ) => jest.Mock<Promise<Offer<LLMP>>, [LLMP, ParkTime?]>;
+  ) => jest.Mock<Promise<Offer<LLMP>>, [LLMP, ParkTime?, string?]>;
   hint?: TimeSearchDeps['hint'];
   clashes?: TimeSearchDeps['clashes'];
 } = {}) {
@@ -230,6 +230,52 @@ describe('useTimeSearch', () => {
     act(() => result.current.start());
     await waitFor(() => expect(result.current.pending).toBeDefined());
     expect(deps.commit).not.toHaveBeenCalled();
+  });
+
+  // A swap that may take any of several attractions: the question says which
+  // came up, and accepting it re-makes that attraction's offer, not whichever
+  // is open by then.
+  describe('over several attractions', () => {
+    const ride = { id: '80010208', name: 'Haunted Mansion' };
+    const offersRide = (held: () => ParkTime) =>
+      jest.fn(
+        async (b: LLMP, _t?: ParkTime, _e?: string): Promise<Offer<LLMP>> => {
+          void _t;
+          void _e;
+          return {
+            ...offerAt(held(), b.start.time),
+            experience: ride,
+          } as unknown as Offer<LLMP>;
+        }
+      );
+
+    it('says which attraction the question is about', async () => {
+      const { result } = setup({
+        goal: { kind: 'replace' },
+        confirmEveryMove: true,
+        createOffer: offersRide,
+      });
+      act(() => result.current.start());
+      await waitFor(() => expect(result.current.pending).toBeDefined());
+      expect(result.current.ride).toEqual(ride);
+    });
+
+    it('re-makes the offer for that attraction when it is accepted', async () => {
+      const { result, deps } = setup({
+        goal: { kind: 'replace' },
+        confirmEveryMove: true,
+        stopAfterConfirmedMove: true,
+        createOffer: offersRide,
+      });
+      act(() => result.current.start());
+      await waitFor(() => expect(result.current.pending).toBeDefined());
+      const calls = (deps.createOffer as jest.Mock).mock.calls;
+      expect(calls[0]?.[2]).toBeUndefined();
+      act(() => result.current.accept());
+      await runCycles(3);
+      expect(calls.some(call => call[2] === ride.id)).toBe(true);
+      expect(result.current.stop).toBe('goal-met');
+    });
   });
 
   it('stops after Plans confirms a one-shot replacement', async () => {
@@ -1337,6 +1383,9 @@ describe('useTimeSearch when Disney pushes back', () => {
       () => new OfferError({ eligible: [], ineligible: [] } as never),
     ],
     ['a 410', () => new RequestError({ ok: false, status: 410, data: {} })],
+    // A swap over several attractions found none of them open, and asked
+    // Disney nothing.
+    ['nothing open', () => new NothingOpen()],
   ])(
     'ends a long search that gets %s every time as a session',
     async (_, failure) => {

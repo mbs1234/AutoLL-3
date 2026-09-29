@@ -23,6 +23,7 @@ import {
 import {
   CommitGuard,
   CommitPhase,
+  NothingOpen,
   SearchGoal,
   SearchStop,
   bestCandidate,
@@ -72,6 +73,17 @@ export const MAX_COMMITS = 6;
  */
 export const MAX_SETTLE_CYCLES = 10;
 
+/**
+ * The attraction an offer is for, when the offer says.
+ *
+ * Only ever for the screen, so it must never be what breaks a commit: an offer
+ * without one is still an offer.
+ */
+function rideOf(offer: Offer<LLMP>): TimeSearchState['ride'] {
+  const experience = offer.experience as Offer['experience'] | undefined;
+  return experience && { id: experience.id, name: experience.name };
+}
+
 export interface TimeSearchState {
   running: boolean;
   held?: ParkTime;
@@ -101,6 +113,12 @@ export interface TimeSearchState {
    * reads as a tap that did nothing -- which is exactly how it was reported.
    */
   accepting?: boolean;
+  /**
+   * The attraction the pending, committing or settled change is for: the one
+   * whose offer it came from. A swap that may take any of several attractions
+   * says which one came up; a same-attraction search names its own.
+   */
+  ride?: { id: string; name: string };
 }
 
 export interface TimeSearchDeps {
@@ -113,8 +131,19 @@ export interface TimeSearchDeps {
    * times leaves out any that would overlap the party's other plans, but it
    * grants one when asked for it directly -- so the offer is the only way this
    * search can reach such a time at all.
+   *
+   * `experienceId` is the attraction of a question the person was already
+   * asked, when its offer is re-made so they can accept it. A swap that may
+   * take any of several attractions must accept the one it asked about, not
+   * whichever is open by then. A same-attraction search can ignore it.
+   *
+   * May throw `NothingOpen` when there was nothing to ask Disney about.
    */
-  createOffer: (booking: LLMP, targetTime?: ParkTime) => Promise<Offer<LLMP>>;
+  createOffer: (
+    booking: LLMP,
+    targetTime?: ParkTime,
+    experienceId?: string
+  ) => Promise<Offer<LLMP>>;
   getTimes: (offer: Offer<LLMP>) => Promise<ParkTime[][]>;
   changeTime: (offer: Offer<LLMP>, time: ParkTime) => Promise<Offer<LLMP>>;
   commit: (offer: Offer<LLMP>, control?: RequestControl) => Promise<LLMP>;
@@ -198,8 +227,8 @@ export interface TimeSearchDeps {
   retainCommit?: (id: string) => boolean | Promise<boolean>;
   /** Swap searches use different positive evidence from same-ride moves. */
   mutationKind?: 'modify' | 'swap';
-  /** Facility gained by a swap, captured at the commit boundary. */
-  gainingFacility?: () => string | undefined;
+  /** Facility gained by a swap, from the offer being committed. */
+  gainingFacility?: (quoted: Offer<LLMP>) => string | undefined;
   /**
    * Publish a committed return time for other instances to see.
    *
@@ -408,12 +437,15 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     guardRef.current.reset();
     acceptedRef.current = false;
     runningRef.current = true;
+    const resuming = !guardRef.current.idle;
     setState(s => ({
       ...s,
       running: true,
       stop: undefined,
       pending: undefined,
       accepting: false,
+      // A restart that resumes a settle wait is still about the same ride.
+      ...(resuming ? {} : { ride: undefined }),
       lastError: undefined,
       cycles: 0,
       moves: 0,
@@ -440,6 +472,8 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
      */
     const unanswered = new Set<number>();
     let offer: Offer<LLMP> | undefined;
+    // The attraction of the question waiting for the person's answer.
+    let pendingRide: string | undefined;
     // Captured at effect scope for the cleanup below: the guard is created once
     // and never replaced, so this is the same object either way, but reading a
     // ref inside a cleanup is the pattern that hides a stale-node bug and the
@@ -474,7 +508,9 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
       setState(s => (s.contended ? { ...s, contended: false } : s));
 
       const kind = depsRef.current.mutationKind ?? 'modify';
-      const gaining = depsRef.current.gainingFacility?.();
+      const gaining = depsRef.current.gainingFacility?.(quoted);
+      const ride = rideOf(quoted);
+      if (ride) setState(s => (s.ride?.id === ride.id ? s : { ...s, ride }));
       const evidence: MutationEvidence = {
         kind,
         ...(baselineRef.current ? { from: String(baselineRef.current) } : {}),
@@ -877,7 +913,11 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
           // while the offer sat waiting for the user quarantined against a
           // time nobody held -- and the next plans read then cleared that doubt
           // by finding the reservation exactly where it had been all along.
-          const fresh = await depsRef.current.createOffer(current);
+          const fresh = await depsRef.current.createOffer(
+            current,
+            undefined,
+            pendingRide
+          );
           if (stopped()) return;
           baselineRef.current = offerBaseline(fresh, current);
           const quoted = await depsRef.current.changeTime(fresh, want);
@@ -1006,7 +1046,14 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
         isLaterMove(current.start.time, want)
       ) {
         if (!guard.begin(want)) return;
-        setState(s => ({ ...s, pending: want, phase: guard.phase }));
+        const ride = rideOf(offer);
+        pendingRide = ride?.id;
+        setState(s => ({
+          ...s,
+          pending: want,
+          phase: guard.phase,
+          ...(ride ? { ride } : {}),
+        }));
         return;
       }
       if (!guard.begin(want)) return;
@@ -1054,6 +1101,7 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
           // uncounted, a search aimed at a sold-out ride never stopped.
           const fatal =
             !(error instanceof OfferError) &&
+            !(error instanceof NothingOpen) &&
             !(error instanceof RequestError && error.response?.status === 410);
           if (!fatal && ++barren >= MAX_BARREN_CYCLES) {
             stop('session');

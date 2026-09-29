@@ -2,7 +2,7 @@ import { use, useMemo, useRef, useState } from 'react';
 
 import { RequestNotSent } from '@/api/client';
 import { LLMP } from '@/api/itinerary';
-import { Experience } from '@/api/ll';
+import { Experience, OfferError } from '@/api/ll';
 import { APP_NAME } from '@/appIdentity';
 import {
   acquire as acquireLease,
@@ -16,12 +16,13 @@ import {
 } from '@/autopilot/lease';
 import { saveCommit } from '@/autopilot/storage';
 import { findHeldByEntitlement } from '@/autopilot/swap';
-import { SearchStop } from '@/autopilot/timesearch';
-import useTimeSearch from '@/autopilot/useTimeSearch';
+import { NothingOpen, SearchStop } from '@/autopilot/timesearch';
+import useTimeSearch, { CYCLE_MS } from '@/autopilot/useTimeSearch';
 import Button from '@/components/Button';
 import LandLine from '@/components/LandLine';
 import Screen from '@/components/Screen';
 import { Time } from '@/components/Time';
+import BookingDateContext from '@/contexts/BookingDateContext';
 import ClientsContext from '@/contexts/ClientsContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import PlansContext from '@/contexts/PlansContext';
@@ -45,8 +46,28 @@ const STOPPED: Record<Exclude<SearchStop, 'failed'>, string> = {
     'Stopped after 200 checks, about twenty minutes, with no replacement. Take a break before searching again: long searches can make Disney pause the account.',
 };
 
+/** Attractions one search may take, whichever opens first. */
+export const MAX_RIDES = 3;
+
 /**
- * Continuously looks for a replacement attraction for one held Multi Pass.
+ * How long a ride Disney made no offer for is left out.
+ *
+ * The tip board can show a ride open that Disney will not offer as a change.
+ * Asked again on every check, that one ride would take every offer request
+ * and the others would never be asked about.
+ */
+export const OFFER_COOLDOWN_MS = 5 * CYCLE_MS;
+
+/** "A", "A or B", "A, B or C". */
+function either(names: string[]): string {
+  return names.length < 2
+    ? (names[0] ?? '')
+    : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+}
+
+/**
+ * Continuously looks for a replacement attraction for one held Multi Pass:
+ * whichever of up to `MAX_RIDES` chosen attractions opens first.
  *
  * The underlying time-search guard is deliberately reused: a replacement is
  * still a `/mod` offer, so it gets the same unknown-outcome stop and Plans
@@ -55,7 +76,8 @@ const STOPPED: Record<Exclude<SearchStop, 'failed'>, string> = {
  */
 export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
   const { ll } = use(ClientsContext);
-  const { experiences } = use(ExperiencesContext);
+  const { experiences, pollExperiences, lastUpdated } = use(ExperiencesContext);
+  const { bookingDate: boardDate } = use(BookingDateContext);
   const { pollPlans } = use(PlansContext);
   // The reservation's own park day, not whatever date the app is showing. The
   // lease is on this booking, and a move of a future one filed under today
@@ -74,14 +96,26 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
   const searchOwner = useRef(
     `search-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   ).current;
-  const [targetId, setTargetId] = useState('');
-  const target = experiences.find(
-    (exp): exp is Experience => exp.id === targetId && !!exp.flex
-  );
+  // One slot per attraction; an empty slot is a choice not made.
+  const [slots, setSlots] = useState<string[]>(['']);
+  const chosenIds = slots.filter(Boolean);
+  const rides = chosenIds
+    .map(id =>
+      experiences.find((exp): exp is Experience => exp.id === id && !!exp.flex)
+    )
+    .filter((exp): exp is Experience => !!exp);
+  const chosenKey = chosenIds.join(',');
+  // Every attraction this search may gain is claimed with the reservation, so
+  // Autopilot does not book one of them while this search is changing into it.
   const conflictKeys = useMemo(
-    () =>
-      targetId ? [reservation, leaseKey(targetId, bookingDate)] : [reservation],
-    [bookingDate, reservation, targetId]
+    () => [
+      reservation,
+      ...chosenKey
+        .split(',')
+        .filter(Boolean)
+        .map(id => leaseKey(id, bookingDate)),
+    ],
+    [bookingDate, reservation, chosenKey]
   );
   const choices = useMemo(
     () =>
@@ -93,19 +127,82 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
         .sort((a, b) => a.name.localeCompare(b.name)),
     [booking.facilityId, experiences]
   );
+
+  // What the offer step reads when it runs, which is after this render: the
+  // search calls back into this component from its own loop.
+  const latest = useRef({ experiences, lastUpdated, boardDate, chosenIds });
+  latest.current = { experiences, lastUpdated, boardDate, chosenIds };
+  // Per search: rides Disney last made no offer for, and whose turn it is when
+  // the board cannot tell.
+  const coolUntil = useRef(new Map<string, number>());
+  const turn = useRef(0);
+
+  /**
+   * The attraction to ask Disney about on this check: whichever of the chosen
+   * ones the tip board shows open, the one opening soonest when several are.
+   *
+   * The board is one request that covers every attraction and carries no
+   * sensor payload, where each offer does. So a search over three attractions
+   * asks Disney for no more offers than a search over one, and none at all
+   * while nothing is open. A board Autopilot read moments ago is used as it
+   * is, rather than read again.
+   */
+  async function rideToAsk(): Promise<Experience | undefined> {
+    const now = Date.now();
+    const { experiences, lastUpdated, boardDate, chosenIds } = latest.current;
+    const ids = chosenIds.filter(id => (coolUntil.current.get(id) ?? 0) <= now);
+    if (ids.length === 0) return undefined;
+    // Another day's board says nothing about this reservation's day, so the
+    // attractions take turns, as a search over one attraction always did.
+    const inTurn = () => {
+      const id = ids[turn.current++ % ids.length];
+      return experiences.find(exp => exp.id === id);
+    };
+    if (boardDate !== bookingDate) return inTurn();
+    const board =
+      lastUpdated !== undefined && now - lastUpdated < CYCLE_MS
+        ? experiences
+        : await pollExperiences();
+    // Nor does a board that lists none of them, as another park's would not.
+    if (!ids.some(id => board.some(exp => exp.id === id))) return inTurn();
+    return ids
+      .map(id => board.find(exp => exp.id === id))
+      .filter((exp): exp is Experience => !!exp?.flex?.available)
+      .reduce<Experience | undefined>((soonest, exp) => {
+        const at = exp.flex?.nextAvailableTime;
+        const best = soonest?.flex?.nextAvailableTime;
+        return !soonest || (at && (!best || +at < +best)) ? exp : soonest;
+      }, undefined);
+  }
   const search = useTimeSearch({
     booking,
     // Not `soonest`: that measures the incoming attraction's times against
     // the reservation being given up, so only a replacement at least five
     // minutes earlier than it could ever be accepted.
     goal: { kind: 'replace' },
-    createOffer: held => {
-      // An attraction removed from the current tipboard is never silently
-      // replaced with the original attraction mid-search.
-      if (!target) {
-        throw new Error('The selected attraction is no longer available.');
+    createOffer: async (held, targetTime, experienceId) => {
+      void targetTime;
+      // The attraction of a question already asked, when it is accepted;
+      // otherwise whichever is open now.
+      const ride = experienceId
+        ? latest.current.experiences.find(exp => exp.id === experienceId)
+        : await rideToAsk();
+      if (!ride) {
+        // An attraction removed from the current tipboard is never silently
+        // replaced with the original attraction mid-search.
+        if (experienceId) {
+          throw new Error('The selected attraction is no longer available.');
+        }
+        throw new NothingOpen();
       }
-      return ll.offer(target, held.guests, { booking: held });
+      try {
+        return await ll.offer(ride, held.guests, { booking: held });
+      } catch (error) {
+        if (error instanceof OfferError) {
+          coolUntil.current.set(ride.id, Date.now() + OFFER_COOLDOWN_MS);
+        }
+        throw error;
+      }
     },
     getTimes: offer => ll.times(offer),
     changeTime: (offer, time) => ll.changeOfferTime(offer, time),
@@ -147,7 +244,7 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
     resolveCommit: id => resolveDoubt(reservation, id),
     retainCommit: id => resolveDoubtAndAcquire(conflictKeys, id, searchOwner),
     mutationKind: 'swap',
-    gainingFacility: () => target?.id,
+    gainingFacility: quoted => quoted.experience.id,
     onCommitted: moved =>
       saveCommit({
         facilityId: moved.facilityId,
@@ -166,9 +263,26 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
     stopAfterConfirmedMove: true,
   });
 
+  // The ride the question, the change or the result is about: the search's
+  // own record, or the one attraction when only one was chosen.
+  const ride = search.ride ?? (rides.length === 1 ? rides[0] : undefined);
+
   function start() {
-    if (!target || search.running || search.unresolved) return;
+    if (rides.length === 0 || search.running || search.unresolved) return;
+    coolUntil.current.clear();
+    turn.current = 0;
     search.start();
+  }
+
+  /** The attraction chosen in slot `index`, and room for another after it. */
+  function choose(index: number, id: string) {
+    setSlots(current => {
+      const next = [...current];
+      next[index] = id;
+      // Drop the empty slots, then offer one more while there is room.
+      const kept = next.filter(Boolean);
+      return kept.length < MAX_RIDES ? [...kept, ''] : kept;
+    });
   }
 
   return (
@@ -183,29 +297,39 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
       {!search.running && !search.unresolved && (
         <>
           <p className="mt-3 text-sm text-gray-600">
-            Searches continuously for a replacement. {APP_NAME} will always ask
-            before replacing this Lightning Lane, even if the offered time is
-            earlier.
+            Searches continuously for a replacement: whichever of the
+            attractions you choose opens first, up to {MAX_RIDES} of them.{' '}
+            {APP_NAME} will always ask before replacing this Lightning Lane,
+            even if the offered time is earlier.
           </p>
-          <label className="mt-4 block">
-            <span className="font-semibold">New attraction</span>
-            <select
-              className="mt-1 block w-full rounded-sm border border-gray-300 p-2"
-              value={targetId}
-              onChange={event => setTargetId(event.target.value)}
-            >
-              <option value="">Choose one&hellip;</option>
-              {choices.map(exp => (
-                <option key={exp.id} value={exp.id}>
-                  {exp.name} — {exp.park.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          {slots.map((id, index) => (
+            <label key={index} className="mt-4 block">
+              <span className="font-semibold">
+                {index === 0 ? 'New attraction' : 'Or'}
+              </span>
+              {index > 0 && (
+                <span className="text-sm text-gray-600"> (optional)</span>
+              )}
+              <select
+                className="mt-1 block w-full rounded-sm border border-gray-300 p-2"
+                value={id}
+                onChange={event => choose(index, event.target.value)}
+              >
+                <option value="">Choose one&hellip;</option>
+                {choices
+                  .filter(exp => exp.id === id || !chosenIds.includes(exp.id))
+                  .map(exp => (
+                    <option key={exp.id} value={exp.id}>
+                      {exp.name} — {exp.park.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          ))}
           <Button
             type="full"
             className="mt-4"
-            disabled={!target}
+            disabled={rides.length === 0}
             onClick={start}
           >
             Search for a replacement
@@ -217,7 +341,10 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
       {search.running && (
         <>
           <p className="mt-3">
-            Searching for <span className="font-semibold">{target?.name}</span>
+            Searching for{' '}
+            <span className="font-semibold">
+              {either(rides.map(exp => exp.name))}
+            </span>
             &hellip;{' '}
             <span className="text-gray-500">
               ({search.cycles} {search.cycles === 1 ? 'check' : 'checks'})
@@ -241,7 +368,7 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
           {/* From the instant of the tap: the cycle that makes the change can
               be a poll away, and a tap that changed nothing on the screen was
               reported as a tap that did nothing. */}
-          {(search.accepting || search.phase === 'awaiting') && target && (
+          {(search.accepting || search.phase === 'awaiting') && ride && (
             <div
               role="status"
               className="mt-3 rounded-sm bg-blue-100 p-2 text-blue-900"
@@ -249,13 +376,13 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
               <p className="font-semibold">
                 {search.phase === 'awaiting' ? (
                   <>
-                    Replaced &mdash; waiting for Plans to confirm {target.name}{' '}
-                    at <Time time={search.guard.requested!} />
+                    Replaced &mdash; waiting for Plans to confirm {ride.name} at{' '}
+                    <Time time={search.guard.requested!} />
                     &hellip;
                   </>
                 ) : (
                   <>
-                    Replacing {booking.name} with {target.name}
+                    Replacing {booking.name} with {ride.name}
                     {search.guard.requested && (
                       <>
                         {' '}
@@ -268,10 +395,10 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
               </p>
             </div>
           )}
-          {search.pending && target && (
+          {search.pending && ride && (
             <div className="mt-3 rounded-sm bg-amber-100 p-2 text-amber-900">
               <p className="font-semibold">
-                Replace {booking.name} with {target.name} at{' '}
+                Replace {booking.name} with {ride.name} at{' '}
                 <Time time={search.pending} />?
               </p>
               <p className="mt-1 text-sm">
@@ -318,13 +445,13 @@ export default function SwapAttractionSearch({ booking }: { booking: LLMP }) {
           {search.lastError}
         </p>
       )}
-      {search.stop === 'goal-met' && !search.unresolved && target && (
+      {search.stop === 'goal-met' && !search.unresolved && ride && (
         <div
           role="status"
           className="mt-3 rounded-sm bg-green-100 p-2 text-green-900"
         >
           <p className="font-semibold">
-            Replaced {booking.name} with {target.name}
+            Replaced {booking.name} with {ride.name}
             {search.held && (
               <>
                 {' '}
