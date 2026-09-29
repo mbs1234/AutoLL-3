@@ -50,6 +50,10 @@ export const MAX_FAILURES = 5;
  * Cycles with nothing worth taking before it stops looking: about twenty
  * minutes. It stops as a session, and says to take a break, because hours of
  * back-to-back searches are how an account gets paused.
+ *
+ * A cycle where Disney has no offer at all counts too. It is the likeliest
+ * barren cycle of all -- a sold-out ride answers every ask that way -- and it
+ * still spends an offer request.
  */
 export const MAX_BARREN_CYCLES = 200;
 
@@ -1045,10 +1049,16 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
             return;
           }
           // No offer available right now is an ordinary outcome mid-day, not
-          // a fault: it must not burn the failure budget.
+          // a fault: it must not burn the failure budget. It is a cycle with
+          // nothing to take, though, and counts toward the session like one:
+          // uncounted, a search aimed at a sold-out ride never stopped.
           const fatal =
             !(error instanceof OfferError) &&
             !(error instanceof RequestError && error.response?.status === 410);
+          if (!fatal && ++barren >= MAX_BARREN_CYCLES) {
+            stop('session');
+            return;
+          }
           if (fatal && ++failures >= MAX_FAILURES) {
             setState(s => ({
               ...s,

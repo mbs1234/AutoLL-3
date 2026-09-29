@@ -1327,4 +1327,37 @@ describe('useTimeSearch when Disney pushes back', () => {
     expect(result.current.running).toBe(false);
     expect(result.current.stop).toBe('session');
   });
+
+  // A sold-out ride answers every ask with no offer at all. Each of those
+  // checks still spends an offer request, and uncounted, the search never
+  // stopped.
+  it.each([
+    [
+      'no offer',
+      () => new OfferError({ eligible: [], ineligible: [] } as never),
+    ],
+    ['a 410', () => new RequestError({ ok: false, status: 410, data: {} })],
+  ])(
+    'ends a long search that gets %s every time as a session',
+    async (_, failure) => {
+      const { result } = setup({
+        createOffer: () =>
+          jest.fn(
+            async (_held: LLMP, _time?: ParkTime): Promise<Offer<LLMP>> => {
+              void _held;
+              void _time;
+              throw failure();
+            }
+          ),
+      });
+      act(() => result.current.start());
+      // The first check runs as it starts: this is 199 of them, and not
+      // yet the end -- nor did five of them read as five failures.
+      await runCycles(MAX_BARREN_CYCLES - 2);
+      expect(result.current.running).toBe(true);
+      await runCycles(3);
+      expect(result.current.running).toBe(false);
+      expect(result.current.stop).toBe('session');
+    }
+  );
 });

@@ -1126,6 +1126,22 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 24. Count a check with no offer toward a search's session — _completed in 1.4.7_
+
+Found while planning an "either of these" Change attraction. Time Search and
+Change attraction stop after `MAX_BARREN_CYCLES` (200) checks with nothing to
+take, but only a check whose offer came back with nothing better counted. When
+Disney had no offer at all, `ll.offer` threw `OfferError` (or a 410 came back),
+the search rightly treated it as no fault, and did not count it either. A
+throwaway test ran 205 such checks and the search was still running. So a Change
+attraction aimed at a sold-out ride ran until Stop was tapped, spending an offer
+request every 6 s, and the guide's "Both stop after 200 checks" was true only
+when offers came back.
+
+**Shipped.** A check with no offer at all counts toward the same session
+(`useTimeSearch`, the `run()` catch). It still spends nothing of the failure
+budget. Tests for no offer and for a 410 fail on 1.4.6's code.
+
 ### 23. Stop a NextLL search once it has what was asked for — _completed in 1.4.6_
 
 Found from the same park day as item 22. NextLL's "Book a new Lightning Lane"
