@@ -788,7 +788,8 @@ earlier. Once you tap **Replace Lightning Lane** it says it is replacing, then
 that it is waiting for Plans, and finally **Replaced … Confirmed in Plans.**
 
 **Both stop after 200 checks with nothing to take**, about twenty minutes, and
-say to take a break. Starting again is allowed. Both also stop at the first
+say to take a break. A check where Disney has no offer at all, as for a sold-out
+ride, counts. Starting again is allowed. Both also stop at the first
 refusal from Disney, or when Disney asks them to slow down (Part 3).
 
 ## 21. The Activity screen
@@ -978,7 +979,7 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.4.6.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.4.7.** Known, recorded, and not fixed yet:
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
@@ -1019,7 +1020,7 @@ further out than tomorrow gets no drop times at all and sits at 45 s.
 | Autopilot's wait after a 429 | Disney's suggested time; otherwise 2 min, doubling with each 429 in a row, to 30 |
 | NextLL session | 10 minutes with nothing booked or moved |
 | NextLL with a time set | Stops once the pass it holds is inside that window |
-| Time Search and Change attraction | 200 checks with nothing to take, about 20 minutes |
+| Time Search and Change attraction | 200 checks with nothing to take, about 20 minutes; a check with no offer at all counts |
 | Warning beside start buttons | 30 minutes after Disney last pushed back |
 | Auto-move minimum gain | 30 minutes (1 minute for a NextLL target with a bound) |
 | Time Search minimum gain | 5 minutes |
