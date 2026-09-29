@@ -24,7 +24,9 @@ export type StopReason =
   /** Disney asked a search a person started to slow down, so it stopped. */
   | 'throttled'
   /** A search a person started ran its whole session with nothing to show. */
-  | 'session';
+  | 'session'
+  /** A search a person started holds what it was asked for: "that will do". */
+  | 'goal';
 
 export interface PollerStatus {
   /**

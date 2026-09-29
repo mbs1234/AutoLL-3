@@ -1126,6 +1126,34 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 23. Stop a NextLL search once it has what was asked for — _completed in 1.4.6_
+
+Found from the same park day as item 22. NextLL's "Book a new Lightning Lane"
+was the one search that did not stop when it succeeded. Time Search's "Aim for
+this time" stops at the time asked for, and Change attraction once the
+replacement is confirmed. NextLL said "that will do" and turned its button to
+Done, then went on checking every 0.6 s until Done was tapped, to move the pass
+a minute earlier. Item 22's ten-minute session limit caught most of that, but
+each move restarted the clock, and with a window set any one-minute gain
+counts as a move.
+
+**Shipped**, as the owner chose:
+
+- **With a "Return after" or "Return by" time, it stops once the pass it holds
+  is inside that window** (`goalMet` in `AutopilotProvider`, stop reason
+  `goal`). That is the screen's own "that will do", by the same two tests:
+  `findPartyLL` for whose pass it is, and `inWindow`. It checks before the
+  tick offers for anything, so a pass already inside the window is not moved,
+  and again after its own booking or move, so the check that met the goal is
+  the last one.
+- **With no time set, it keeps going.** Booking and then moving earlier is that
+  search's whole purpose, so it runs until Done or the session limit.
+- The screen says it has stopped because the time will do, in green rather
+  than as an error, and offers no "retry". The stop raises no alert, since the
+  booking or move that met the goal already had its own, and a search that
+  stopped at its goal is not offered back on returning to the tab.
+- Only a search a person started stops at its goal. Autopilot watches all day.
+
 ### 22. Stop when Disney pushes back — _completed in 1.4.5_
 
 Found from a friend's park day. A NextLL search kept checking every 0.6 s with

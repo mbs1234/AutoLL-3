@@ -339,13 +339,16 @@ export function NextLL({
   // Written straight to storage rather than through `replaceTargets`, because
   // an unmounting component's state update never reaches the effect that
   // persists it.
-  const latest = useRef({ enabled, target, bookingDate });
-  latest.current = { enabled, target, bookingDate };
+  //
+  // A search that stopped at its goal is finished, so it is not offered back.
+  const done = status.mode === 'stopped' && status.stopReason === 'goal';
+  const latest = useRef({ enabled, target, bookingDate, done });
+  latest.current = { enabled, target, bookingDate, done };
   useEffect(
     () => () => {
-      const { enabled, target } = latest.current;
+      const { enabled, target, done } = latest.current;
       saveWatchList([], NEXTLL_WATCHLIST_KEY);
-      if (enabled && target) {
+      if (enabled && target && !done) {
         savePendingSearch({
           experienceId: target.experienceId,
           bookingDate: latest.current.bookingDate,
@@ -503,7 +506,15 @@ export function NextLL({
               that stopped -- and an expired session, which is what usually
               stops it, is exactly the case where the user has to do something.
               Autopilot's screen has said this since it had one. */}
-          {status.mode === 'stopped' && (
+          {/* Stopped because it has what was asked for, which is the one stop
+              that is good news. */}
+          {status.mode === 'stopped' && status.stopReason === 'goal' && (
+            <p className="mt-2 font-semibold text-green-700">
+              That is inside your window, so NextLL has stopped checking. Tap
+              Done to finish.
+            </p>
+          )}
+          {status.mode === 'stopped' && status.stopReason !== 'goal' && (
             <p className="mt-2 font-semibold text-red-700">
               {status.stopReason === 'refused'
                 ? 'Stopped: Disney refused a request, so everything has stopped. You can start again, but the next refusal stops everything again.'

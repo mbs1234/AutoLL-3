@@ -67,6 +67,21 @@ describe('latestEvent', () => {
     });
   });
 
+  // A search that has what it was asked for is finished, not broken.
+  it('reads a stop at the goal as news, not an error', () => {
+    expect(
+      latestEvent({
+        ...facts,
+        status: {
+          mode: 'stopped',
+          stopReason: 'goal',
+          consecutiveFailures: 0,
+          polls: 12,
+        },
+      })
+    ).toMatchObject({ level: 'info', text: 'Stopped: that will do' });
+  });
+
   // Still running, so a warning and not an error, with the time it resumes.
   it('reports a wait Disney asked for, with when it ends', () => {
     const until = Date.now() + 5 * 60_000;

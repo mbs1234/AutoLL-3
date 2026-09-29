@@ -718,8 +718,11 @@ Two traps worth knowing:
 new Lightning Lane" again, and a card offers to resume. Today also shows a
 reminder card with an "Open NextLL" button.
 
-**It never stops itself when it succeeds.** Once the goal is met the button
-reads "Done" but it keeps checking until you tap it.
+**With a time set, it stops itself when it succeeds.** Once the pass it holds
+is inside your "Return after" or "Return by" window it says "that will do",
+stops checking, and waits for you to tap **Done**. **With no time set, it keeps
+going:** it books the first time it can, then keeps moving the pass earlier
+until you tap Done, or until the ten minutes below run out.
 
 **It stops after ten minutes with nothing booked or moved**, and says to take a
 break: long searches can make Disney pause your account. The ten minutes count
@@ -975,7 +978,7 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.4.5.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.4.6.** Known, recorded, and not fixed yet:
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
@@ -1015,6 +1018,7 @@ further out than tomorrow gets no drop times at all and sits at 45 s.
 | Stops everything at | The first 403 from Disney: Autopilot and every search |
 | Autopilot's wait after a 429 | Disney's suggested time; otherwise 2 min, doubling with each 429 in a row, to 30 |
 | NextLL session | 10 minutes with nothing booked or moved |
+| NextLL with a time set | Stops once the pass it holds is inside that window |
 | Time Search and Change attraction | 200 checks with nothing to take, about 20 minutes |
 | Warning beside start buttons | 30 minutes after Disney last pushed back |
 | Auto-move minimum gain | 30 minutes (1 minute for a NextLL target with a bound) |
