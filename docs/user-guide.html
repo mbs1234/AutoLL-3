@@ -552,7 +552,7 @@
       stops working.
     </p>
     <div class="masthead-meta">
-      <span>Version 1.4.5</span>
+      <span>Version 1.4.6</span>
       <span>Three parts · 23 sections</span>
       <span>Unofficial · not endorsed by Disney</span>
     </div>
@@ -1726,10 +1726,15 @@
       <p>
         <strong>Leaving the tab stops the search.</strong> It is remembered: come
         back, tap “Book a new Lightning Lane” again, and a card offers to resume.
-        Today also shows a reminder with an “Open NextLL” button. And it
-        <strong>never stops itself when it succeeds</strong> — once the goal is
-        met the button reads <span class="ui">Done</span> but it keeps checking
-        until you tap it.
+        Today also shows a reminder with an “Open NextLL” button.
+      </p>
+      <p>
+        <strong>With a time set, it stops itself when it succeeds.</strong> Once
+        the pass it holds is inside your “Return after” or “Return by” window it
+        says “that will do”, stops checking, and waits for you to tap
+        <span class="ui">Done</span>. <strong>With no time set, it keeps
+        going:</strong> it books the first time it can, then keeps moving the
+        pass earlier until you tap Done, or until the ten minutes below run out.
       </p>
       <p>
         <strong>It stops after ten minutes with nothing booked or moved</strong>,
@@ -2125,7 +2130,7 @@
         well, or it may start empty next time.
       </p>
       <p>
-        <strong>Rough edges, as of 1.4.5.</strong> Known, recorded, and not
+        <strong>Rough edges, as of 1.4.6.</strong> Known, recorded, and not
         fixed yet:
       </p>
       <ul>
@@ -2175,6 +2180,7 @@
         <div><dt>Stops everything at</dt><dd>403<small>the first one, from Autopilot or any search</small></dd></div>
         <div><dt>Autopilot's 429 wait</dt><dd>2→30 min<small>doubling with each in a row; Disney's own time wins</small></dd></div>
         <div><dt>NextLL session</dt><dd>10 min<small>with nothing booked or moved</small></dd></div>
+        <div><dt>NextLL with a time</dt><dd>Stops<small>once the pass it holds is inside that window</small></dd></div>
         <div><dt>Search limit</dt><dd>200<small>checks with nothing to take, about 20 min: Time Search and Change attraction</small></dd></div>
         <div><dt>Pushback warning</dt><dd>30 min<small>beside the start buttons, after Disney last pushed back</small></dd></div>
         <div><dt>Auto-move gain</dt><dd>30 min<small>1 min for a NextLL target with a bound</small></dd></div>

@@ -1272,6 +1272,141 @@ describe('AutopilotProvider book-then-move', () => {
   });
 });
 
+/**
+ * A search a person started, given a window, is finished once it holds a pass
+ * inside it: what NextLL's screen calls "that will do". It used to check on
+ * every 0.6 s until Done was tapped, to move the pass a minute earlier.
+ */
+describe('AutopilotProvider stopping a hand-started search at its goal', () => {
+  const mode = () => screen.getByTestId('mode');
+  const stopReason = () => screen.getByTestId('stopReason');
+  const stopAlert = expect.objectContaining({
+    title: expect.stringContaining('has stopped'),
+  });
+
+  beforeEach(() => setTime('09:00'));
+
+  it.each([
+    [
+      'a return-by time',
+      { bookThenMove: true, before: new ParkTime(12) },
+      11,
+      10,
+    ],
+    [
+      'a return-after time',
+      { autoBook: true, autoModify: true, after: new ParkTime(14) },
+      16,
+      15,
+    ],
+  ])(
+    'stops, and offers for nothing, once it holds a pass inside %s',
+    async (_, window, heldHour, offeredHour) => {
+      saveWatchList([{ experienceId: BZ, ...window }]);
+      // An earlier time inside the window is on offer: a search that kept
+      // improving would take it.
+      const { offer, pollExperiences } = setupBooking({
+        handStarted: true,
+        repeatMoves: true,
+        plans: [heldBZAt(heldHour)],
+        experiences: [available(BZ, new ParkTime(offeredHour))],
+        offerHour: offeredHour,
+      });
+      await enable();
+      await drainTick();
+      expect(mode()).toHaveTextContent('stopped');
+      expect(stopReason()).toHaveTextContent('goal');
+      expect(offer).not.toHaveBeenCalled();
+      const asked = pollExperiences.mock.calls.length;
+      await runTicks(3);
+      expect(pollExperiences).toHaveBeenCalledTimes(asked);
+      // Good news, and the booking already had its own alert.
+      expect(fireAlert).not.toHaveBeenCalledWith(stopAlert);
+    }
+  );
+
+  // Stopping at once, on the check that met the goal, rather than a request
+  // later.
+  it('stops on the check whose booking put a pass inside the window', async () => {
+    saveWatchList([
+      { experienceId: BZ, bookThenMove: true, before: new ParkTime(12) },
+    ]);
+    let land!: () => void;
+    const landed = new Promise<void>(resolve => {
+      land = resolve;
+    });
+    const { book, pollExperiences, setPolledPlans } = setupBooking({
+      handStarted: true,
+      repeatMoves: true,
+      offerHour: 11,
+      experiences: [available(BZ, new ParkTime(11))],
+      bookDelay: landed,
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    // The booking comes back, and the read of plans after it shows the pass.
+    setPolledPlans([heldBZAt(11)]);
+    const asked = pollExperiences.mock.calls.length;
+    land();
+    await drainTick();
+    expect(stopReason()).toHaveTextContent('goal');
+    await runTicks(3);
+    expect(pollExperiences).toHaveBeenCalledTimes(asked);
+    expect(book).toHaveBeenCalledTimes(1);
+  });
+
+  // With no window there is no "good enough": moving the pass earlier is the
+  // whole of what that search is for.
+  it('keeps moving the pass earlier when no time was set', async () => {
+    saveWatchList([{ experienceId: BZ, bookThenMove: true }]);
+    const { book, offerOptions } = setupBooking({
+      handStarted: true,
+      repeatMoves: true,
+      plans: [heldBZAt(11)],
+      experiences: [available(BZ, new ParkTime(10))],
+      offerHour: 10,
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    expect(offerOptions[0]).toHaveProperty('booking');
+    await drainTick();
+    expect(mode()).not.toHaveTextContent('stopped');
+  });
+
+  it('keeps looking while what it holds is outside the window', async () => {
+    saveWatchList([
+      { experienceId: BZ, bookThenMove: true, before: new ParkTime(12) },
+    ]);
+    const { pollExperiences } = setupBooking({
+      handStarted: true,
+      repeatMoves: true,
+      plans: [heldBZAt(19)],
+      experiences: [available(BZ, new ParkTime(15))],
+      offerHour: 15,
+    });
+    await enable();
+    await runTicks(3);
+    expect(mode()).not.toHaveTextContent('stopped');
+    expect(pollExperiences.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  // Autopilot watches all day: a pass inside its window is no reason to stop
+  // watching everything else.
+  it('leaves Autopilot running once it holds a pass inside the window', async () => {
+    saveWatchList([
+      { experienceId: BZ, bookThenMove: true, before: new ParkTime(12) },
+    ]);
+    const { pollExperiences } = setupBooking({
+      plans: [heldBZAt(11)],
+      experiences: [available(BZ, new ParkTime(11))],
+    });
+    await enable();
+    await runTicks(3);
+    expect(mode()).not.toHaveTextContent('stopped');
+    expect(pollExperiences.mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
 describe('AutopilotProvider pause', () => {
   it('still alerts but takes no action while paused', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true, paused: true }]);

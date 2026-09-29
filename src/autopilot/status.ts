@@ -16,6 +16,7 @@ const STOP_TEXT: Record<StopReason, string> = {
   refused: 'Stopped: Disney refused a request',
   throttled: 'Stopped: Disney asked to slow down',
   session: 'Stopped after a long search',
+  goal: 'Stopped: that will do',
 };
 
 /** The status in words, naming why a stopped loop stopped. */

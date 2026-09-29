@@ -189,6 +189,10 @@ export function latestEvent(facts: EventFacts): AutopilotEvent | undefined {
   const { status, bookingLog, lastSkip, lastHit, now } = facts;
 
   if (status.mode === 'stopped') {
+    // A search that has what it was asked for is finished, not broken.
+    if (status.stopReason === 'goal') {
+      return { at: now, level: 'info', text: modeText(status) };
+    }
     if (status.stopReason && status.stopReason !== 'failures') {
       return { at: now, level: 'error', text: modeText(status) };
     }

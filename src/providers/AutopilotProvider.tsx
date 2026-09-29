@@ -192,9 +192,13 @@ export const SEARCH_SESSION_MS = 10 * 60_000;
 const REFUSED_TEXT = 'Disney refused a request';
 const THROTTLED_TEXT = 'Disney asked to slow down';
 const SESSION_TEXT = 'Searched for ten minutes with nothing booked';
+const GOAL_TEXT = 'Holding a time inside the window asked for';
 
-/** The stop alert's body, by why the run stopped. */
-const STOP_BODY: Record<StopReason, string> = {
+/**
+ * The stop alert's body, by why the run stopped. A search that stopped at its
+ * goal raises none: the booking or move that met it had its own alert.
+ */
+const STOP_BODY: Record<Exclude<StopReason, 'goal'>, string> = {
   failures:
     'Repeated errors, so it is no longer checking for Lightning Lanes. Open it and start it again.',
   refused:
@@ -260,7 +264,8 @@ export default function AutopilotProvider({
   /**
    * A search a person started and is watching: NextLL. A 429 stops it and
    * says why, where Autopilot waits it out, and it stops after
-   * `SEARCH_SESSION_MS` with nothing booked or moved. See `pushback.ts`.
+   * `SEARCH_SESSION_MS` with nothing booked or moved. See `pushback.ts`. It
+   * also stops once it holds a pass inside the window it was given.
    */
   handStarted?: boolean;
 }) {
@@ -971,6 +976,27 @@ export default function AutopilotProvider({
       const partyIds = loadSavedPartyIds();
       const heldToday = (experienceId: string) =>
         findPartyLL(currentPlans, experienceId, date, partyIds);
+      /**
+       * Whether a search a person started has what it was asked for: every
+       * target has a window, and the party holds a pass inside it. What
+       * NextLL's screen calls "that will do", by the same two tests.
+       *
+       * Checking on past that point only nudges the pass a minute earlier, at
+       * a request every 0.6 s, which is the pattern that gets an account
+       * paused. A target with no window has no "good enough", so it keeps
+       * moving its pass earlier until the person taps Done or the session
+       * runs out.
+       */
+      const goalMet = () =>
+        handStarted &&
+        activeTargets.length > 0 &&
+        activeTargets.every(target => {
+          if (!target.after && !target.before) return false;
+          const held = heldToday(target.experienceId);
+          return (
+            !!held && held !== 'several' && inWindow(held.start.time, target)
+          );
+        });
       let allHeldToday = heldMPToday(currentPlans, date);
       const planCarriesCommit = (commit: CommittedReturn, plan: Booking) => {
         if (
@@ -1133,6 +1159,10 @@ export default function AutopilotProvider({
         }
         entitlementsRef.current = held;
       }
+
+      // Held inside the window already, so there is nothing to book or move:
+      // stop before offering for anything.
+      if (goalMet()) throw new PollerStop('goal', GOAL_TEXT);
 
       // Book-then-move: while nothing is held, the window is stripped so any
       // offered time matches and gets booked -- holding *something* beats
@@ -2035,6 +2065,10 @@ export default function AutopilotProvider({
 
       if (pushback) pushedBack(pushback);
 
+      // This check's own booking or move may have met the goal, and plans
+      // were read again after it: stop now rather than a request later.
+      if (goalMet()) throw new PollerStop('goal', GOAL_TEXT);
+
       // Prewarm only auto-book targets. Eligibility is the one request in the
       // three-request booking path that does not change second to second, so
       // having it cached removes a third of the round trips from the moment a
@@ -2220,6 +2254,7 @@ export default function AutopilotProvider({
   useEffect(() => {
     if (status.mode !== 'stopped') return;
     void releaseScreenAwake(wakeLockOwner);
+    if (status.stopReason === 'goal') return;
     fireAlert({
       title: `${APP_NAME} has stopped`,
       body: STOP_BODY[status.stopReason ?? 'failures'],
