@@ -783,9 +783,16 @@ Autopilot got there first you get an amber "Waiting for Autopilot to finish a
 request…" box, and the search takes over as soon as that returns.
 
 **Change attraction** is the sister screen: it hunts a replacement ride for a
-pass you hold, and **always asks before replacing**, even if the offered time is
-earlier. Once you tap **Replace Lightning Lane** it says it is replacing, then
-that it is waiting for Plans, and finally **Replaced … Confirmed in Plans.**
+pass you hold. **Choose up to three attractions and it takes whichever opens
+first**: once one is chosen, an "Or" choice appears for another. Each check reads
+the tip board once, and asks Disney for an offer only for a chosen ride that is
+open, the soonest-opening if several are. So three rides cost no more requests
+than one, and none are asked for while nothing is open.
+
+It **always asks before replacing**, naming the ride that came up, even if the
+offered time is earlier. Once you tap **Replace Lightning Lane** it says it is
+replacing, then that it is waiting for Plans, and finally **Replaced …
+Confirmed in Plans.**
 
 **Both stop after 200 checks with nothing to take**, about twenty minutes, and
 say to take a break. A check where Disney has no offer at all, as for a sold-out
@@ -979,7 +986,7 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.4.7.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.5.0.** Known, recorded, and not fixed yet:
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
@@ -1021,6 +1028,7 @@ further out than tomorrow gets no drop times at all and sits at 45 s.
 | NextLL session | 10 minutes with nothing booked or moved |
 | NextLL with a time set | Stops once the pass it holds is inside that window |
 | Time Search and Change attraction | 200 checks with nothing to take, about 20 minutes; a check with no offer at all counts |
+| Change attraction | Up to 3 attractions, whichever opens first |
 | Warning beside start buttons | 30 minutes after Disney last pushed back |
 | Auto-move minimum gain | 30 minutes (1 minute for a NextLL target with a bound) |
 | Time Search minimum gain | 5 minutes |

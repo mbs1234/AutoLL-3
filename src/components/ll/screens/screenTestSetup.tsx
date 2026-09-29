@@ -47,6 +47,8 @@ export type ScreenSetup = Partial<AutopilotState> & {
   watched?: string[];
   unknownExperienceIds?: string[];
   experiencesUpdated?: number;
+  /** A fresh read of the tip board; none by default. */
+  pollExperiences?: () => Promise<Experience[]>;
   plans?: Booking[];
   plansUpdated?: number;
   bookingDate?: string;
@@ -65,6 +67,7 @@ export function renderScreen(
     watched = [] as string[],
     unknownExperienceIds = [] as string[],
     experiencesUpdated,
+    pollExperiences = async () => [],
     plans = [] as Booking[],
     plansUpdated,
     bookingDate = TODAY,
@@ -125,7 +128,7 @@ export function renderScreen(
                   value={{
                     experiences,
                     refreshExperiences: () => {},
-                    pollExperiences: async () => [],
+                    pollExperiences,
                     unknownExperienceIds,
                     lastUpdated: experiencesUpdated,
                     loaderElem: null,

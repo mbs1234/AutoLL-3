@@ -140,6 +140,21 @@ export type SearchStop =
   /** `MAX_BARREN_CYCLES` with nothing to take: time for a break. */
   | 'session';
 
+/**
+ * Thrown by a search's `createOffer` when none of the attractions it could ask
+ * about is open, so it asked Disney nothing.
+ *
+ * A check with nothing to take, like an offer Disney would not make: it counts
+ * toward `MAX_BARREN_CYCLES` and spends nothing of the failure budget.
+ */
+export class NothingOpen extends Error {
+  readonly name = 'NothingOpen';
+
+  constructor() {
+    super('None of the attractions is open');
+  }
+}
+
 /** Whether a move is in the direction that gives up an earlier reservation. */
 export function isLaterMove(current: ParkTime, candidate: ParkTime): boolean {
   return +candidate > +current;
