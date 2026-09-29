@@ -166,6 +166,9 @@ const STOP_TEXT: Record<NonNullable<TimeSearchState['stop']>, string> = {
   unconfirmed: 'The change was accepted but is not yet confirmed in Plans.',
   stopped: 'You stopped the search.',
   failed: 'The search stopped after repeated errors.',
+  refused: 'Disney refused a request, so the search stopped.',
+  throttled: 'Disney asked to slow down, so the search stopped.',
+  session: 'The search stopped after 200 checks with nothing to take.',
 };
 
 /** Compact diagnostics shared by both held-reservation NextLL searches. */

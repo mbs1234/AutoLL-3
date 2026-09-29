@@ -30,6 +30,7 @@ import PlansContext from '@/contexts/PlansContext';
 import TopAutopilotContext from '@/contexts/TopAutopilotContext';
 import { parkDate } from '@/datetime';
 
+import PushbackWarning from '../PushbackWarning';
 import Home from './Home';
 import { NextLLTimeSearchActivity } from './NextLLActivity';
 
@@ -41,6 +42,12 @@ const STOPPED: Record<Exclude<SearchStop, 'failed'>, string> = {
   unconfirmed:
     'The move went through, but Plans has not caught up yet. Refresh Plans to confirm the new time.',
   stopped: 'Stopped.',
+  refused:
+    'Stopped: Disney refused a request, so everything has stopped. You can start again, but the next refusal stops everything again.',
+  throttled:
+    'Stopped: Disney asked to slow down. You can start again early, but it may ask again.',
+  session:
+    'Stopped after 200 checks, about twenty minutes, with nothing better. Take a break before searching again: long searches can make Disney pause the account.',
 };
 
 /**
@@ -215,6 +222,7 @@ export default function TimeSearch({ booking }: { booking: LLMP }) {
             >
               Aim for this time
             </Button>
+            <PushbackWarning />
           </div>
         </>
       )}

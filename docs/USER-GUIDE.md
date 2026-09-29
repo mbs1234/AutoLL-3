@@ -391,9 +391,10 @@ unlocks the alert chime, asks the browser for notification permission, and asks
 the phone to keep the screen awake. That is why it has to be a deliberate tap
 and not a toggle in the header.
 
-Turning it on starts a **fresh run**: the session log, skip counts, refusal
-state, per-run locks and the drop-detection baseline are all cleared, and
-anything already available gets re-alerted.
+Turning it on starts a **fresh run**: the session log, skip counts, per-run
+locks and the drop-detection baseline are all cleared, and anything already
+available gets re-alerted. A refusal from Disney before the run does not stop
+it; the next one does.
 
 **Check the sound before you rely on it.** Under the notification notices
 Today says whether the alert sound is armed, with a **Test sound** button next
@@ -493,7 +494,9 @@ not layers: with Touch off, the three-tap unlock cannot work either.
 | **Watching** | ~45 s | Nothing near |
 | **Checking often** | ~6 s | 5 to 2 minutes before a target, or inside a refill window |
 | **Checking rapidly** | ~1.2 s | From 2 minutes before a target to 2 minutes after |
+| **Waiting: Disney asked to slow down** | — | Disney answered a check with a 429. Still on and armed; it carries on by itself at the time shown ([below](#disney-asked-to-slow-down)) |
 | **Stopped after repeated errors** | — | Eight checks failed in a row |
+| **Stopped: Disney refused a request** | — | Disney answered with a 403, and everything stopped ([below](#disney-refused-a-request-and-everything-stopped)) |
 
 Beside it, `(57 checks)` counts the checks since you turned it on — **the
 simplest proof it is alive is that number rising between visits.**
@@ -512,9 +515,10 @@ because the day's log is saved. Only the Status block is live.
 
 **How to tell it is working.** Freshness line recent → button red → Status not
 "Off" or "Stopped" → check counter rising. If all four look healthy and nothing
-is booking, look for the red refusal box, then the amber "failed checks in a
-row" line, then the yellow dry-run banner, then the "n armed" count in Plan. A
-running Autopilot with **0 armed** will never book anything.
+is booking, look for the amber "failed checks in a row" line, then the yellow
+dry-run banner, then the "n armed" count in Plan. A running Autopilot with **0
+armed** will never book anything. **Waiting** in amber is not a fault: Disney
+asked it to slow down, and it carries on by itself (Part 3).
 
 ### Dry run
 
@@ -717,6 +721,11 @@ reminder card with an "Open NextLL" button.
 **It never stops itself when it succeeds.** Once the goal is met the button
 reads "Done" but it keeps checking until you tap it.
 
+**It stops after ten minutes with nothing booked or moved**, and says to take a
+break: long searches can make Disney pause your account. The ten minutes count
+from the last booking or move. Starting again is allowed. It also stops, and
+says why, if Disney refuses a request or asks it to slow down (Part 3).
+
 **Modify a held Lightning Lane** lists the passes you hold and leads to the two
 search screens below.
 
@@ -775,6 +784,10 @@ pass you hold, and **always asks before replacing**, even if the offered time is
 earlier. Once you tap **Replace Lightning Lane** it says it is replacing, then
 that it is waiting for Plans, and finally **Replaced … Confirmed in Plans.**
 
+**Both stop after 200 checks with nothing to take**, about twenty minutes, and
+say to take a break. Starting again is allowed. Both also stop at the first
+refusal from Disney, or when Disney asks them to slow down (Part 3).
+
 ## 21. The Activity screen
 
 ![Activity](user-guide/activity.png)
@@ -817,7 +830,7 @@ screen.** Everything else in this section is a variation on that one test.
 
 | Banner | Meaning | What to do |
 |---|---|---|
-| `Network request failed (403 guests)` | Disney's filter is refusing this app | Stop trying; book in Disney's app. Leave AutoLL-3 running as a watcher |
+| `Network request failed (403 guests)` | Disney's filter is refusing this app | Book in Disney's app. When Autopilot or a search meets one, AutoLL-3 stops everything itself (below) |
 | `Network request failed (no response guests)` | Your signal dropped — an 8-second timeout | Move, or switch wifi off. **If you were mid-booking, check Disney's Plans first** |
 | `Too many requests just now.` | You tapped faster than 5 requests/second | Wait five seconds |
 | `Unknown error occurred` | No status at all — usually the rate limit, on screens that do not name it | Wait five seconds and retry once |
@@ -825,25 +838,45 @@ screen.** Everything else in this section is a variation on that one test.
 The banner clears itself after three seconds and is stored nowhere. Miss it and
 the only way to see it again is to repeat the action.
 
-## Autopilot looks healthy but never books
+## Disney refused a request, and everything stopped
 
-![Disney refusing requests](user-guide/refused.png)
+![Stopped: Disney refused a request](user-guide/refused.png)
 
-This is the failure mode to watch for. Disney's filter hits the **eligibility**
-call first — one step before an offer exists — so Autopilot keeps polling,
-keeps alerting and keeps learning drop times while never acting.
+A **403** is Disney's filter refusing this app, and it usually lands on the
+eligibility call, one step before an offer exists. The first one stops
+**everything**: Autopilot, and any NextLL, Time Search or Change attraction
+search. Today reads **Stopped: Disney refused a request**, and Autopilot raises
+its "has stopped" alert. It stops at the first because knocking again is what
+keeps an account paused.
 
-The red **"Disney is refusing these requests."** box on Today is the only thing
-that names it. It waits a full minute before appearing, so it describes a
-condition rather than a hiccup, and it only counts outright 403s. Book by hand
-meanwhile; do not keep toggling Autopilot, because the refusal is Disney's.
+You may start again whenever you like: Autopilot by turning it off and on, a
+search by starting it again. For half an hour a note under the switch, and
+beside each search's start button, says when Disney refused and warns that
+**the next refusal stops everything again**. There is no grace period. Book by
+hand in Disney's app meanwhile.
+
+## Disney asked to slow down
+
+A **429** is Disney asking this app to slow down. What happens depends on who
+it asked:
+
+- **Autopilot waits.** It raises an alert saying when it will check again, and
+  stays on and armed while it sits out the wait. The wait is Disney's own
+  suggested time when it sends one; otherwise 2 minutes, doubling with each
+  429 in a row, to 30. Today, the footer strip and the pocket screen say
+  **Waiting: Disney asked to slow down**, and until when. It carries on by
+  itself.
+- **A search stops**, whether NextLL, Time Search or Change attraction, and
+  says why. You may start it again early. The note beside its start button
+  says when Disney asked, and until when it suggested waiting.
 
 ## Autopilot stopped
 
 ![Stopped after repeated errors](user-guide/stopped.png)
 
-Eight checks failed in a row, so it gave up rather than spin. It is no longer
-watching, alerting or booking, and **it does not restart itself.**
+Eight checks failed in a row, so it gave up rather than spin. (A refusal from
+Disney stops it too, and says so; see above.) It is no longer watching,
+alerting or booking, and **it does not restart itself.**
 
 The switch still reads "Turn off autopilot", so restarting is **two taps**: off,
 then on. (The exception is a stop caused by an expired session — signing back in
@@ -901,8 +934,9 @@ requested time resolves it with no tap from you.
 ## Common questions
 
 **"Why is nothing booking?"** In order: is Dry run on (yellow banner)? Is
-anything armed (`n armed` in Plan, not paused)? Is the refusal box showing? Did
-it stop? Then read **Why nothing was booked** on Activity.
+anything armed (`n armed` in Plan, not paused)? Did it stop, or is it waiting
+because Disney asked it to slow down? Then read **Why nothing was booked** on
+Activity.
 
 **"Why did it skip a time I wanted?"** Most likely the offered time fell outside
 that attraction's window, or Avoid clashes refused it against a plan you already
@@ -941,7 +975,7 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.4.4.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.4.5.** Known, recorded, and not fixed yet:
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
@@ -978,6 +1012,11 @@ further out than tomorrow gets no drop times at all and sits at 45 s.
 | Single check deadline | 90 seconds, then abandoned and counted as a failure |
 | Backoff after a failure | 2 s doubling to a 60 s cap |
 | Gives up after | 8 consecutive failures |
+| Stops everything at | The first 403 from Disney: Autopilot and every search |
+| Autopilot's wait after a 429 | Disney's suggested time; otherwise 2 min, doubling with each 429 in a row, to 30 |
+| NextLL session | 10 minutes with nothing booked or moved |
+| Time Search and Change attraction | 200 checks with nothing to take, about 20 minutes |
+| Warning beside start buttons | 30 minutes after Disney last pushed back |
 | Auto-move minimum gain | 30 minutes (1 minute for a NextLL target with a bound) |
 | Time Search minimum gain | 5 minutes |
 | Tier 1 hold horizon | 90 minutes |
@@ -991,7 +1030,7 @@ further out than tomorrow gets no drop times at all and sits at 45 s.
 
 | Event | Effect |
 |---|---|
-| Turning Autopilot on | Clears session log, skip counts, refusal state, locks, cache, passkey status, drop baseline; re-alerts anything available |
+| Turning Autopilot on | Clears session log, skip counts, locks, cache, passkey status, drop baseline; re-alerts anything available. A refusal before it does not stop the new run; the next one does |
 | Turning Autopilot off | Leaves skip counts and the log alone |
 | Page reload | Autopilot off; skip counts lost; log and watch list survive |
 | 4am park-day rollover | Autopilot off; screen wake lock released; log emptied; skip counts zeroed |

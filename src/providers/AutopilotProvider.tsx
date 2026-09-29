@@ -1,4 +1,12 @@
-import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 
 import { RequestNotSent } from '@/api/client';
 import type { RequestControl } from '@/api/client';
@@ -93,13 +101,17 @@ import {
   shouldHoldTierSlot,
 } from '@/autopilot/priority';
 import {
-  ActionCall,
-  NO_REFUSALS,
-  RefusalState,
-  observeAction,
-} from '@/autopilot/refusal';
+  Pushback,
+  noteRefusal,
+  noteThrottle,
+  pushbackOf,
+  pushbackOfStatus,
+  refusalCount,
+  subscribePushback,
+  throttleWaitMs,
+} from '@/autopilot/pushback';
 import { markRunning } from '@/autopilot/running';
-import { syncedParkTime } from '@/autopilot/schedule';
+import { syncedParkTime, syncedParkTimeAt } from '@/autopilot/schedule';
 import {
   COMMIT_TTL_MS,
   CommittedReturn,
@@ -116,7 +128,11 @@ import {
   saveLocks,
   saveSettings,
 } from '@/autopilot/storage';
-import usePoller from '@/autopilot/usePoller';
+import usePoller, {
+  PollerStop,
+  PollerWait,
+  StopReason,
+} from '@/autopilot/usePoller';
 import { holdScreenAwake, releaseScreenAwake } from '@/autopilot/wakelock';
 import {
   WATCHLIST_KEY,
@@ -162,6 +178,34 @@ import { now as syncedNow } from '@/timesync';
 export const PLANS_EVERY_N_TICKS = 10;
 
 /**
+ * How long a search a person started may run with nothing booked or moved
+ * before it stops and suggests a break.
+ *
+ * Ten minutes at NextLL's 0.6s is about a thousand checks: plenty to catch a
+ * return time coming back, and well short of the hours of back-to-back
+ * searching after which an account was paused. Starting again is allowed; the
+ * stop is advice, and so is the line saying why.
+ */
+export const SEARCH_SESSION_MS = 10 * 60_000;
+
+/** What the screens and the log say about each way a run can end. */
+const REFUSED_TEXT = 'Disney refused a request';
+const THROTTLED_TEXT = 'Disney asked to slow down';
+const SESSION_TEXT = 'Searched for ten minutes with nothing booked';
+
+/** The stop alert's body, by why the run stopped. */
+const STOP_BODY: Record<StopReason, string> = {
+  failures:
+    'Repeated errors, so it is no longer checking for Lightning Lanes. Open it and start it again.',
+  refused:
+    'Disney refused a request, so everything has stopped. You can start again, but give it a while first.',
+  throttled:
+    'Disney asked it to slow down, so it has stopped. You can start again early, but it may ask again.',
+  session:
+    'It searched for ten minutes with nothing booked. Take a break before starting again.',
+};
+
+/**
  * How often to check whether the park day has turned under a mounted provider.
  *
  * A minute is far finer than the once-a-day event it watches for, and the
@@ -200,6 +244,7 @@ export default function AutopilotProvider({
   watchListKey = WATCHLIST_KEY,
   rapid = false,
   repeatMoves = false,
+  handStarted = false,
 }: {
   children: React.ReactNode;
   /**
@@ -212,6 +257,12 @@ export default function AutopilotProvider({
   rapid?: boolean;
   /** Allow the same reservation to be moved more than once. */
   repeatMoves?: boolean;
+  /**
+   * A search a person started and is watching: NextLL. A 429 stops it and
+   * says why, where Autopilot waits it out, and it stops after
+   * `SEARCH_SESSION_MS` with nothing booked or moved. See `pushback.ts`.
+   */
+  handStarted?: boolean;
 }) {
   const { park } = use(ParkContext);
   const { ll } = use(ClientsContext);
@@ -246,27 +297,17 @@ export default function AutopilotProvider({
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
-  // Which booking-path calls Disney is refusing, and for how long. Held in
-  // a ref as well as state because the tick reads and writes it between
-  // renders; the state copy exists only so the screen can show it.
-  const refusalRef = useRef<RefusalState>(NO_REFUSALS);
-  const [refusals, setRefusals] = useState<RefusalState>(NO_REFUSALS);
-  // The only two ways `refusalRef` may change. Routing every write through
-  // one of these keeps the ref and the state copy that drives the banner from
-  // drifting apart -- a future call site that mutated `refusalRef` directly
-  // and forgot the matching `setRefusals` would leave the banner stale.
-  const recordRefusal = (
-    call: ActionCall,
-    status: number | undefined,
-    at: ParkTime
-  ) => {
-    refusalRef.current = observeAction(refusalRef.current, call, status, at);
-    setRefusals(refusalRef.current);
-  };
-  const clearRefusals = () => {
-    refusalRef.current = NO_REFUSALS;
-    setRefusals(NO_REFUSALS);
-  };
+  // The refusal count when this run was switched on. A different count later
+  // means Disney has refused some routine's request since, and this run stops
+  // -- whoever was refused. See `pushback.ts`.
+  const refusalsAtStartRef = useRef(refusalCount());
+  const refusals = useSyncExternalStore(subscribePushback, refusalCount);
+  // 429s in a row, for Autopilot's growing wait. Cleared by the first request
+  // Disney answers after one.
+  const throttleStreakRef = useRef(0);
+  // When this run last booked, moved or swapped, or started: what the session
+  // limit on a search a person started counts from.
+  const progressAtRef = useRef(Date.now());
 
   // Identifies this provider to the wake-lock module, which is a singleton
   // shared with any other provider mounted at the same time -- NextLL nests a
@@ -652,6 +693,52 @@ export default function AutopilotProvider({
       // late action therefore gets less time, not a fresh window that can run
       // beyond the tick which authorised it.
       const tickStartedAt = Date.now();
+      // A refusal since this run started, from any routine, ends it. The
+      // poller's `stopEpoch` normally gets there first; this covers a check it
+      // had already begun.
+      if (refusalCount() !== refusalsAtStartRef.current) {
+        throw new PollerStop('refused', REFUSED_TEXT);
+      }
+      // A search a person started gets a session, not the rest of the day:
+      // checking every 0.6s with nothing to show for it is how an account gets
+      // paused.
+      if (
+        handStarted &&
+        Date.now() - progressAtRef.current >= SEARCH_SESSION_MS
+      ) {
+        throw new PollerStop('session', SESSION_TEXT);
+      }
+      /**
+       * Answer Disney pushing back on one of this check's own requests.
+       *
+       * A 403 stops everything: `noteRefusal` tells every other routine, and
+       * this one stops. A 429 stops a search a person started, and says why;
+       * Autopilot says so and waits, still on and armed, for Disney's
+       * Retry-After or a wait that grows with each 429 in a row. Never returns.
+       */
+      const pushedBack = (pushback: Pushback): never => {
+        if (pushback.kind === 'refused') {
+          noteRefusal();
+          throw new PollerStop('refused', REFUSED_TEXT);
+        }
+        noteThrottle(pushback.retryAfterMs);
+        if (handStarted) throw new PollerStop('throttled', THROTTLED_TEXT);
+        const waitMs = throttleWaitMs(
+          ++throttleStreakRef.current,
+          pushback.retryAfterMs
+        );
+        const until = Date.now() + waitMs;
+        fireAlert({
+          title: `${APP_NAME} is waiting`,
+          body: `Disney asked it to slow down, so it checks again at ${formatTime(syncedParkTimeAt(until))}. It is still on and still armed.`,
+          tag: `${NOTIFICATION_TAG_NAMESPACE}throttled-${parkDate()}`,
+        });
+        throw new PollerWait(until, THROTTLED_TEXT);
+      };
+      // Disney pushing back anywhere in the per-attraction loop below: the
+      // loop ends, and this check answers it once the loop has let go of
+      // everything it held.
+      let pushback: Pushback | undefined;
       // Pick up locks any other tab or nested provider has taken since this
       // instance last looked, so the two do not act on the same attraction in
       // the same drop. Bounded by the poll interval rather than instantaneous,
@@ -759,8 +846,16 @@ export default function AutopilotProvider({
         bookingDateRef.current !== date ||
         parkIdRef.current !== park.id;
 
-      // Let this reject: the poller needs the failure to drive backoff.
-      const experiences = await pollExperiences();
+      // Let this reject: the poller needs the failure to drive backoff. Unless
+      // it is Disney pushing back, which is not a failure to retry.
+      const experiences = await pollExperiences().catch(error => {
+        const pushed = pushbackOf(error);
+        if (pushed) pushedBack(pushed);
+        throw error;
+      });
+      // Disney answered, so any throttle has lifted: the next 429 starts the
+      // wait from the beginning again.
+      throttleStreakRef.current = 0;
       // A park/date switch or Stop can happen during that request. Nothing
       // from the old scope should update learning, alerts, or diagnostics;
       // the next tick will use the current provider callback and scope.
@@ -848,7 +943,10 @@ export default function AutopilotProvider({
           freshPlans = await pollPlans();
         } catch (error) {
           // Supplementary. A plans failure must not stall availability polling
-          // or count against the poller's failure budget.
+          // or count against the poller's failure budget. Disney pushing back
+          // is not a plans failure, though, and is answered like any other.
+          const pushed = pushbackOf(error);
+          if (pushed) pushedBack(pushed);
           console.error(error);
         }
       }
@@ -1308,14 +1406,6 @@ export default function AutopilotProvider({
         let pageOnlyProtection = false;
         try {
           const guests = await guestsFor(experience.id, date);
-          // A success clears this call's run. `observeAction` does the clearing,
-          // but only for a call it is told about, and eligibility was reported
-          // solely from the catch below -- so once the panel appeared it stayed
-          // for the rest of the session, over the top of every booking the run
-          // went on to make. That is the one signal for deciding whether
-          // booking still works, so it lying in the reassuring direction is the
-          // expensive way for it to be wrong.
-          recordRefusal('eligibility', undefined, nowTime);
 
           // Asked again, because eligibility is a round trip and the check
           // above is only as fresh as the moment it ran. Stopping autopilot,
@@ -1679,9 +1769,9 @@ export default function AutopilotProvider({
           const httpStatus = (error as { response?: { status?: number } })
             ?.response?.status;
           eligibilityFailed = !operation;
-          if (eligibilityFailed) {
-            recordRefusal('eligibility', httpStatus, nowTime);
-          }
+          // Only eligibility can fail here before an operation exists; after
+          // that it is local, and not Disney's to have pushed back on.
+          if (eligibilityFailed) pushback ??= pushbackOf(error);
           console.error(error);
           outcome = {
             status: 'failed',
@@ -1767,18 +1857,12 @@ export default function AutopilotProvider({
 
         if (!outcome) continue;
 
-        // Anything the helpers returned settles their own call. A success clears
-        // that call's run; only an unbroken run of refusals reads as "this is not
-        // working" rather than "this went wrong a few times today".
-        // Not when eligibility is what failed: the offer and booking calls were
-        // never made, so recording their status here put a refusal against
-        // `book` on the strength of a request that never went out, and the
-        // banner named the wrong call.
-        if (outcome.status !== 'skipped' && !eligibilityFailed) {
-          recordRefusal(
-            kind === 'book' ? 'book' : 'offer',
-            outcome.status === 'failed' ? outcome.httpStatus : undefined,
-            nowTime
+        // A helper's offer or commit that Disney pushed back on. Not when
+        // eligibility is what failed: that was read from the error itself.
+        if (outcome.status === 'failed' && !eligibilityFailed) {
+          pushback ??= pushbackOfStatus(
+            outcome.httpStatus,
+            outcome.retryAfterMs
           );
         }
 
@@ -1787,6 +1871,17 @@ export default function AutopilotProvider({
         if (outcome.status === 'skipped') {
           bumpSkip(outcome.reason, experience.name);
         } else logOutcome(experience.name, outcome);
+        // Something landed, so a search's session counts from here.
+        if (
+          outcome.status === 'booked' ||
+          outcome.status === 'modified' ||
+          outcome.status === 'swapped'
+        ) {
+          progressAtRef.current = Date.now();
+        }
+        // Disney pushed back: no more attractions this check. Everything this
+        // one held has been let go above.
+        if (pushback) break;
 
         // After every attempt, not only a successful one: a booking request
         // that errored is still held in doubt until plans settle it. Harmless
@@ -1938,6 +2033,8 @@ export default function AutopilotProvider({
         }
       }
 
+      if (pushback) pushedBack(pushback);
+
       // Prewarm only auto-book targets. Eligibility is the one request in the
       // three-request booking path that does not change second to second, so
       // having it cached removes a third of the round trips from the moment a
@@ -1951,6 +2048,11 @@ export default function AutopilotProvider({
           fetchGuests: (experience, date) => ll.guests(experience, date),
           cache: cacheRef.current,
           now: clock,
+        }).catch(error => {
+          // Prewarming stops at Disney pushing back and hands it on.
+          const pushed = pushbackOf(error);
+          if (pushed) pushedBack(pushed);
+          throw error;
         });
       }
 
@@ -2002,22 +2104,20 @@ export default function AutopilotProvider({
         // Shielded exactly as the plans poll above is, and for the same reason.
         // This probe only lifts a display hold, so it has no business spending
         // the poller's failure budget -- and it was the one bare `await` left in
-        // the tick. A `guests` endpoint refusing persistently made `onTick`
-        // reject every tick until `MAX_CONSECUTIVE_FAILURES`, at which point the
-        // poller stopped and scheduled nothing; the effect keys on `enabled`
-        // alone, so nothing restarted it. Watching, alerting and drop learning
-        // died with it -- precisely what a refusal is supposed to leave working.
+        // the tick. An ordinary failure here made `onTick` reject every tick
+        // until `MAX_CONSECUTIVE_FAILURES`, and the poller stopped, taking
+        // watching, alerting and drop learning with it. Disney pushing back is
+        // different, and is answered like anywhere else: a 403 stops
+        // everything, by the owner's rule.
         //
         // A failure reads as "not lifted", so the Tier 1 hold fails closed:
         // lifting it requires Disney's own agreement, which we did not get.
         let guests: Guests | undefined;
         try {
           guests = await guestsFor(tierOne.id, date);
-          recordRefusal('eligibility', undefined, syncedParkTime());
         } catch (error) {
-          const httpStatus = (error as { response?: { status?: number } })
-            ?.response?.status;
-          recordRefusal('eligibility', httpStatus, syncedParkTime());
+          const pushed = pushbackOf(error);
+          if (pushed) pushedBack(pushed);
           console.error(error);
         }
         if (guests && tierLimitLifted(guests)) {
@@ -2045,6 +2145,7 @@ export default function AutopilotProvider({
       logOutcome,
       bumpSkip,
       repeatMoves,
+      handStarted,
       park,
     ]
   );
@@ -2097,6 +2198,7 @@ export default function AutopilotProvider({
     nextBookTimes: watchingToday ? ll.nextBookTimes : undefined,
     tomorrow: watchingTomorrow,
     rapid,
+    stopEpoch: refusals,
   });
 
   // The poller gives up after repeated failures without touching `enabled`, so
@@ -2120,10 +2222,10 @@ export default function AutopilotProvider({
     void releaseScreenAwake(wakeLockOwner);
     fireAlert({
       title: `${APP_NAME} has stopped`,
-      body: 'Repeated errors, so it is no longer checking for Lightning Lanes. Open it and start it again.',
+      body: STOP_BODY[status.stopReason ?? 'failures'],
       tag: `${NOTIFICATION_TAG_NAMESPACE}stopped-${parkDate()}`,
     });
-  }, [status.mode, wakeLockOwner]);
+  }, [status.mode, status.stopReason, wakeLockOwner]);
 
   // Kept in the provider so every permission entry point updates the one
   // context value the rest of the UI reads. Calling this callback from a click
@@ -2169,7 +2271,11 @@ export default function AutopilotProvider({
         setSessionLog([]);
         setSkipCounts({});
         setLastSkip(undefined);
-        clearRefusals();
+        // Refusals from here on stop this run; those before it do not. So a
+        // run started after a refusal goes on until the next one.
+        refusalsAtStartRef.current = refusalCount();
+        throttleStreakRef.current = 0;
+        progressAtRef.current = Date.now();
         // Fresh baseline: the first poll of a run sees everything as "new", and
         // that must read as a baseline rather than a drop.
         snapshotRef.current = new Map();
@@ -2402,7 +2508,6 @@ export default function AutopilotProvider({
           setSettings(prev => ({ ...prev, avoidOverlaps: on })),
         skipCounts,
         lastSkip,
-        refusals,
         dropSummaries,
       }}
     >

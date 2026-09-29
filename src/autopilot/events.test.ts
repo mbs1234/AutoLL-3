@@ -47,15 +47,41 @@ describe('latestEvent', () => {
     );
   });
 
-  it('reports a refusal above an action, and only while running', () => {
-    const refusals = { eligibility: { count: 6, since: new ParkTime(11, 40) } };
+  // A refusal stops everything, so the line has to say that it was Disney,
+  // and not errors -- the two call for opposite responses.
+  it('says a stop was Disney refusing, above an action', () => {
     expect(
-      latestEvent({ ...facts, refusals, bookingLog: [booked] })
+      latestEvent({
+        ...facts,
+        status: {
+          mode: 'stopped',
+          stopReason: 'refused',
+          consecutiveFailures: 0,
+          polls: 12,
+        },
+        bookingLog: [booked],
+      })
     ).toMatchObject({
       level: 'error',
-      text: 'Disney is refusing checking who is eligible',
+      text: 'Stopped: Disney refused a request',
     });
-    expect(latestEvent({ ...facts, status: off, refusals })).toBeUndefined();
+  });
+
+  // Still running, so a warning and not an error, with the time it resumes.
+  it('reports a wait Disney asked for, with when it ends', () => {
+    const until = Date.now() + 5 * 60_000;
+    const event = latestEvent({
+      ...facts,
+      status: {
+        mode: 'waiting',
+        waitUntil: until,
+        consecutiveFailures: 0,
+        polls: 12,
+      },
+      bookingLog: [booked],
+    });
+    expect(event).toMatchObject({ level: 'warn' });
+    expect(event?.text).toMatch(/^Disney asked to slow down: waiting until /);
   });
 
   it('picks the newer of the last action and the last skip', () => {

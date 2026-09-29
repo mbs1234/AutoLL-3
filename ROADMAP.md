@@ -1126,6 +1126,39 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 22. Stop when Disney pushes back — _completed in 1.4.5_
+
+Found from a friend's park day. A NextLL search kept checking every 0.6 s with
+no limit, and Disney paused the account for about half an hour. Nothing in the
+app answered Disney's pushback. A 429 at the eligibility or offer step was
+retried on the next check, and nothing told the person. A 403 only warned, on
+Autopilot's Today alone, after three in a minute, and the retries went on
+meanwhile.
+
+**Shipped**, to the owner's rules (`src/autopilot/pushback.ts`):
+
+- **A 403 stops everything, at the first one**: Autopilot, and any NextLL, Time
+  Search or Change attraction search, whichever routine's request it was.
+  Starting again is allowed, with a warning beside the switch and each start
+  button for half an hour, and the next 403 stops everything again. Every
+  routine notes the refusal count when it starts and stops when it changes
+  (`noteRefusal`; the poller's `stopEpoch` and `PollerStop`).
+- **A 429 makes Autopilot wait**, still on and armed. It raises an alert naming
+  when it will check again, and waits for Disney's Retry-After, or 2 minutes
+  doubling with each 429 in a row to 30 (`throttleWaitMs`, `PollerWait`).
+  Today, the footer strip and the pocket screen say **Waiting** and until when.
+  **A search stops** on a 429 and says why, and may be started again early.
+  Each routine answers the 429s it receives, and no other.
+- **A session limit.** NextLL stops after ten minutes with nothing booked or
+  moved, and says to take a break. Time Search and Change attraction already
+  stopped after 200 checks with nothing to take, but silently; they now say so.
+
+Retry-After is read in the fetch wrapper (`src/fetch.ts`), so the API client is
+untouched. The refusal banner and its tracker (`src/autopilot/refusal.ts`) are
+gone: the stop does their job now. Not in this release: stopping a search once
+its goal is met, and a Change attraction that takes the first free of several
+rides.
+
 ### 21. Free a move's lock when the pass is cancelled before the next poll — _completed in 1.4.4_
 
 Found from a test that failed about one run in four hundred, and real on a park

@@ -15,9 +15,27 @@ import {
 } from './schedule';
 import type { RefillWindow } from './schedule';
 
+/** Why a loop stopped, which is what the screen and the alert have to say. */
+export type StopReason =
+  /** `MAX_CONSECUTIVE_FAILURES` checks failed in a row. */
+  | 'failures'
+  /** Disney refused a request, this routine's or another's: `pushback.ts`. */
+  | 'refused'
+  /** Disney asked a search a person started to slow down, so it stopped. */
+  | 'throttled'
+  /** A search a person started ran its whole session with nothing to show. */
+  | 'session';
+
 export interface PollerStatus {
-  /** `off` when disabled, `stopped` after giving up on repeated failures. */
-  mode: PollMode | 'off' | 'stopped';
+  /**
+   * `off` when disabled; `stopped` when it gave up, and `stopReason` says why;
+   * `waiting` when it is sitting out a wait Disney asked for, still running,
+   * until `waitUntil`.
+   */
+  mode: PollMode | 'off' | 'stopped' | 'waiting';
+  stopReason?: StopReason;
+  /** When a `waiting` loop checks again, as a `Date.now()` time. */
+  waitUntil?: number;
   consecutiveFailures: number;
   lastError?: string;
   /** The drop or booking time currently driving the cadence. */
@@ -70,6 +88,48 @@ export interface PollerOptions {
   rapid?: boolean;
   /** A deliberate tomorrow watch, paced for cancellation releases. */
   tomorrow?: boolean;
+  /**
+   * `refusalCount()`, from `pushback.ts`. A change while running ends the run
+   * as `stopped`, reason `refused`, however far the tick has got and whichever
+   * routine was refused. The next run starts from the new number, so the
+   * refusal after that stops it again.
+   */
+  stopEpoch?: number;
+}
+
+/**
+ * Thrown from `onTick` to end the run now, saying why.
+ *
+ * Not a failure: it spends no failure budget and nothing retries it. The run
+ * is over until somebody starts it again.
+ */
+export class PollerStop extends Error {
+  readonly name = 'PollerStop';
+
+  constructor(
+    readonly reason: Exclude<StopReason, 'failures'>,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Thrown from `onTick` to sit out a wait and then carry on, still running.
+ *
+ * `until` is a `Date.now()` time. Not a failure either: a wait Disney asked
+ * for is Disney's instruction, not this loop going wrong, so it neither backs
+ * off nor counts toward giving up.
+ */
+export class PollerWait extends Error {
+  readonly name = 'PollerWait';
+
+  constructor(
+    readonly until: number,
+    message: string
+  ) {
+    super(message);
+  }
 }
 
 const OFF: PollerStatus = { mode: 'off', consecutiveFailures: 0, polls: 0 };
@@ -95,8 +155,11 @@ export default function usePoller({
   nextBookTimes,
   rapid,
   tomorrow,
+  stopEpoch = 0,
 }: PollerOptions): PollerStatus {
   const [status, setStatus] = useState<PollerStatus>(OFF);
+  // The refusal count when this run was switched on. Undefined while off.
+  const epochAtStartRef = useRef<number | undefined>(undefined);
 
   // Latest values, read at tick time. Held in refs so that a park change, a
   // new set of booking windows, or a re-created onTick does not tear the loop
@@ -118,7 +181,22 @@ export default function usePoller({
 
   useEffect(() => {
     if (!enabled) {
+      epochAtStartRef.current = undefined;
       setStatus(OFF);
+      return;
+    }
+    if (epochAtStartRef.current === undefined) {
+      epochAtStartRef.current = stopEpoch;
+    } else if (stopEpoch !== epochAtStartRef.current) {
+      // Refused since this run started, by any routine. The run just torn
+      // down by this very change is not restarted: stopping everything at the
+      // first refusal is the point.
+      setStatus(current => ({
+        ...current,
+        mode: 'stopped',
+        stopReason: 'refused',
+        waitUntil: undefined,
+      }));
       return;
     }
 
@@ -133,6 +211,8 @@ export default function usePoller({
     const run = async () => {
       let failed = false;
       let lastError: string | undefined;
+      let stop: PollerStop | undefined;
+      let wait: PollerWait | undefined;
       const startedAt = performance.now();
       // Per-run, so a tick that outlives its deadline stops being allowed to
       // commit anything while the loop moves on without it.
@@ -148,16 +228,21 @@ export default function usePoller({
         });
         failures = 0;
       } catch (error) {
-        failed = true;
-        failures += 1;
-        lastError = error instanceof Error ? error.message : String(error);
-        console.error(error);
+        if (error instanceof PollerStop) stop = error;
+        else if (error instanceof PollerWait) wait = error;
+        else {
+          failed = true;
+          failures += 1;
+          lastError = error instanceof Error ? error.message : String(error);
+          console.error(error);
+        }
       } finally {
         if (deadline) clearTimeout(deadline);
       }
       ++polls;
       let timing: { lastCycleMs?: number; averageCycleMs?: number } = {};
-      if (!failed) {
+      // A tick cut short by a stop or a wait is not a cycle to time.
+      if (!failed && !stop && !wait) {
         const lastCycleMs = Math.round(performance.now() - startedAt);
         ++cycles;
         totalCycleMs += lastCycleMs;
@@ -176,16 +261,42 @@ export default function usePoller({
       if (timing.lastCycleMs !== undefined) lastGoodMs = timing.lastCycleMs;
       if (cancelled) return;
 
+      if (stop) {
+        setStatus({
+          mode: 'stopped',
+          stopReason: stop.reason,
+          consecutiveFailures: failures,
+          lastError: stop.message,
+          polls,
+          ...timing,
+        });
+        return;
+      }
+
       if (failures >= MAX_CONSECUTIVE_FAILURES) {
         // Give up rather than retry forever. A 401 clears the auth store, so
         // a loop against expired credentials would spin generating noise.
         setStatus({
           mode: 'stopped',
+          stopReason: 'failures',
           consecutiveFailures: failures,
           lastError,
           polls,
           ...timing,
         });
+        return;
+      }
+
+      if (wait) {
+        setStatus({
+          mode: 'waiting',
+          waitUntil: wait.until,
+          consecutiveFailures: failures,
+          lastError: wait.message,
+          polls,
+          ...timing,
+        });
+        timer = setTimeout(run, Math.max(0, wait.until - Date.now()));
         return;
       }
 
@@ -234,9 +345,10 @@ export default function usePoller({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-    // Depends only on `enabled` by design; everything else is read from refs
-    // at tick time. See the note on the refs above.
-  }, [enabled]);
+    // Depends on `enabled`, and on a refusal while running, by design;
+    // everything else is read from refs at tick time. See the note on the
+    // refs above.
+  }, [enabled, stopEpoch]);
 
   return status;
 }

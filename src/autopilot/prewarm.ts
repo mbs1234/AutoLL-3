@@ -3,6 +3,7 @@ import { Guests } from '@/api/ll';
 import { ParkTime } from '@/datetime';
 
 import { heldMPToday } from './autoswap';
+import { pushbackOf } from './pushback';
 
 /**
  * How long a cached eligibility result stays usable.
@@ -181,6 +182,10 @@ export async function prewarmGuests(
       cache.set(experience.id, date, guests, now().ms);
       warmed.push(experience.id);
     } catch (error) {
+      // Disney pushing back is not one attraction failing to warm. Asking
+      // for the next would be asking again straight after being told not to,
+      // so it stops here and the caller answers it. See `pushback.ts`.
+      if (pushbackOf(error)) throw error;
       console.error(error);
       failed.push(experience.id);
     }

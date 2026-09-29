@@ -34,7 +34,11 @@ import {
   saveCoverage,
   saveWatchedDays,
 } from '@/autopilot/observe';
-import { NO_REFUSALS, refusedCalls } from '@/autopilot/refusal';
+import {
+  THROTTLE_WAIT_FIRST_MS,
+  noteRefusal,
+  resetPushback,
+} from '@/autopilot/pushback';
 import { anyRunning } from '@/autopilot/running';
 import {
   BACKOFF_BASE_MS,
@@ -42,7 +46,6 @@ import {
   IDLE_INTERVAL_MS,
   MAX_CONSECUTIVE_FAILURES,
   TICK_DEADLINE_MS,
-  syncedParkTime,
 } from '@/autopilot/schedule';
 import {
   COMMITS_KEY,
@@ -77,6 +80,7 @@ import AutopilotProvider, {
   PARK_DAY_CHECK_MS,
   PLANS_EVERY_N_TICKS,
   RETRY_AFTER_MS,
+  SEARCH_SESSION_MS,
 } from './AutopilotProvider';
 
 // An explicit factory rather than an auto-mock: auto-mocking makes
@@ -125,7 +129,6 @@ function Probe() {
     setEnabled,
     status,
     targets,
-    refusals,
     passkeyStatus,
     togglePaused,
     toggleAutoBook,
@@ -149,6 +152,8 @@ function Probe() {
       <button onClick={() => setDryRun(true)}>dry run on</button>
       <button onClick={() => setRequireWholeParty(true)}>whole party on</button>
       <span data-testid="mode">{status.mode}</span>
+      <span data-testid="stopReason">{status.stopReason ?? ''}</span>
+      <span data-testid="waitUntil">{status.waitUntil ?? ''}</span>
       <span data-testid="lastError">{status.lastError ?? ''}</span>
       <span data-testid="bookedCount">{bookedCount}</span>
       <span data-testid="targets">{targets.length}</span>
@@ -177,9 +182,6 @@ function Probe() {
           (n, d) => n + d.scheduled.reduce((m, c) => m + c.coveredDays, 0),
           0
         )}
-      </span>
-      <span data-testid="refused">
-        {refusedCalls(refusals ?? NO_REFUSALS, syncedParkTime()).join(',')}
       </span>
     </div>
   );
@@ -388,6 +390,9 @@ function setupBooking({
   // Disney's own view of what the party holds, as of the offer. Fresher than
   // the plans snapshot the tick started from, and the two can differ by a move.
   offerItinerary = [] as unknown[],
+  // A search a person started: NextLL. Stops at a 429 rather than waiting,
+  // and after a session with nothing booked.
+  handStarted = false,
 } = {}) {
   const guests = jest.fn(async () => {
     if (guestsStatus !== undefined) {
@@ -504,7 +509,10 @@ function setupBooking({
                   loaderElem: null,
                 }}
               >
-                <AutopilotProvider repeatMoves={repeatMoves}>
+                <AutopilotProvider
+                  repeatMoves={repeatMoves}
+                  handStarted={handStarted}
+                >
                   <Probe />
                 </AutopilotProvider>
               </PlansContext>
@@ -2121,62 +2129,225 @@ describe('AutopilotProvider eligibility cache', () => {
 });
 
 /**
- * Disney refusing the booking path outright. The failure lands on eligibility,
- * one step before an offer exists, so without this autopilot polls, alerts and
- * learns drops looking entirely healthy while never acting.
+ * Disney pushing back, by the owner's rules (`pushback.ts`). A 403 stops
+ * everything at the first one, and a restart runs until the next. A 429 has
+ * Autopilot say so and wait, still on and armed; a search a person started
+ * stops instead, and may be started again early.
  */
-describe('AutopilotProvider refusals', () => {
-  it('reports eligibility being refused, once it has lasted', async () => {
+describe('AutopilotProvider when Disney pushes back', () => {
+  beforeEach(() => resetPushback());
+
+  const refused = () => new RequestError({ ok: false, status: 403, data: {} });
+  const throttled = (retryAfterMs?: number) =>
+    new RequestError({
+      ok: false,
+      status: 429,
+      data: {},
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    });
+  const mode = () => screen.getByTestId('mode');
+  const stopReason = () => screen.getByTestId('stopReason');
+  const waitLeft = () =>
+    Number(screen.getByTestId('waitUntil').textContent) - Date.now();
+  /**
+   * Autopilot is waiting about `ms` more.
+   *
+   * About, because the fake clock runs on with real time (`advanceTimers` in
+   * jest.config.js): on a busy machine it can move a step or two between the
+   * wait being set and being read.
+   */
+  const expectWait = (ms: number) => {
+    expect(waitLeft()).toBeLessThanOrEqual(ms);
+    expect(waitLeft()).toBeGreaterThan(ms - 1000);
+  };
+  // The first check runs inside the tap that turns it on; let it finish.
+  const settle = () =>
+    act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+
+  // A refused eligibility call used to be retried on every check for a
+  // minute before anything said so, and then watched through indefinitely:
+  // exactly the knocking that keeps an account paused.
+  it('stops at the first 403, and asks nothing more', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
     setTime('09:00');
-    setupBooking({ guestsStatus: 403 });
+    const { guests, pollExperiences } = setupBooking({ guestsStatus: 403 });
     await enable();
-    // Three refusals arrive within seconds; the warning waits for the run to
-    // span a minute, so that an ordinary hiccup mid-drop does not trip it.
-    await runTicks(4);
-    expect(screen.getByTestId('refused')).toHaveTextContent('eligibility');
+    await settle();
+    expect(mode()).toHaveTextContent('stopped');
+    expect(stopReason()).toHaveTextContent('refused');
+    const asked = pollExperiences.mock.calls.length;
+    await runTicks(6);
+    expect(guests).toHaveBeenCalledTimes(1);
+    expect(pollExperiences).toHaveBeenCalledTimes(asked);
+    expect(fireAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: expect.stringContaining('has stopped'),
+        body: expect.stringMatching(/^Disney refused a request/),
+      })
+    );
   });
 
-  // The banner is the one signal for deciding whether booking still works, so
-  // it lying in the reassuring direction is the expensive way for it to be
-  // wrong. `observeAction` clears a run on any non-403, but only for a call it
-  // is told about, and eligibility was reported solely from the failure path --
-  // so the panel latched on for the session and sat over the top of every
-  // booking the run went on to make.
-  it('stops reporting eligibility once it succeeds again', async () => {
+  // Starting again is the person's call: allowed, and not given a grace
+  // period. The next 403 stops it just the same.
+  it('lets a restart run, and stops it again at the next 403', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
     setTime('09:00');
-    const { guests } = setupBooking({ guestsStatus: 403 });
+    const { pollExperiences } = setupBooking();
+    pollExperiences.mockRejectedValueOnce(refused());
     await enable();
-    await runTicks(4);
-    expect(screen.getByTestId('refused')).toHaveTextContent('eligibility');
-    // Disney's filter lifts.
-    guests.mockImplementation(async () => party as unknown);
+    await settle();
+    expect(stopReason()).toHaveTextContent('refused');
+
+    await enable();
+    await enable();
     await runTicks(2);
-    expect(screen.getByTestId('refused')).not.toHaveTextContent('eligibility');
+    expect(mode()).not.toHaveTextContent('stopped');
+
+    pollExperiences.mockRejectedValueOnce(refused());
+    await runTicks(2);
+    expect(mode()).toHaveTextContent('stopped');
+    expect(stopReason()).toHaveTextContent('refused');
   });
 
-  // The offer and booking calls are never made when eligibility is what failed,
-  // so recording their status put a refusal against `book` on the strength of a
-  // request that never went out, and the banner named the wrong call.
-  it('does not blame booking for a refused eligibility call', async () => {
+  // The request Disney refused need not be this routine's: a NextLL search
+  // or a Time Search refused stops Autopilot too, and at once rather than at
+  // its next check.
+  it('stops when another routine is refused', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
     setTime('09:00');
-    setupBooking({ guestsStatus: 403 });
+    setupBooking();
     await enable();
-    await runTicks(4);
-    expect(screen.getByTestId('refused')).toHaveTextContent('eligibility');
-    expect(screen.getByTestId('refused')).not.toHaveTextContent('book');
+    await runTicks(1);
+    expect(mode()).not.toHaveTextContent('stopped');
+    await act(async () => {
+      noteRefusal();
+    });
+    expect(mode()).toHaveTextContent('stopped');
+    expect(stopReason()).toHaveTextContent('refused');
   });
 
   // 410 is a ride selling out from under you -- the common case at a drop.
-  it('does not report an ordinary failure as a refusal', async () => {
+  it('keeps going through an ordinary failure', async () => {
     saveWatchList([{ experienceId: BZ, autoBook: true }]);
     setTime('09:00');
     setupBooking({ guestsStatus: 410 });
     await enable();
     await runTicks(4);
-    expect(screen.getByTestId('refused')).toHaveTextContent('');
+    expect(mode()).not.toHaveTextContent('stopped');
+    expect(stopReason()).toHaveTextContent('');
+  });
+
+  it('waits out a 429, still on and armed, then carries on by itself', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    setTime('09:00');
+    const { pollExperiences } = setupBooking();
+    pollExperiences.mockRejectedValueOnce(throttled());
+    await enable();
+    await settle();
+    expect(mode()).toHaveTextContent('waiting');
+    expectWait(THROTTLE_WAIT_FIRST_MS);
+    expect(anyRunning()).toBe(true);
+    expect(fireAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringContaining('is waiting') })
+    );
+
+    // Nothing is asked inside the wait...
+    const asked = pollExperiences.mock.calls.length;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(THROTTLE_WAIT_FIRST_MS - 1000);
+    });
+    expect(pollExperiences).toHaveBeenCalledTimes(asked);
+    // ...and it carries on once the wait is over, without anyone touching it.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1000);
+    });
+    expect(pollExperiences.mock.calls.length).toBeGreaterThan(asked);
+    expect(mode()).not.toHaveTextContent('waiting');
+    expect(mode()).not.toHaveTextContent('stopped');
+  });
+
+  // Disney knows how long its own pause lasts.
+  it('waits as long as Disney’s Retry-After says', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    setTime('09:00');
+    const { pollExperiences } = setupBooking();
+    pollExperiences.mockRejectedValueOnce(throttled(7 * 60_000));
+    await enable();
+    await settle();
+    expectWait(7 * 60_000);
+  });
+
+  // A 429 straight after a wait means the wait was too short.
+  it('waits longer after each 429 in a row, and starts over after an answer', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    setTime('09:00');
+    const { pollExperiences } = setupBooking();
+    pollExperiences
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled());
+    await enable();
+    await settle();
+    expectWait(THROTTLE_WAIT_FIRST_MS);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(THROTTLE_WAIT_FIRST_MS);
+    });
+    expect(mode()).toHaveTextContent('waiting');
+    expectWait(THROTTLE_WAIT_FIRST_MS * 2);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(THROTTLE_WAIT_FIRST_MS * 2);
+    });
+    expect(mode()).not.toHaveTextContent('waiting');
+
+    pollExperiences.mockRejectedValueOnce(throttled());
+    await runTicks(2);
+    expect(mode()).toHaveTextContent('waiting');
+    // Two minutes at most, less however far the ticks ran into it: not the
+    // eight a streak carried on would wait.
+    expect(waitLeft()).toBeLessThanOrEqual(THROTTLE_WAIT_FIRST_MS);
+  });
+
+  // Where Disney's filter usually lands: the step before an offer exists.
+  it('waits on a 429 at the eligibility step too', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    setTime('09:00');
+    const { guests } = setupBooking();
+    guests.mockRejectedValueOnce(throttled());
+    await enable();
+    await settle();
+    expect(mode()).toHaveTextContent('waiting');
+  });
+
+  // A person is watching a search, so it stops and says why; the choice to
+  // push on early is theirs.
+  it('stops a search a person started at a 429, and lets it start again', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    setTime('09:00');
+    const { pollExperiences } = setupBooking({ handStarted: true });
+    pollExperiences.mockRejectedValueOnce(throttled());
+    await enable();
+    await settle();
+    expect(mode()).toHaveTextContent('stopped');
+    expect(stopReason()).toHaveTextContent('throttled');
+
+    await enable();
+    await enable();
+    await runTicks(1);
+    expect(mode()).not.toHaveTextContent('stopped');
+  });
+
+  // Checking every 0.6s with nothing to show is how an account gets paused.
+  it('stops a search a person started after ten minutes with nothing booked', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    setTime('09:00');
+    setupBooking({ handStarted: true, experiences: [] });
+    await enable();
+    await runTicks(Math.floor(SEARCH_SESSION_MS / IDLE_INTERVAL_MS) - 1);
+    expect(mode()).not.toHaveTextContent('stopped');
+    await runTicks(3);
+    expect(mode()).toHaveTextContent('stopped');
+    expect(stopReason()).toHaveTextContent('session');
   });
 });
 
@@ -2633,17 +2804,18 @@ describe('AutopilotProvider passkey', () => {
   ];
 
   // The probe was the one bare `await` left in the tick, so a `guests` endpoint
-  // refusing persistently rejected `onTick` every time: eight consecutive
+  // failing persistently rejected `onTick` every time: eight consecutive
   // failures and the poller stopped and scheduled nothing, taking watching,
-  // alerting and drop learning down with it. Those are the parts a refusal is
-  // supposed to leave working.
-  it('keeps polling when the eligibility endpoint refuses the probe', async () => {
+  // alerting and drop learning down with it. An ordinary failure must not do
+  // that. Disney refusing is another matter, and stops everything; see the
+  // pushback tests.
+  it('keeps polling when the probe keeps failing', async () => {
     armed();
     const { pollExperiences } = setupBooking({
       experiences: withTierOne(),
       plans: [heldPasskey()],
       experiencedIds: [PASSKEY],
-      guestsStatus: 403,
+      guestsStatus: 500,
     });
     await enable();
     const before = pollExperiences.mock.calls.length;
@@ -2657,15 +2829,15 @@ describe('AutopilotProvider passkey', () => {
     expect(pollExperiences.mock.calls.length).toBeGreaterThan(before);
   });
 
-  // Failing closed: lifting the hold needs Disney's agreement, and a refused
-  // request is not agreement.
+  // Failing closed: lifting the hold needs Disney's agreement, and a request
+  // that failed is not agreement.
   it('leaves the Tier 1 hold on when the probe cannot be read', async () => {
     armed();
     setupBooking({
       experiences: withTierOne(),
       plans: [heldPasskey()],
       experiencedIds: [PASSKEY],
-      guestsStatus: 403,
+      guestsStatus: 500,
     });
     await enable();
     await runTicks(3);

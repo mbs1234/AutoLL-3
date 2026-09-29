@@ -127,6 +127,11 @@ export function syncedParkTime(): ParkTime {
   return DateTime.from(syncedNow()).time;
 }
 
+/** A `Date.now()` time as park time, on the same corrected clock. */
+export function syncedParkTimeAt(ms: number): ParkTime {
+  return DateTime.from(ms + syncedNow() - Date.now()).time;
+}
+
 /**
  * Seconds from `now` until `target`; negative if `target` has passed.
  *

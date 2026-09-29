@@ -1,4 +1,4 @@
-import { fetchJson } from './fetch';
+import { fetchJson, parseRetryAfter } from './fetch';
 
 jest.useFakeTimers();
 self.fetch = jest.fn();
@@ -87,6 +87,40 @@ describe('fetchJson()', () => {
     });
   });
 
+  // A 429 is Disney asking to slow down, and Retry-After is by how much.
+  // Dropped, the app could only guess at a wait Disney had already stated.
+  function mockFailure(status: number, headers: { [name: string]: string }) {
+    const lower = Object.fromEntries(
+      Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])
+    );
+    jest.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status,
+      headers: { get: (name: string) => lower[name.toLowerCase()] ?? null },
+      json: () => ({}),
+    } as unknown as Response);
+  }
+
+  it('carries a failed response’s Retry-After, in milliseconds', async () => {
+    mockFailure(429, { 'Retry-After': '120' });
+    expect(await fetchJson(url)).toEqual({
+      ok: false,
+      status: 429,
+      data: {},
+      retryAfterMs: 120_000,
+    });
+  });
+
+  it('leaves Retry-After out when the header cannot be read', async () => {
+    mockFailure(429, { 'Retry-After': 'soon' });
+    expect(await fetchJson(url)).toEqual({ ok: false, status: 429, data: {} });
+  });
+
+  it('ignores Retry-After on a response that succeeded', async () => {
+    mockFetch({}, { 'Retry-After': '120' });
+    expect(await fetchJson(url)).toEqual({ ok: true, status: 200, data: {} });
+  });
+
   it('returns status=0 response on timeout', async () => {
     jest.spyOn(console, 'error').mockImplementationOnce(() => null);
     const timeout = 5000;
@@ -159,4 +193,27 @@ describe('fetchJson()', () => {
     jest.advanceTimersByTime(timeout);
     expect(await promise).toEqual({ ok: false, status: 0, data: null });
   });
+});
+
+describe('parseRetryAfter()', () => {
+  const now = Date.UTC(2031, 1, 17, 15, 0, 0);
+
+  it('reads a number of seconds', () => {
+    expect(parseRetryAfter('90', now)).toBe(90_000);
+  });
+
+  it('reads an HTTP date as the time until it', () => {
+    expect(parseRetryAfter('Mon, 17 Feb 2031 15:02:30 GMT', now)).toBe(150_000);
+  });
+
+  it('never waits a negative time for a date already past', () => {
+    expect(parseRetryAfter('Mon, 17 Feb 2031 14:00:00 GMT', now)).toBe(0);
+  });
+
+  it.each([null, undefined, '', '  ', 'soon', '-5'])(
+    'reads %p as no instruction at all',
+    value => {
+      expect(parseRetryAfter(value, now)).toBeUndefined();
+    }
+  );
 });

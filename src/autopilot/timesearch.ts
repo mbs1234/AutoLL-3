@@ -129,7 +129,16 @@ export type SearchStop =
   | 'not-modifiable'
   /** Moved, but Plans never showed it, so the search stopped rather than wait. */
   | 'unconfirmed'
-  | 'stopped';
+  | 'stopped'
+  /**
+   * Disney refused a request, this search's or another routine's, so
+   * everything stopped. See `pushback.ts`.
+   */
+  | 'refused'
+  /** Disney asked this search to slow down, so it stopped. */
+  | 'throttled'
+  /** `MAX_BARREN_CYCLES` with nothing to take: time for a break. */
+  | 'session';
 
 /** Whether a move is in the direction that gives up an earlier reservation. */
 export function isLaterMove(current: ParkTime, candidate: ParkTime): boolean {

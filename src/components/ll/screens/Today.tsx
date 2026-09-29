@@ -11,7 +11,6 @@ import { describeMode } from '@/autopilot/describe';
 import { latestActivity } from '@/autopilot/events';
 import { loadPendingSearch } from '@/autopilot/nextll';
 import { PlanReview, checkPlan, planReview } from '@/autopilot/plancheck';
-import { NO_REFUSALS } from '@/autopilot/refusal';
 import useQuarantine from '@/autopilot/useQuarantine';
 import {
   screenAwakeStatus,
@@ -24,6 +23,7 @@ import { Time } from '@/components/Time';
 import AutopilotStatus from '@/components/ll/AutopilotStatus';
 import ContextStrip from '@/components/ll/ContextStrip';
 import LatestEvent from '@/components/ll/LatestEvent';
+import PushbackWarning from '@/components/ll/PushbackWarning';
 import TargetWindow from '@/components/ll/TargetWindow';
 import AutopilotContext from '@/contexts/AutopilotContext';
 import BookingDateContext from '@/contexts/BookingDateContext';
@@ -81,7 +81,6 @@ export default function Today({ ref }: HomeTabProps) {
     dryRun,
     requireWholeParty,
     avoidOverlaps,
-    refusals,
     passkeyStatus,
   } = use(AutopilotContext);
   const {
@@ -257,6 +256,7 @@ export default function Today({ ref }: HomeTabProps) {
         >
           {enabled ? 'Turn off autopilot' : 'Turn on autopilot'}
         </Button>
+        {!enabled && <PushbackWarning />}
         {/* Its own full-width row rather than a chip among the navigation
             buttons below. Those four all go somewhere and come back; this one
             changes what the screen will accept, which is a different kind of
@@ -275,7 +275,7 @@ export default function Today({ ref }: HomeTabProps) {
           </div>
         )}
         <LatestEvent event={activity} />
-        <AutopilotStatus status={status} refusals={refusals ?? NO_REFUSALS} />
+        <AutopilotStatus status={status} />
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
