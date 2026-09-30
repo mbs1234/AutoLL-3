@@ -15,10 +15,12 @@ import UserIcon from '@/icons/UserIcon';
 
 import BackupRestore from '../BackupRestore';
 import PartySelector from '../PartySelector';
+import { describeSession } from './describeSession';
 
 export default function SettingsButton() {
   const { goTo } = use(NavContext);
   const sessionStatus = authStore.getStatus();
+  const sessionEnds = authStore.expiresAt();
   const [sessionOnly, setSessionOnly] = useState(
     () => authStore.getPersistence() === 'session'
   );
@@ -103,7 +105,7 @@ export default function SettingsButton() {
               className="px-4 text-center text-sm text-gray-500"
               aria-label="Session status"
             >
-              Session: {sessionStatus.replaceAll('-', ' ')}
+              {describeSession(sessionStatus, sessionEnds)}
             </li>
             {/* Read each time the menu opens, so it is current without anything
                 having to notify it. Here rather than on Today, which is for the

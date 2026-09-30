@@ -127,6 +127,9 @@ export default function Today({ ref }: HomeTabProps) {
     experiences.find(e => e.id === target.experienceId)?.name ??
     target.name ??
     target.experienceId;
+  // The attractions marked as the passkey: tapping in at one is what lifts
+  // the Tier 1 hold.
+  const passkeyNames = targetsHere.filter(t => t.passkey).map(nameOf);
   const plan = [...targetsHere].sort(
     (a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity)
   );
@@ -193,6 +196,7 @@ export default function Today({ ref }: HomeTabProps) {
     partySize: kvdb.get<string[]>(PARTY_IDS_KEY)?.length ?? 0,
     targets: targetsHere,
     notifications,
+    sound: soundStatus,
     planReviewed: reviewedPlan?.key === currentReview.key,
     planBlockers: currentReview.blockers,
   });
@@ -332,28 +336,37 @@ export default function Today({ ref }: HomeTabProps) {
                 <span>
                   {item.done ? '✓' : '○'} {item.text}
                 </span>
-                {(!item.done || item.subject === 'plan-check') && (
-                  <Button
-                    type="small"
-                    onClick={() => {
-                      if (item.subject === 'party') goTo(<PartySelector />);
-                      else if (
-                        item.subject === 'targets' ||
-                        item.subject === 'settings'
-                      ) {
-                        goTo(<Configure />);
-                      } else if (item.subject === 'plan-check') {
-                        openPlanCheck();
-                      } else requestNotifications();
-                    }}
-                  >
-                    {item.subject === 'notifications'
-                      ? 'Enable'
-                      : item.done
-                        ? 'Review'
-                        : 'Open'}
-                  </Button>
-                )}
+                {(!item.done || item.subject === 'plan-check') &&
+                  // Nothing a tap could fix on a browser with no sound.
+                  !(
+                    item.subject === 'sound' && soundStatus === 'unsupported'
+                  ) && (
+                    <Button
+                      type="small"
+                      onClick={() => {
+                        if (item.subject === 'party') goTo(<PartySelector />);
+                        else if (
+                          item.subject === 'targets' ||
+                          item.subject === 'settings'
+                        ) {
+                          goTo(<Configure />);
+                        } else if (item.subject === 'plan-check') {
+                          openPlanCheck();
+                        } else if (item.subject === 'sound') {
+                          // Inside the tap: iOS plays sound only from one.
+                          checkSound();
+                        } else requestNotifications();
+                      }}
+                    >
+                      {item.subject === 'notifications'
+                        ? 'Enable'
+                        : item.subject === 'sound'
+                          ? 'Test'
+                          : item.done
+                            ? 'Review'
+                            : 'Open'}
+                    </Button>
+                  )}
               </li>
             ))}
           </ul>
@@ -530,7 +543,11 @@ export default function Today({ ref }: HomeTabProps) {
           <span className="font-semibold">Passkey:</span>{' '}
           {passkeyStatus === 'unlocked'
             ? 'Disney confirmed the Tier 1 hold is unlocked for the selected party.'
-            : 'Waiting for Disney to confirm every selected guest cleared the Tier 1 hold.'}
+            : passkeyNames.length > 0
+              ? // Where to go, not only what is being waited for: the hold
+                // lifts at a tap-in, and the line used to say neither.
+                `Tap in at ${passkeyNames.join(' or ')} with every selected guest. The party's first redemption of the day lifts the Tier 1 hold, once Disney confirms it.`
+              : 'Waiting for Disney to confirm every selected guest cleared the Tier 1 hold.'}
         </p>
       )}
       {loaderElem}

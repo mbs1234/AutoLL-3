@@ -1126,6 +1126,32 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 26. Four screens that said less than they knew — _completed in 1.5.1_
+
+Left for AutoLL-3 by AutoLL-5's usability review, because each needs the
+engine: four places where a screen held back, or got wrong, something the app
+already knew.
+
+- **The iPhone readiness line.** Where the browser has no notifications, as
+  Safari on an iPhone has none, the pre-trip list ticked "Browser notifications
+  unavailable" as done, and never checked the chime that is then the only alert.
+  That line is now about the alert sound: **Test** plays it, and it ticks only
+  once it has played (`alertItem` in `checklist.ts`).
+- **Where to tap in.** The passkey lines on Today and Configure said Autopilot
+  was waiting for the Tier 1 hold to lift, not what lifts it. They name the
+  passkey attraction to tap in at, with every selected guest, since the party's
+  first redemption of the day is what lifts it.
+- **"Why nothing was booked" survives a reload.** The counts and the newest
+  skip were plain state, and a reload emptied the Activity screen's answer to
+  the question it is for. They are kept per watch list and park day
+  (`loadSkipTally` and `saveSkipTally` in `storage.ts`); turning Autopilot on
+  still starts them over.
+- **The sign-in's end time.** The auth store compared its expiry with 5 PM and
+  said no more. `AuthStore.expiresAt` reads it without the side effect
+  `getData` has, which discards a sign-in ending before park close. The
+  Settings menu says "Signed in until 6:42 PM", or that it ends before park
+  close.
+
 ### 25. Change attraction into whichever of several rides opens first — _completed in 1.5.0_
 
 A friend's request from a park day: change a held Small World into Big Thunder

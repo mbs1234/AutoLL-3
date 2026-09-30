@@ -59,6 +59,33 @@ describe('AuthStore', () => {
     });
   });
 
+  describe('expiresAt()', () => {
+    it('says when the saved sign-in ends', () => {
+      const { expires } = setData(Date.now() + 3 * 3600_000);
+      expect(store.expiresAt()).toBe(expires);
+    });
+
+    // A screen asking when the sign-in ends must not end it: getData() would
+    // discard one that ends before park close.
+    it('reads a sign-in ending before park close without discarding it', () => {
+      const { expires } = setData(new Date(`${TODAY}T15:10:00-0400`).getTime());
+      expect(store.expiresAt()).toBe(expires);
+      expect(store.getStatus()).toBe('expires-before-park-close');
+    });
+
+    it('has nothing to say with no usable sign-in', () => {
+      expect(store.expiresAt()).toBeUndefined();
+      kvdb.set(AUTH_KEY, { accessToken: 'token' });
+      expect(store.expiresAt()).toBeUndefined();
+    });
+
+    it('has nothing to say about another resort’s sign-in', () => {
+      setData(Date.now() + 3 * 3600_000);
+      store.setExpectedResort('DLR' as never);
+      expect(store.expiresAt()).toBeUndefined();
+    });
+  });
+
   describe('setData()', () => {
     it('stores auth data', () => {
       const data = makeData(Date.now() + 86400_000);

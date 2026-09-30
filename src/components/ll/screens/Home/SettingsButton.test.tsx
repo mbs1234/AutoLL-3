@@ -2,10 +2,20 @@ import { AUTH_PERSISTENCE_KEY } from '@/api/auth';
 import { APP_NAME, BUILD_REV } from '@/appIdentity';
 import { recordBackup } from '@/autopilot/backup';
 import kvdb from '@/kvdb';
-import { act, fireEvent, nav, render, screen } from '@/testing';
+import {
+  TODAY,
+  TOMORROW,
+  act,
+  fireEvent,
+  nav,
+  render,
+  screen,
+  setTime,
+} from '@/testing';
 
 import BackupRestore from '../BackupRestore';
 import SettingsButton from './SettingsButton';
+import { describeSession } from './describeSession';
 
 // Two builds can be installed on the same phone and they look identical.
 // `document.title` and the favicon answer the question only where a tab strip
@@ -90,5 +100,39 @@ describe('SettingsButton', () => {
     expect(screen.getByLabelText('Last backup')).toHaveTextContent(
       'Last backup: today'
     );
+  });
+});
+
+// "Session: valid" said nothing about whether it would last the park day.
+describe('describeSession()', () => {
+  const at = (iso: string) => new Date(iso).getTime();
+  beforeEach(() => setTime('12:00'));
+
+  it('says when a good sign-in ends', () => {
+    expect(describeSession('valid', at(`${TODAY}T18:42:00-0400`))).toBe(
+      'Signed in until 6:42 PM'
+    );
+  });
+
+  it('names the day when it is not today', () => {
+    expect(describeSession('valid', at(`${TOMORROW}T06:05:00-0400`))).toMatch(
+      /^Signed in until 6:05 AM, [A-Z][a-z]+ \d+$/
+    );
+  });
+
+  it('warns when it ends before park close', () => {
+    expect(
+      describeSession('expires-before-park-close', at(`${TODAY}T15:10:00-0400`))
+    ).toBe('Sign-in ends at 3:10 PM, before park close');
+  });
+
+  it('says when an ended one ended', () => {
+    expect(describeSession('expired', at(`${TODAY}T09:00:00-0400`))).toBe(
+      'Sign-in ended at 9:00 AM'
+    );
+  });
+
+  it('says so plainly with no sign-in at all', () => {
+    expect(describeSession('missing', undefined)).toBe('Not signed in');
   });
 });

@@ -136,6 +136,7 @@ function Probe() {
     setDryRun,
     setRequireWholeParty,
     lastSkip,
+    skipCounts,
     sessionLog,
     dropSummaries,
     bookedCount,
@@ -161,6 +162,7 @@ function Probe() {
       <span data-testid="lastSkip">
         {lastSkip ? `${lastSkip.name}: ${lastSkip.reason}` : ''}
       </span>
+      <span data-testid="skipCounts">{JSON.stringify(skipCounts)}</span>
       <button
         onClick={() => {
           void acquireLease(leaseKey(BZ, TODAY), PROBE_OWNER).then(ok =>
@@ -535,6 +537,7 @@ function setupBooking({
     setPolledPlans,
     /** Move the app onto another booking date, as the LL tab's picker does. */
     setBookingDate: (date: string) => view.rerender(<Tree date={date} />),
+    unmount: view.unmount,
   };
 }
 
@@ -1775,6 +1778,32 @@ describe('AutopilotProvider persistence and diagnostics', () => {
     expect(loadBookingLog()).toEqual([]);
     // What it does render is the newest skip, named, which is what the screen
     // headlines while the counts stay in the diagnostics.
+    expect(screen.getByTestId('lastSkip')).toHaveTextContent(
+      new RegExp(`^${wdw.experience(BZ).name}: .*outside-window$`)
+    );
+  });
+
+  // A reload brings Autopilot back off, and used to bring the Activity
+  // screen's "why nothing was booked" back empty with it.
+  it('keeps why nothing was booked across a reload', async () => {
+    saveWatchList([
+      { experienceId: BZ, autoBook: true, before: new ParkTime(12) },
+    ]);
+    const { unmount } = setupBooking({ offerHour: 20 });
+    await enable();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(5000);
+    });
+    expect(screen.getByTestId('skipCounts')).toHaveTextContent(
+      'outside-window'
+    );
+    unmount();
+
+    setupBooking({ offerHour: 20 });
+    expect(screen.getByTestId('mode')).toHaveTextContent('off');
+    expect(screen.getByTestId('skipCounts')).toHaveTextContent(
+      'outside-window'
+    );
     expect(screen.getByTestId('lastSkip')).toHaveTextContent(
       new RegExp(`^${wdw.experience(BZ).name}: .*outside-window$`)
     );

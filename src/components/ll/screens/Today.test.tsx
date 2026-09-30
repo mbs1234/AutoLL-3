@@ -14,7 +14,7 @@ import { ParkTime, parkDate } from '@/datetime';
 import { PARTY_IDS_KEY } from '@/hooks/useSavedParty';
 import kvdb from '@/kvdb';
 import { PLAN_CHECK_REVIEW_KEY } from '@/storageNamespace';
-import { TODAY, nav, setTime } from '@/testing';
+import { TODAY, TOMORROW, nav, setTime } from '@/testing';
 
 import Activity from './Activity';
 import Configure from './Configure';
@@ -576,6 +576,21 @@ describe('Today alert sound', () => {
     delete g.AudioContext;
   });
 
+  // An iPhone in Safari has no notifications, so the pre-trip list asks for
+  // the one alert it does have to be heard, rather than ticking it off.
+  it('has the pre-trip list test the sound where there are no notifications', async () => {
+    const ctx = fakeAudio('suspended');
+    setup({ bookingDate: TOMORROW, notifications: 'unsupported' });
+    expect(
+      screen.getByText(/○ Test the alert sound: it is the only alert here/)
+    ).toBeVisible();
+    await act(async () => {
+      screen.getByRole('button', { name: 'Test' }).click();
+    });
+    expect(ctx.createOscillator).toHaveBeenCalled();
+    expect(screen.getByText(/✓ Alert sound works/)).toBeVisible();
+  });
+
   // Offering a sound test on a browser that cannot make one is a row that can
   // only ever report failure.
   it('says nothing where the browser has no audio at all', () => {
@@ -717,5 +732,27 @@ describe('Today context strip', () => {
     const strip = screen.getByText('Party of 2').parentElement!;
     expect(within(strip).getByText('Magic Kingdom')).toBeInTheDocument();
     expect(within(strip).getByText('Today')).toBeInTheDocument();
+  });
+});
+
+// It said what was being waited for, and not where to go to end the wait.
+describe('Today with a passkey', () => {
+  const passkey = { experienceId: DB, autoBook: true, passkey: true };
+
+  it('says where to tap in to lift the Tier 1 hold', () => {
+    setup({ targets: [passkey], passkeyStatus: 'waiting' });
+    expect(
+      screen.getByText(
+        new RegExp(
+          `Tap in at ${wdw.experience(DB).name} with every selected guest`
+        )
+      )
+    ).toBeVisible();
+  });
+
+  it('says it is lifted once Disney confirms it', () => {
+    setup({ targets: [passkey], passkeyStatus: 'unlocked' });
+    expect(screen.getByText(/Tier 1 hold is unlocked/)).toBeVisible();
+    expect(screen.queryByText(/Tap in at/)).not.toBeInTheDocument();
   });
 });
