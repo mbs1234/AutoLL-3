@@ -97,6 +97,14 @@ export interface PollerOptions {
    * refusal after that stops it again.
    */
   stopEpoch?: number;
+  /**
+   * A count the caller bumps to start a new run while it stays enabled. A
+   * change starts the loop over from nothing, as switching off and on would,
+   * and the new run takes the refusal count as it is now, so a run a refusal
+   * stopped can start again. Turning off and on in one tap cannot do this:
+   * React batches the two, and `enabled` never changes.
+   */
+  runEpoch?: number;
 }
 
 /**
@@ -158,10 +166,13 @@ export default function usePoller({
   rapid,
   tomorrow,
   stopEpoch = 0,
+  runEpoch = 0,
 }: PollerOptions): PollerStatus {
   const [status, setStatus] = useState<PollerStatus>(OFF);
   // The refusal count when this run was switched on. Undefined while off.
   const epochAtStartRef = useRef<number | undefined>(undefined);
+  // The run count this run started under. Undefined while off.
+  const runAtStartRef = useRef<number | undefined>(undefined);
 
   // Latest values, read at tick time. Held in refs so that a park change, a
   // new set of booking windows, or a re-created onTick does not tear the loop
@@ -184,11 +195,16 @@ export default function usePoller({
   useEffect(() => {
     if (!enabled) {
       epochAtStartRef.current = undefined;
+      runAtStartRef.current = undefined;
       setStatus(OFF);
       return;
     }
-    if (epochAtStartRef.current === undefined) {
+    if (runAtStartRef.current !== runEpoch) {
+      // A new run: switched on, or restarted while on. It counts refusals
+      // from now, and starts with nothing carried over from the last.
+      runAtStartRef.current = runEpoch;
       epochAtStartRef.current = stopEpoch;
+      setStatus(OFF);
     } else if (stopEpoch !== epochAtStartRef.current) {
       // Refused since this run started, by any routine. The run just torn
       // down by this very change is not restarted: stopping everything at the
@@ -347,10 +363,10 @@ export default function usePoller({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-    // Depends on `enabled`, and on a refusal while running, by design;
-    // everything else is read from refs at tick time. See the note on the
-    // refs above.
-  }, [enabled, stopEpoch]);
+    // Depends on `enabled`, a refusal while running and a restart, by
+    // design; everything else is read from refs at tick time. See the note on
+    // the refs above.
+  }, [enabled, stopEpoch, runEpoch]);
 
   return status;
 }

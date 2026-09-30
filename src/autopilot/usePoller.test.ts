@@ -410,3 +410,85 @@ describe('usePoller pushback', () => {
     expect(result.current.mode).toBe('stopped');
   });
 });
+
+// Off and on in one tap cannot start the loop over: React batches the two,
+// and `enabled` never changes. The run count is how a caller does it.
+describe('usePoller restart', () => {
+  it('starts a stopped run over when the run count moves', async () => {
+    let fail = true;
+    const onTick = jest.fn(async () => {
+      if (fail) throw new Error('nope');
+    });
+    const { result, rerender } = renderHook(
+      ({ runEpoch }) => usePoller({ enabled: true, onTick, runEpoch }),
+      { initialProps: { runEpoch: 0 } }
+    );
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(BACKOFF_CAP_MS * 20);
+    });
+    expect(result.current.mode).toBe('stopped');
+    const ticks = onTick.mock.calls.length;
+    fail = false;
+    rerender({ runEpoch: 1 });
+    await waitFor(() => expect(result.current.mode).toBe('idle'));
+    expect(onTick).toHaveBeenCalledTimes(ticks + 1);
+    // Nothing carried over from the run before it.
+    expect(result.current.polls).toBe(1);
+    expect(result.current.consecutiveFailures).toBe(0);
+    expect(result.current.lastError).toBeUndefined();
+  });
+
+  // A refusal stops everything, and starting again after one is allowed.
+  it('starts a run a refusal stopped, until the next refusal', async () => {
+    const onTick = jest.fn(async () => undefined);
+    const { result, rerender } = renderHook(
+      ({ stopEpoch, runEpoch }) =>
+        usePoller({ enabled: true, onTick, stopEpoch, runEpoch }),
+      { initialProps: { stopEpoch: 0, runEpoch: 0 } }
+    );
+    await waitFor(() => expect(result.current.mode).toBe('idle'));
+    rerender({ stopEpoch: 1, runEpoch: 0 });
+    expect(result.current.stopReason).toBe('refused');
+    rerender({ stopEpoch: 1, runEpoch: 1 });
+    await waitFor(() => expect(result.current.mode).toBe('idle'));
+    rerender({ stopEpoch: 2, runEpoch: 1 });
+    expect(result.current.mode).toBe('stopped');
+    expect(result.current.stopReason).toBe('refused');
+  });
+
+  it('stops saying it stopped as soon as it starts again', async () => {
+    let answer: () => void = () => undefined;
+    let calls = 0;
+    const onTick = jest.fn(() =>
+      ++calls === 1
+        ? Promise.reject(new PollerStop('session', 'A long search'))
+        : new Promise<void>(resolve => {
+            answer = resolve;
+          })
+    );
+    const { result, rerender } = renderHook(
+      ({ runEpoch }) => usePoller({ enabled: true, onTick, runEpoch }),
+      { initialProps: { runEpoch: 0 } }
+    );
+    await waitFor(() => expect(result.current.mode).toBe('stopped'));
+    rerender({ runEpoch: 1 });
+    // Its first check is out, and the stop belongs to the run before.
+    expect(onTick).toHaveBeenCalledTimes(2);
+    expect(result.current.mode).toBe('off');
+    expect(result.current.stopReason).toBeUndefined();
+    await act(async () => answer());
+    await waitFor(() => expect(result.current.mode).toBe('idle'));
+  });
+
+  it('does nothing while off', async () => {
+    const onTick = jest.fn(async () => undefined);
+    const { result, rerender } = renderHook(
+      ({ runEpoch }) => usePoller({ enabled: false, onTick, runEpoch }),
+      { initialProps: { runEpoch: 0 } }
+    );
+    rerender({ runEpoch: 1 });
+    await advancePastNextTick();
+    expect(onTick).not.toHaveBeenCalled();
+    expect(result.current.mode).toBe('off');
+  });
+});

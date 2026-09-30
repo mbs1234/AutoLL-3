@@ -552,7 +552,7 @@
       stops working.
     </p>
     <div class="masthead-meta">
-      <span>Version 1.5.1</span>
+      <span>Version 1.6.0</span>
       <span>Three parts · 23 sections</span>
       <span>Unofficial · not endorsed by Disney</span>
     </div>
@@ -1118,21 +1118,34 @@
     <section id="checklist">
       <h3><span class="num">08</span> The pre-trip checklist</h3>
       <figure class="float">
-        <img src="user-guide/pretrip-checklist.png" alt="Today in pre-trip mode: a Before your trip panel with five readiness items, three ticked and two outstanding." loading="lazy">
+        <img src="user-guide/pretrip-checklist.png" alt="Today in pre-trip mode: a Before your trip panel with six readiness items, each with its button, some ticked and some outstanding." loading="lazy">
         <figcaption>
           With a future date on screen, Today becomes a readiness list.
         </figcaption>
       </figure>
       <p>
         When the day on screen is <strong>not today</strong>, the Today tab
-        becomes a readiness list of five items: party saved, at least one
-        target, an action actually armed, notifications allowed (or, where
-        there are none, the alert sound tested), Plan Check reviewed. Each item
-        still to do has a button: <span class="ui">Open</span> goes to the
-        screen that fixes it, <span class="ui">Enable</span> asks the browser
-        for notification permission, and <span class="ui">Test</span> plays the
-        alert sound. A finished item has no button, except Plan Check, which
-        keeps <span class="ui">Review</span> so you can look again.
+        becomes a readiness list of up to six items: party saved, at least one
+        target, an action actually armed, return windows confirmed (once there
+        is a target), notifications allowed (or, where there are none, the
+        alert sound tested), Plan Check reviewed. Each item still to do has a
+        button: <span class="ui">Open</span> goes to the screen that fixes it,
+        <span class="ui">Enable</span> asks the browser for notification
+        permission, <span class="ui">Test</span> plays the alert sound, and
+        <span class="ui">Confirm</span> ticks the return windows. A finished
+        item keeps a button, so you can go back into it:
+        <span class="ui">Review</span> opens its screen again, and
+        <span class="ui">Test</span> plays the sound again. Only allowed
+        notifications have none, since only the browser's own settings change
+        them.
+      </p>
+      <p>
+        <strong>Return windows</strong> are yours to judge: no window is wrong
+        in itself, and “any time” is often the point. The line says how many
+        targets have one, and the plan further down Today shows each.
+        <span class="ui">Confirm</span> once they are as you want them. The tick
+        is saved, and asks again when a window changes or a target comes or
+        goes.
       </p>
       <p>
         On an iPhone, Safari has no notifications, so the chime is the only
@@ -1964,7 +1977,7 @@
     <section id="refused">
       <h3><span class="num">21</span> Disney refused a request, and everything stopped</h3>
       <figure class="float">
-        <img src="user-guide/refused.png" alt="Today reading Status: Stopped: Disney refused a request, with a red line saying everything has stopped, Autopilot and any search." loading="lazy">
+        <img src="user-guide/refused.png" alt="Today reading Status: Stopped: Disney refused a request, with a red line saying everything has stopped, Autopilot and any search, and a Restart autopilot button under it." loading="lazy">
         <figcaption>The first refusal stops everything.</figcaption>
       </figure>
       <p>
@@ -1977,8 +1990,9 @@
         because knocking again is what keeps an account paused.
       </p>
       <p>
-        You may start again whenever you like: Autopilot by turning it off and
-        on, a search by starting it again. For half an hour a note under the
+        You may start again whenever you like: Autopilot with
+        <span class="ui">Restart autopilot</span>, under the stopped line and its
+        warning, and a search by starting it again. For half an hour a note under the
         switch, and beside each search's start button, says when Disney refused
         and warns that <strong>the next refusal stops everything again</strong>.
         There is no grace period. Book by hand in Disney's app meanwhile.
@@ -2013,7 +2027,7 @@
     <section id="stopped">
       <h3><span class="num">23</span> Autopilot stopped</h3>
       <figure class="float">
-        <img src="user-guide/stopped.png" alt="Today reading Status: Stopped after repeated errors, with a red line saying it stopped after failed checks and to turn it back on." loading="lazy">
+        <img src="user-guide/stopped.png" alt="Today reading Status: Stopped after repeated errors, with a red line saying it stopped after five failed checks, and a Restart autopilot button under it." loading="lazy">
         <figcaption>
           The screenshot says 5 failed checks because that is a harness fixture.
           The real app always stops at 8.
@@ -2026,10 +2040,11 @@
         booking, and <strong>it does not restart itself.</strong>
       </p>
       <p>
-        The switch still reads <span class="ui">Turn off autopilot</span>, so
-        restarting is <strong>two taps</strong>: off, then on. The exception is a
-        stop caused by an expired session — signing back in remounts the app with
-        Autopilot off, so there it is one tap.
+        <span class="ui">Restart autopilot</span>, under the stopped line,
+        starts it again in one tap. It used to take two, off then on. A stop
+        caused by an expired session is different: signing back in remounts the
+        app with Autopilot off, so there
+        <span class="ui">Turn on autopilot</span> starts it.
       </p>
       <div class="call stop">
         <span class="call-label">On iPhone it is only a chime</span>
@@ -2154,7 +2169,7 @@
         well, or it may start empty next time.
       </p>
       <p>
-        <strong>Rough edges, as of 1.5.1.</strong> Known, recorded, and not
+        <strong>Rough edges, as of 1.6.0.</strong> Known, recorded, and not
         fixed yet:
       </p>
       <ul>
@@ -2231,7 +2246,7 @@
           <thead><tr><th>Event</th><th>Effect</th></tr></thead>
           <tbody>
             <tr>
-              <td>Turning Autopilot on</td>
+              <td>Turning Autopilot on, or Restart autopilot</td>
               <td>Clears the session log, skip counts, locks, cache, passkey status and drop baseline; re-alerts anything already available. A refusal before it does not stop the new run; the next one does</td>
             </tr>
             <tr>

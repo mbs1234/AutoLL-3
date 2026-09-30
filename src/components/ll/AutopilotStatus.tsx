@@ -4,6 +4,7 @@ import {
 } from '@/autopilot/schedule';
 import { modeText } from '@/autopilot/status';
 import { PollerStatus } from '@/autopilot/usePoller';
+import Button from '@/components/Button';
 import { Time } from '@/components/Time';
 
 export const AUTOPILOT = 'Autopilot';
@@ -12,7 +13,14 @@ export const AUTOPILOT = 'Autopilot';
  * What the poller is doing and what is in its way: mode, next drop, timing,
  * backoff, a wait Disney asked for, a stopped run and why.
  */
-export default function AutopilotStatus({ status }: { status: PollerStatus }) {
+export default function AutopilotStatus({
+  status,
+  onRestart,
+}: {
+  status: PollerStatus;
+  /** Starts a stopped run again, in one tap. */
+  onRestart: () => void;
+}) {
   return (
     <div className="mt-3 text-sm">
       <div>
@@ -84,7 +92,9 @@ export default function AutopilotStatus({ status }: { status: PollerStatus }) {
           .
         </p>
       )}
-      {status.mode === 'stopped' && <StoppedLine status={status} />}
+      {status.mode === 'stopped' && (
+        <StoppedLine status={status} onRestart={onRestart} />
+      )}
     </div>
   );
 }
@@ -93,45 +103,57 @@ export default function AutopilotStatus({ status }: { status: PollerStatus }) {
  * Why the run stopped, and what starting it again means.
  *
  * Starting again is always allowed -- the owner's rule is "user beware", not
- * a lock-out -- so each reason says what the risk of doing so is.
+ * a lock-out -- so each reason says what the risk of doing so is, and the
+ * button sits under that warning rather than instead of it. It used to take
+ * two taps, Turn off then Turn on.
  */
-function StoppedLine({ status }: { status: PollerStatus }) {
-  const again = (
+function StoppedLine({
+  status,
+  onRestart,
+}: {
+  status: PollerStatus;
+  onRestart: () => void;
+}) {
+  return (
     <>
-      To start again, tap <b>Turn off autopilot</b>, then{' '}
-      <b>Turn on autopilot</b>.
+      <p className="mt-2 font-semibold text-red-700">{whyStopped(status)}</p>
+      <Button type="small" className="mt-2" onClick={onRestart}>
+        Restart autopilot
+      </Button>
     </>
   );
+}
+
+function whyStopped(status: PollerStatus): React.ReactNode {
   switch (status.stopReason) {
     case 'refused':
       return (
-        <p className="mt-2 font-semibold text-red-700">
+        <>
           Stopped: Disney refused a request, so everything has stopped &mdash;
           Autopilot and any search. You can start again, but give it a while
-          first: the next refusal stops everything again. {again}
-        </p>
+          first: the next refusal stops everything again.
+        </>
       );
     case 'throttled':
       return (
-        <p className="mt-2 font-semibold text-red-700">
+        <>
           Stopped: Disney asked to slow down. You can start again early, but it
-          may ask again. {again}
-        </p>
+          may ask again.
+        </>
       );
     case 'session':
       return (
-        <p className="mt-2 font-semibold text-red-700">
+        <>
           Stopped after a long search with nothing booked. Take a break before
-          starting again: long searches can make Disney pause the account.{' '}
-          {again}
-        </p>
+          starting again: long searches can make Disney pause the account.
+        </>
       );
     default:
       return (
-        <p className="mt-2 font-semibold text-red-700">
+        <>
           Stopped after {status.consecutiveFailures} failed checks
-          {status.lastError ? `: ${status.lastError}` : ''}. {again}
-        </p>
+          {status.lastError ? `: ${status.lastError}` : ''}.
+        </>
       );
   }
 }

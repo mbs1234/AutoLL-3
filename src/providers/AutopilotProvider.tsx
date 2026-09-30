@@ -321,6 +321,8 @@ export default function AutopilotProvider({
   // -- whoever was refused. See `pushback.ts`.
   const refusalsAtStartRef = useRef(refusalCount());
   const refusals = useSyncExternalStore(subscribePushback, refusalCount);
+  // Bumped by `restart`, which starts a new run while `enabled` stays on.
+  const [runEpoch, setRunEpoch] = useState(0);
   // 429s in a row, for Autopilot's growing wait. Cleared by the first request
   // Disney answers after one.
   const throttleStreakRef = useRef(0);
@@ -2247,6 +2249,7 @@ export default function AutopilotProvider({
     tomorrow: watchingTomorrow,
     rapid,
     stopEpoch: refusals,
+    runEpoch,
   });
 
   // The poller gives up after repeated failures without touching `enabled`, so
@@ -2336,6 +2339,19 @@ export default function AutopilotProvider({
     },
     [disable, wakeLockOwner, requestNotifications]
   );
+
+  /**
+   * Start a stopped run again, in one tap.
+   *
+   * Turning off then on in the same tap did nothing: React batches the two,
+   * `enabled` never changes, and the poller never starts over. This runs the
+   * switch-on steps inside the tap -- sound, notifications, the wake lock, a
+   * fresh run's state -- and bumps the count the poller starts over on.
+   */
+  const restart = useCallback(() => {
+    setEnabled(true);
+    setRunEpoch(count => count + 1);
+  }, [setEnabled]);
 
   /**
    * The watched attractions the loaded tipboard actually covers.
@@ -2525,6 +2541,7 @@ export default function AutopilotProvider({
       value={{
         enabled,
         setEnabled,
+        restart,
         status,
         targets,
         isWatched,

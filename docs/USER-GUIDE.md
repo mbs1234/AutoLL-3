@@ -320,18 +320,26 @@ Three limits worth knowing:
 ![The pre-trip checklist](user-guide/pretrip-checklist.png)
 
 When the day on screen is **not today**, the Today tab becomes a readiness list
-of five items:
+of up to six items:
 
 - Party saved
 - At least one target selected
 - An action actually armed
+- Return windows confirmed, once there is a target
 - Notifications allowed — or, where there are none, the alert sound tested
 - Plan Check reviewed
 
 Each item still to do has a button: **Open** goes to the screen that fixes it,
-**Enable** asks the browser for notification permission, and **Test** plays the
-alert sound. A finished item has no button, except Plan Check, which keeps
-**Review** so you can look again.
+**Enable** asks the browser for notification permission, **Test** plays the
+alert sound, and **Confirm** ticks the return windows. A finished item keeps a
+button, so you can go back into it: **Review** opens its screen again, and
+**Test** plays the sound again. Only allowed notifications have none, since
+only the browser's own settings change them.
+
+**Return windows** are yours to judge: no window is wrong in itself, and "any
+time" is often the point. The line says how many targets have one, and the plan
+further down Today shows each. **Confirm** once they are as you want them. The
+tick is saved, and asks again when a window changes or a target comes or goes.
 
 On an iPhone, Safari has no notifications, so the chime is the only alert. The
 line then asks you to **test the alert sound**, and ticks only once you have
@@ -871,8 +879,8 @@ search. Today reads **Stopped: Disney refused a request**, and Autopilot raises
 its "has stopped" alert. It stops at the first because knocking again is what
 keeps an account paused.
 
-You may start again whenever you like: Autopilot by turning it off and on, a
-search by starting it again. For half an hour a note under the switch, and
+You may start again whenever you like: Autopilot with **Restart autopilot**,
+under the stopped line and its warning, and a search by starting it again. For half an hour a note under the switch, and
 beside each search's start button, says when Disney refused and warns that
 **the next refusal stops everything again**. There is no grace period. Book by
 hand in Disney's app meanwhile.
@@ -900,9 +908,10 @@ Eight checks failed in a row, so it gave up rather than spin. (A refusal from
 Disney stops it too, and says so; see above.) It is no longer watching,
 alerting or booking, and **it does not restart itself.**
 
-The switch still reads "Turn off autopilot", so restarting is **two taps**: off,
-then on. (The exception is a stop caused by an expired session — signing back in
-remounts the app with Autopilot off, so there it is one tap.)
+**Restart autopilot**, under the stopped line, starts it again in one tap. It
+used to take two, off then on. (A stop caused by an expired session is
+different: signing back in remounts the app with Autopilot off, so there
+**Turn on autopilot** starts it.)
 
 When it gives up it raises one alert, "AutoLL-3 has stopped", on every channel
 it can. On an iPhone in Safari that is the sound alone: there is no
@@ -997,7 +1006,7 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.5.1.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.6.0.** Known, recorded, and not fixed yet:
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
@@ -1054,7 +1063,7 @@ further out than tomorrow gets no drop times at all and sits at 45 s.
 
 | Event | Effect |
 |---|---|
-| Turning Autopilot on | Clears session log, skip counts, locks, cache, passkey status, drop baseline; re-alerts anything available. A refusal before it does not stop the new run; the next one does |
+| Turning Autopilot on, or Restart autopilot | Clears session log, skip counts, locks, cache, passkey status, drop baseline; re-alerts anything available. A refusal before it does not stop the new run; the next one does |
 | Turning Autopilot off | Leaves skip counts and the log alone |
 | Page reload | Autopilot off; skip counts, log and watch list survive |
 | 4am park-day rollover | Autopilot off; screen wake lock released; log emptied; skip counts zeroed |

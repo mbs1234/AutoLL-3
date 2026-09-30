@@ -1126,6 +1126,30 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 27. Restart in one tap, and a checklist to go back into — _completed in 1.6.0_
+
+Left for AutoLL-3 by AutoLL-5's usability review, with `FUTURE.md` §2.5.
+
+- **One-tap "Restart autopilot".** After a stop, starting again took **Turn
+  off** then **Turn on**. Made in one tap they did nothing: React batches the
+  two, `enabled` never changes, and the poller never started over. The
+  provider's `restart()` runs the switch-on steps inside the tap (sound,
+  notifications, the wake lock, a fresh run's state) and bumps a run count,
+  `runEpoch`, on which `usePoller` starts a new run, counting refusals from
+  then. The button sits under the stopped line's warning, which stays as 1.4.5
+  wrote it: after a refusal, the next one stops everything again.
+- **Return windows confirmed.** §2.5's "windows set where wanted", as an
+  acknowledgement rather than a test, since no window is wrong in itself. The
+  step says how many targets have one; **Confirm** ticks it, and the tick
+  lapses when a window changes or a target comes or goes (`windowsKey` in
+  `checklist.ts`), as Plan Check's does. It appears once there is a target.
+- **A way back into a finished step.** A finished item keeps its button:
+  **Review** for the screens, **Test** for the sound. Only allowed
+  notifications have none, since only the browser's settings change them.
+
+Still open from §2.5: a checklist row for unrecognised attraction IDs. "Park
+and date chosen" is not to be built (item 5).
+
 ### 26. Four screens that said less than they knew — _completed in 1.5.1_
 
 Left for AutoLL-3 by AutoLL-5's usability review, because each needs the

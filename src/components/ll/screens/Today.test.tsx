@@ -4,6 +4,7 @@ import { type ReactElement, createRef } from 'react';
 import { createBooking, hm, wdw } from '@/__fixtures__/ll';
 import { mk } from '@/__fixtures__/resort';
 import { primeAudio, resetAudioForTests } from '@/autopilot/alert';
+import { windowsKey } from '@/autopilot/checklist';
 import { leaseKey, quarantine } from '@/autopilot/lease';
 import { savePendingSearch } from '@/autopilot/nextll';
 import { planReview } from '@/autopilot/plancheck';
@@ -13,11 +14,12 @@ import TabsContext from '@/contexts/TabContext';
 import { ParkTime, parkDate } from '@/datetime';
 import { PARTY_IDS_KEY } from '@/hooks/useSavedParty';
 import kvdb from '@/kvdb';
-import { PLAN_CHECK_REVIEW_KEY } from '@/storageNamespace';
+import { PLAN_CHECK_REVIEW_KEY, WINDOWS_REVIEW_KEY } from '@/storageNamespace';
 import { TODAY, TOMORROW, nav, setTime } from '@/testing';
 
 import Activity from './Activity';
 import Configure from './Configure';
+import PartySelector from './PartySelector';
 import PlanCheck from './PlanCheck';
 import Timeline from './Timeline';
 import Today from './Today';
@@ -69,6 +71,26 @@ describe('Today', () => {
     });
     expect(screen.getByText(/Stopped after 8 failed checks/)).toBeVisible();
     expect(screen.getByText(/Request failed/)).toBeVisible();
+  });
+
+  // It took two taps, Turn off then Turn on; the two in one did nothing.
+  it('restarts a stopped run in one tap', () => {
+    const { restart, setEnabled } = setup({
+      enabled: true,
+      status: { ...OFF, mode: 'stopped', consecutiveFailures: 8, polls: 20 },
+    });
+    act(() =>
+      screen.getByRole('button', { name: 'Restart autopilot' }).click()
+    );
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(setEnabled).not.toHaveBeenCalled();
+  });
+
+  it('offers a restart only once it has stopped', () => {
+    setup({ enabled: true, status: { ...OFF, mode: 'idle', polls: 3 } });
+    expect(
+      screen.queryByRole('button', { name: 'Restart autopilot' })
+    ).not.toBeInTheDocument();
   });
 
   it('warns when notifications are blocked', () => {
@@ -415,6 +437,10 @@ describe('Today when Disney pushes back', () => {
     expect(
       screen.getByText(/the next refusal stops everything again/)
     ).toBeVisible();
+    // Allowed, and under the warning rather than instead of it.
+    expect(
+      screen.getByRole('button', { name: 'Restart autopilot' })
+    ).toBeEnabled();
   });
 
   // A wait is not a stop: without saying when, and that it is still on, it
@@ -589,6 +615,8 @@ describe('Today alert sound', () => {
     });
     expect(ctx.createOscillator).toHaveBeenCalled();
     expect(screen.getByText(/✓ Alert sound works/)).toBeVisible();
+    // Still there once it has played, to hear it again.
+    expect(screen.getByRole('button', { name: 'Test' })).toBeVisible();
   });
 
   // Offering a sound test on a browser that cannot make one is a row that can
@@ -754,5 +782,97 @@ describe('Today with a passkey', () => {
     setup({ targets: [passkey], passkeyStatus: 'unlocked' });
     expect(screen.getByText(/Tier 1 hold is unlocked/)).toBeVisible();
     expect(screen.queryByText(/Tap in at/)).not.toBeInTheDocument();
+  });
+});
+
+// FUTURE §2.5: a step for the return windows, which only the person can
+// tick, and a way back into a finished step.
+describe('Today before the trip', () => {
+  const step = (text: RegExp) =>
+    within(screen.getByRole('region', { name: 'Pre-trip checklist' }))
+      .getAllByRole('listitem')
+      .find(item => text.test(item.textContent ?? ''))!;
+  const windows = () => step(/return windows/i);
+
+  beforeEach(() => nav.goTo.mockClear());
+
+  it('has the return windows confirmed', () => {
+    const targets = [
+      { experienceId: BZ, autoBook: true, after: new ParkTime(9, 45) },
+    ];
+    setup({ bookingDate: TOMORROW, targets });
+    expect(windows()).toHaveTextContent(
+      '○ Confirm the return windows (1 of 1 set)'
+    );
+    fireEvent.click(within(windows()).getByRole('button', { name: 'Confirm' }));
+    expect(windows()).toHaveTextContent(
+      '✓ Return windows confirmed (1 of 1 set)'
+    );
+    expect(kvdb.get(WINDOWS_REVIEW_KEY)).toBe(
+      windowsKey(targets, mk.id, TOMORROW)
+    );
+  });
+
+  it('keeps the tick across a reload while the windows stand', () => {
+    kvdb.set(
+      WINDOWS_REVIEW_KEY,
+      windowsKey([{ experienceId: BZ }], mk.id, TOMORROW)
+    );
+    setup({
+      bookingDate: TOMORROW,
+      targets: [{ experienceId: BZ, autoBook: true }],
+    });
+    expect(windows()).toHaveTextContent('✓ Return windows confirmed');
+  });
+
+  it('asks again once a window has changed', () => {
+    kvdb.set(
+      WINDOWS_REVIEW_KEY,
+      windowsKey(
+        [{ experienceId: BZ, after: new ParkTime(9, 45) }],
+        mk.id,
+        TOMORROW
+      )
+    );
+    setup({
+      bookingDate: TOMORROW,
+      targets: [{ experienceId: BZ, autoBook: true, after: new ParkTime(10) }],
+    });
+    expect(windows()).toHaveTextContent('○ Confirm the return windows');
+  });
+
+  // A finished step used to lose its button, so it could not be gone back
+  // into.
+  it('goes back into a finished step', () => {
+    localStorage.setItem(PARTY_IDS_KEY, JSON.stringify(['a']));
+    kvdb.set(
+      WINDOWS_REVIEW_KEY,
+      windowsKey([{ experienceId: BZ }], mk.id, TOMORROW)
+    );
+    setup({
+      bookingDate: TOMORROW,
+      targets: [{ experienceId: BZ, autoBook: true }],
+    });
+    const review = (text: RegExp) =>
+      fireEvent.click(
+        within(step(text)).getByRole('button', { name: 'Review' })
+      );
+    review(/Party saved/);
+    expect(nav.goTo).toHaveBeenLastCalledWith(<PartySelector />);
+    review(/1 target selected/);
+    expect(nav.goTo).toHaveBeenLastCalledWith(<Configure />);
+    review(/An action is armed/);
+    expect(nav.goTo).toHaveBeenLastCalledWith(<Configure />);
+    review(/Return windows confirmed/);
+    expect(nav.goTo).toHaveBeenLastCalledWith(<Configure />);
+    expect(nav.goTo).toHaveBeenCalledTimes(4);
+  });
+
+  // Only the browser's own settings change an allowed permission.
+  it('has nothing to go back into once notifications are allowed', () => {
+    setup({ bookingDate: TOMORROW, notifications: 'granted' });
+    expect(
+      within(step(/Notifications allowed/)).queryByRole('button')
+    ).not.toBeInTheDocument();
   });
 });

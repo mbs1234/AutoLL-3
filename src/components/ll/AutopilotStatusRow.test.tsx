@@ -10,6 +10,7 @@ import AutopilotStatusRow from './AutopilotStatusRow';
 const state: AutopilotState = {
   enabled: true,
   setEnabled: () => {},
+  restart: () => {},
   status: { mode: 'approach', consecutiveFailures: 0, polls: 8 },
   targets: [],
   targetsHere: [{ experienceId: 'ride', autoBook: true }],
