@@ -6,7 +6,7 @@ import {
   soundCheck,
   subscribeAudioStatus,
 } from '@/autopilot/alert';
-import { checklist } from '@/autopilot/checklist';
+import { checklist, windowsKey } from '@/autopilot/checklist';
 import { describeMode } from '@/autopilot/describe';
 import { latestActivity } from '@/autopilot/events';
 import { loadPendingSearch } from '@/autopilot/nextll';
@@ -38,7 +38,7 @@ import { parkDate, upcomingTimes } from '@/datetime';
 import { PARTY_IDS_KEY } from '@/hooks/useSavedParty';
 import kvdb from '@/kvdb';
 import { loadSavedPartyIds } from '@/savedParty';
-import { PLAN_CHECK_REVIEW_KEY } from '@/storageNamespace';
+import { PLAN_CHECK_REVIEW_KEY, WINDOWS_REVIEW_KEY } from '@/storageNamespace';
 
 import Activity from './Activity';
 import Configure from './Configure';
@@ -70,6 +70,7 @@ export default function Today({ ref }: HomeTabProps) {
   const {
     enabled,
     setEnabled,
+    restart,
     status,
     targets,
     targetsHere,
@@ -99,6 +100,9 @@ export default function Today({ ref }: HomeTabProps) {
   const { changeTab } = use(TabsContext);
   const [reviewedPlan, setReviewedPlan] = useState<PlanReview | undefined>(() =>
     kvdb.get<PlanReview>(PLAN_CHECK_REVIEW_KEY)
+  );
+  const [confirmedWindows, setConfirmedWindows] = useState(() =>
+    kvdb.get<string>(WINDOWS_REVIEW_KEY)
   );
   const [now, setNow] = useState(() => Date.now());
   const doubts = useQuarantine();
@@ -190,6 +194,7 @@ export default function Today({ ref }: HomeTabProps) {
     const items = checkPlan(planCheckInput);
     return planReview(planCheckInput, items);
   }, [planCheckInput]);
+  const currentWindows = windowsKey(targetsHere, park.id, bookingDate);
   const readiness = checklist({
     // Read-only: mounting useSavedParty here would call ll.setPartyIds while
     // this screen is merely being viewed.
@@ -197,9 +202,20 @@ export default function Today({ ref }: HomeTabProps) {
     targets: targetsHere,
     notifications,
     sound: soundStatus,
+    windowsConfirmed: confirmedWindows === currentWindows,
     planReviewed: reviewedPlan?.key === currentReview.key,
     planBlockers: currentReview.blockers,
   });
+  const confirmWindows = () => {
+    setConfirmedWindows(currentWindows);
+    try {
+      kvdb.set(WINDOWS_REVIEW_KEY, currentWindows);
+    } catch (error) {
+      // As with the Plan Check tick: it lasts for this mounted screen, and
+      // simply will not survive a reload.
+      console.error(error);
+    }
+  };
 
   const rememberReview = (review: PlanReview) => {
     setReviewedPlan(review);
@@ -279,7 +295,7 @@ export default function Today({ ref }: HomeTabProps) {
           </div>
         )}
         <LatestEvent event={activity} />
-        <AutopilotStatus status={status} />
+        <AutopilotStatus status={status} onRestart={restart} />
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -336,20 +352,24 @@ export default function Today({ ref }: HomeTabProps) {
                 <span>
                   {item.done ? '✓' : '○'} {item.text}
                 </span>
-                {(!item.done || item.subject === 'plan-check') &&
-                  // Nothing a tap could fix on a browser with no sound.
-                  !(
-                    item.subject === 'sound' && soundStatus === 'unsupported'
-                  ) && (
+                {/* A finished step keeps its button, so it can be gone back
+                    into. Not where a tap has nothing to do: a browser with no
+                    sound, or notifications already allowed, which only the
+                    browser's own settings change. */}
+                {!(item.subject === 'sound' && soundStatus === 'unsupported') &&
+                  !(item.subject === 'notifications' && item.done) && (
                     <Button
                       type="small"
                       onClick={() => {
                         if (item.subject === 'party') goTo(<PartySelector />);
                         else if (
                           item.subject === 'targets' ||
-                          item.subject === 'settings'
+                          item.subject === 'settings' ||
+                          (item.subject === 'windows' && item.done)
                         ) {
                           goTo(<Configure />);
+                        } else if (item.subject === 'windows') {
+                          confirmWindows();
                         } else if (item.subject === 'plan-check') {
                           openPlanCheck();
                         } else if (item.subject === 'sound') {
@@ -364,7 +384,9 @@ export default function Today({ ref }: HomeTabProps) {
                           ? 'Test'
                           : item.done
                             ? 'Review'
-                            : 'Open'}
+                            : item.subject === 'windows'
+                              ? 'Confirm'
+                              : 'Open'}
                     </Button>
                   )}
               </li>

@@ -23,8 +23,8 @@ _small_ is an evening, _medium_ is a session or two with tests, _large_ is a
 week and a decision. Nothing here is scheduled; the ordering at the end is a
 recommendation, not a plan.
 
-**The main trip is the goal, and the last two weeks before it are a freeze.**
-That is the constraint every judgement below is made against. The tool is
+**The main trip is the goal, and the week up to its booking morning is a
+freeze.** That is the constraint every judgement below is made against. The tool is
 usable today; everything here makes it better, and nothing here is required.
 
 ---
@@ -124,6 +124,11 @@ the screen is `fixed inset-0` with its own scroll pane, so scroll to a ref
 rather than a hash.
 
 ### 2.5 The pre-trip checklist is missing three steps and has no way back into a finished one
+
+**Mostly done in 1.6.0** (ROADMAP item 27). "Windows set where wanted" is a
+step you confirm, and a finished step keeps its button. Still open: a row for
+unrecognised attraction IDs. "Park and date chosen" is not to be built
+(ROADMAP item 5). What follows is the finding as it was made.
 
 It ships five of its eight steps: party, targets, an action armed,
 notifications, Plan Check. "Park and date chosen", "windows set where wanted"

@@ -8,6 +8,7 @@ export interface ChecklistItem {
     | 'party'
     | 'targets'
     | 'settings'
+    | 'windows'
     | 'notifications'
     | 'sound'
     | 'plan-check';
@@ -56,12 +57,58 @@ function alertItem(
       };
 }
 
+/**
+ * What a "return windows confirmed" tick was given for: these targets'
+ * windows, at this park, on this date. A window changed, or a target added or
+ * taken away, makes a different key, so the tick lapses by itself, as Plan
+ * Check's reviewed tick does when the plan changes.
+ */
+export function windowsKey(
+  targets: WatchTarget[],
+  parkId: string,
+  date: string
+): string {
+  return JSON.stringify({
+    parkId,
+    date,
+    windows: targets
+      .map(target => [
+        target.experienceId,
+        target.after ? String(target.after) : '',
+        target.before ? String(target.before) : '',
+      ])
+      .sort(),
+  });
+}
+
+/**
+ * Whether the return windows are where they are wanted: an acknowledgement,
+ * not a test. No window is wrong in itself, and "any time" is often the
+ * point, so only the person can say. Offered once there is a target.
+ */
+function windowsItem(
+  targets: WatchTarget[],
+  confirmed: boolean
+): ChecklistItem {
+  const set = targets.filter(target => target.after || target.before).length;
+  const summary =
+    set === 0 ? 'none set, so any time' : `${set} of ${targets.length} set`;
+  return {
+    done: confirmed,
+    text: confirmed
+      ? `Return windows confirmed (${summary})`
+      : `Confirm the return windows (${summary})`,
+    subject: 'windows',
+  };
+}
+
 /** A deliberately local, no-request pre-trip readiness summary. */
 export function checklist({
   partySize,
   targets,
   notifications,
   sound,
+  windowsConfirmed,
   planReviewed,
   planBlockers,
 }: {
@@ -70,6 +117,8 @@ export function checklist({
   notifications: 'granted' | 'denied' | 'default' | 'unsupported';
   /** The alert sound's state, which matters where notifications do not exist. */
   sound: AudioStatus;
+  /** Whether these targets' windows, as they are now, were confirmed. */
+  windowsConfirmed: boolean;
   /** Whether the current park/date/configuration's result was actually shown. */
   planReviewed: boolean;
   /** Blocking findings in that current result. */
@@ -97,6 +146,7 @@ export function checklist({
         : 'Watch-only plan — review actions before the trip',
       subject: 'settings',
     },
+    ...(targets.length > 0 ? [windowsItem(targets, windowsConfirmed)] : []),
     alertItem(notifications, sound),
     {
       done: planReviewed && planBlockers === 0,

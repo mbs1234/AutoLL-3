@@ -127,6 +127,7 @@ function Probe() {
   const {
     enabled,
     setEnabled,
+    restart,
     status,
     targets,
     passkeyStatus,
@@ -145,6 +146,16 @@ function Probe() {
   return (
     <div>
       <button onClick={() => setEnabled(!enabled)}>toggle</button>
+      <button onClick={restart}>restart</button>
+      {/* What the stopped line's two taps did when made as one. */}
+      <button
+        onClick={() => {
+          setEnabled(false);
+          setEnabled(true);
+        }}
+      >
+        off and on
+      </button>
       <button onClick={() => togglePaused(BZ)}>pause BZ</button>
       <button onClick={() => toggleAutoBook(BZ)}>unarm BZ</button>
       <button onClick={() => setTargetWindow(BZ, 'before', '11:30')}>
@@ -2373,6 +2384,63 @@ describe('AutopilotProvider when Disney pushes back', () => {
     await runTicks(2);
     expect(mode()).toHaveTextContent('stopped');
     expect(stopReason()).toHaveTextContent('refused');
+  });
+
+  // Turning off and on had to be two taps: made in one, React batched them
+  // and the stopped run stayed stopped. Restart is the one tap.
+  it('restarts in one tap, and the next 403 stops it again', async () => {
+    saveWatchList([{ experienceId: BZ, autoBook: true }]);
+    setTime('09:00');
+    const { pollExperiences } = setupBooking();
+    pollExperiences.mockRejectedValueOnce(refused());
+    await enable();
+    await settle();
+    expect(stopReason()).toHaveTextContent('refused');
+
+    await act(async () => screen.getByText('off and on').click());
+    await runTicks(2);
+    expect(mode()).toHaveTextContent('stopped');
+
+    jest.mocked(primeAudio).mockClear();
+    await act(async () => screen.getByText('restart').click());
+    await runTicks(2);
+    expect(mode()).not.toHaveTextContent('stopped');
+    // Inside the tap, as turning on does it: iOS plays sound only from one.
+    expect(primeAudio).toHaveBeenCalledTimes(1);
+
+    pollExperiences.mockRejectedValueOnce(refused());
+    await runTicks(2);
+    expect(mode()).toHaveTextContent('stopped');
+    expect(stopReason()).toHaveTextContent('refused');
+  });
+
+  // A stop gives the wake lock back, so a restart has to take it again.
+  it('holds the screen awake again after a restart', async () => {
+    const sentinel = {
+      release: jest.fn(async () => undefined),
+      addEventListener: jest.fn(),
+    };
+    Object.defineProperty(navigator, 'wakeLock', {
+      value: { request: jest.fn(async () => sentinel) },
+      configurable: true,
+    });
+    try {
+      saveWatchList([{ experienceId: BZ, autoBook: true }]);
+      setTime('09:00');
+      const { pollExperiences } = setupBooking();
+      pollExperiences.mockRejectedValueOnce(refused());
+      await enable();
+      await settle();
+      expect(stopReason()).toHaveTextContent('refused');
+      await waitFor(() => expect(wakeLockHeld()).toBe(false));
+
+      await act(async () => screen.getByText('restart').click());
+      await waitFor(() => expect(wakeLockHeld()).toBe(true));
+      expect(mode()).not.toHaveTextContent('stopped');
+    } finally {
+      await releaseScreenAwake();
+      Reflect.deleteProperty(navigator, 'wakeLock');
+    }
   });
 
   // The request Disney refused need not be this routine's: a NextLL search

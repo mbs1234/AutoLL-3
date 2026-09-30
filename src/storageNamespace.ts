@@ -37,3 +37,4 @@ export const FULL_AVAILABILITY_KEY = storageKey('ll.fullAvailability');
 export const BOOKING_DATE_KEY = storageKey('date');
 export const PARK_KEY = storageKey('park');
 export const PLAN_CHECK_REVIEW_KEY = storageKey('autopilot.planCheckReview');
+export const WINDOWS_REVIEW_KEY = storageKey('autopilot.windowsReview');

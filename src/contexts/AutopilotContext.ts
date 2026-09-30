@@ -58,6 +58,11 @@ export interface AutopilotState {
    * prompting for notification permission both require one.
    */
   setEnabled: (on: boolean) => void;
+  /**
+   * Start a run again while it is on: after a stop, one tap rather than off
+   * and on. From a user gesture, for the reasons `setEnabled` gives.
+   */
+  restart: () => void;
   status: PollerStatus;
   targets: WatchTarget[];
   /**
@@ -133,15 +138,16 @@ export interface AutopilotState {
   avoidOverlaps: boolean;
   setAvoidOverlaps: (on: boolean) => void;
   /**
-   * How often each reason stopped an action this session. Skips are the
-   * ordinary outcome and are kept out of the log, so this is where "why did
-   * nothing get booked?" gets answered.
+   * How often each reason stopped an action this run, kept across a reload for
+   * the park day. Skips are the ordinary outcome and are kept out of the log,
+   * so this is where "why did nothing get booked?" gets answered.
    */
   skipCounts: Record<string, number>;
   /**
-   * The most recent skip, by name. Not persisted, and not in the log: skips
-   * are the common case and would swamp it, but the newest one is the answer
-   * to "what is it doing right now?" more often than anything in the log.
+   * The most recent skip, by name. Kept with the counts, and not in the log:
+   * skips are the common case and would swamp it, but the newest one is the
+   * answer to "what is it doing right now?" more often than anything in the
+   * log.
    */
   lastSkip?: Skip;
   /**
@@ -155,6 +161,7 @@ export interface AutopilotState {
 export default createContext<AutopilotState>({
   enabled: false,
   setEnabled: () => undefined,
+  restart: () => undefined,
   status: { mode: 'off', consecutiveFailures: 0, polls: 0 },
   targets: [],
   targetsHere: [],

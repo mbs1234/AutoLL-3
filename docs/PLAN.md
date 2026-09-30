@@ -926,9 +926,9 @@ suggested order", and is kept there alone: two orderings of the same work would
 disagree within a week of each other.
 
 Two constraints belong to this document rather than that one. **The main trip's
-freeze** — no code changes in the final two weeks, only full-day dry runs in
-the harness and in the park, which is also why §10's instrumentation has to be
-in before that date. And **if the weeks slip, §8's live standby ranking is the
+freeze** — no code changes in the week up to its booking morning, only full-day
+dry runs in the harness and in the park, which is also why §10's
+instrumentation has to be in before that date. And **if the weeks slip, §8's live standby ranking is the
 first thing to cut**: it is the only Phase 5 item, the largest remaining
 accuracy gain on a CL10 day, and a new external dependency on the
 booking path's ordering, so it should not be started in the weeks before the trip.
