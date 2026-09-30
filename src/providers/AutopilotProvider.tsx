@@ -123,10 +123,12 @@ import {
   loadCommits,
   loadLocks,
   loadSettings,
+  loadSkipTally,
   saveBookingLog,
   saveCommit,
   saveLocks,
   saveSettings,
+  saveSkipTally,
 } from '@/autopilot/storage';
 import usePoller, {
   PollerStop,
@@ -294,8 +296,20 @@ export default function AutopilotProvider({
   // booking log with Autopilot but needs to explain only its own quick search.
   const [sessionLog, setSessionLog] = useState<BookingLogEntry[]>([]);
   const [settings, setSettings] = useState(loadSettings);
-  const [skipCounts, setSkipCounts] = useState<Record<string, number>>({});
-  const [lastSkip, setLastSkip] = useState<Skip>();
+  // Kept per watch list and park day, so a reload does not empty the answer
+  // to "why nothing was booked". A fresh run still starts them over.
+  const [skipCounts, setSkipCounts] = useState<Record<string, number>>(
+    () => loadSkipTally(watchListKey).counts
+  );
+  const [lastSkip, setLastSkip] = useState<Skip | undefined>(
+    () => loadSkipTally(watchListKey).last
+  );
+  useEffect(() => {
+    saveSkipTally(watchListKey, {
+      counts: skipCounts,
+      ...(lastSkip ? { last: lastSkip } : {}),
+    });
+  }, [skipCounts, lastSkip, watchListKey]);
   const [passkeyStatus, setPasskeyStatus] = useState<
     'off' | 'waiting' | 'unlocked'
   >('off');

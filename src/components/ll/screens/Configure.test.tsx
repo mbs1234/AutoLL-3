@@ -6,6 +6,7 @@ import { ParkTime } from '@/datetime';
 import Configure from './Configure';
 import {
   BZ,
+  DB,
   llExperience,
   nonLLExperience,
   renderScreen,
@@ -450,5 +451,21 @@ describe('Configure watch count', () => {
     });
     expect(screen.getByText(/Not on today/)).toBeVisible();
     expect(screen.getByText('Retired Ride')).toBeVisible();
+  });
+});
+
+describe('Configure passkey strategy', () => {
+  it('names the attraction to tap in at', () => {
+    setup({
+      targets: [{ experienceId: DB, autoBook: true, passkey: true }],
+      passkeyStatus: 'waiting',
+    });
+    expect(
+      screen.getByText(
+        new RegExp(
+          `Tap in at ${wdw.experience(DB).name} with every selected guest`
+        )
+      )
+    ).toBeVisible();
   });
 });

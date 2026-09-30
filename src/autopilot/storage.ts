@@ -1,8 +1,10 @@
 import { isBookingLogStatus } from '@/autopilot/bookingStatus';
-import { BookingLogEntry } from '@/contexts/AutopilotContext';
+import { BookingLogEntry, Skip } from '@/contexts/AutopilotContext';
 import { ParkTime, parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
-import { storageKey } from '@/storageNamespace';
+import { StorageKey, storageKey } from '@/storageNamespace';
+
+import type { WatchListKey } from './watchlist';
 
 export const LOG_KEY = storageKey('autopilot.log');
 export const SETTINGS_KEY = storageKey('autopilot.settings');
@@ -487,4 +489,64 @@ export function clearCommit(
     );
   });
   kvdb.setDaily<CommittedReturn[]>(COMMITS_KEY, rest);
+}
+
+/** A watch list's answer to "why nothing was booked", for today. */
+export interface SkipTally {
+  counts: Record<string, number>;
+  last?: Skip;
+}
+
+interface StoredSkipTally {
+  counts?: Record<string, unknown>;
+  last?: { name?: unknown; reason?: unknown; at?: unknown };
+}
+
+/**
+ * Where a watch list's tally is kept: one per list, so a NextLL search and
+ * the day plan each answer for themselves.
+ */
+export function skipsKey(watchListKey: WatchListKey): StorageKey {
+  return `${watchListKey}.skips`;
+}
+
+/**
+ * Today's tally for one watch list.
+ *
+ * Kept so that a reload does not empty the Activity screen's answer to the
+ * one question it is for. Scoped to the park day, like the log; turning
+ * Autopilot on still starts it over.
+ */
+export function loadSkipTally(watchListKey: WatchListKey): SkipTally {
+  const stored = kvdb.getDaily<StoredSkipTally>(skipsKey(watchListKey));
+  const counts: Record<string, number> = {};
+  for (const [reason, count] of Object.entries(stored?.counts ?? {})) {
+    if (typeof count === 'number' && Number.isFinite(count) && count > 0) {
+      counts[reason] = count;
+    }
+  }
+  const last = stored?.last;
+  const at = typeof last?.at === 'string' ? parseTime(last.at) : undefined;
+  return at && typeof last?.name === 'string' && typeof last.reason === 'string'
+    ? { counts, last: { name: last.name, reason: last.reason, at } }
+    : { counts };
+}
+
+/** A tally that cannot be kept costs a reload's worth of counts, nothing more. */
+export function saveSkipTally(
+  watchListKey: WatchListKey,
+  { counts, last }: SkipTally
+): void {
+  try {
+    kvdb.setDaily<StoredSkipTally>(skipsKey(watchListKey), {
+      counts,
+      ...(last
+        ? {
+            last: { name: last.name, reason: last.reason, at: String(last.at) },
+          }
+        : {}),
+    });
+  } catch (error) {
+    console.error(error);
+  }
 }

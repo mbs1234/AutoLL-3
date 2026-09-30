@@ -6,6 +6,7 @@ import {
 import { BookingLogEntry } from '@/contexts/AutopilotContext';
 import { ParkTime, parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
+import { NEXTLL_WATCHLIST_KEY } from '@/storageNamespace';
 import { setTime } from '@/testing';
 
 import {
@@ -23,11 +24,15 @@ import {
   loadCommits,
   loadLocks,
   loadSettings,
+  loadSkipTally,
   saveBookingLog,
   saveCommit,
   saveLocks,
   saveSettings,
+  saveSkipTally,
+  skipsKey,
 } from './storage';
+import { WATCHLIST_KEY } from './watchlist';
 
 setTime('09:00');
 
@@ -586,5 +591,50 @@ describe("the day's committed return times", () => {
       value: [{ facilityId: 'a', time: '16:10:00' }],
     });
     expect(loadCommits()).toEqual([]);
+  });
+});
+
+// The Activity screen's answer to "why nothing was booked" used to empty on
+// every reload.
+describe('skip tally persistence', () => {
+  it('starts empty', () => {
+    expect(loadSkipTally(WATCHLIST_KEY)).toEqual({ counts: {} });
+  });
+
+  it('round-trips the counts and the newest skip', () => {
+    saveSkipTally(WATCHLIST_KEY, {
+      counts: { 'outside-window': 3, 'tier-hold': 1 },
+      last: { name: 'Big Thunder', reason: 'outside-window', at: at(9, 40) },
+    });
+    const { counts, last } = loadSkipTally(WATCHLIST_KEY);
+    expect(counts).toEqual({ 'outside-window': 3, 'tier-hold': 1 });
+    expect(last).toMatchObject({
+      name: 'Big Thunder',
+      reason: 'outside-window',
+    });
+    expect(`${last?.at}`).toBe(`${at(9, 40)}`);
+  });
+
+  it('keeps one tally per watch list', () => {
+    saveSkipTally(WATCHLIST_KEY, { counts: { 'slots-full': 2 } });
+    expect(loadSkipTally(NEXTLL_WATCHLIST_KEY)).toEqual({ counts: {} });
+    expect(NEXTLL_WATCHLIST_KEY).toBeDefined();
+    expect(skipsKey(WATCHLIST_KEY)).not.toBe(skipsKey(NEXTLL_WATCHLIST_KEY));
+  });
+
+  it('is scoped to the park day', () => {
+    saveSkipTally(WATCHLIST_KEY, { counts: { 'slots-full': 2 } });
+    setTime('05:00');
+    jest.setSystemTime(new Date(Date.now() + 24 * 60 * 60_000));
+    expect(loadSkipTally(WATCHLIST_KEY)).toEqual({ counts: {} });
+    setTime('09:00');
+  });
+
+  it('drops what it cannot read', () => {
+    kvdb.setDaily(skipsKey(WATCHLIST_KEY), {
+      counts: { good: 2, zero: 0, text: 'many', inf: Infinity },
+      last: { name: 'A', reason: 'x', at: 'not a time' },
+    });
+    expect(loadSkipTally(WATCHLIST_KEY)).toEqual({ counts: { good: 2 } });
   });
 });

@@ -109,6 +109,22 @@ export class AuthStore {
     return 'valid';
   }
 
+  /**
+   * When the saved sign-in ends, as a `Date.now()` time, for a screen to name;
+   * undefined with no usable sign-in.
+   *
+   * Only reads. `getData` discards a sign-in that ends before park close, so a
+   * screen asking when it ends must not go through it.
+   */
+  expiresAt(): number | undefined {
+    const data = this.readData();
+    if (!data || !isAuthData(data)) return undefined;
+    if (this.expectedResort && data.resortId !== this.expectedResort) {
+      return undefined;
+    }
+    return data.expires;
+  }
+
   getData(): Pick<AuthData, 'swid' | 'accessToken'> {
     const status = this.getStatus();
     const data = this.readData();
