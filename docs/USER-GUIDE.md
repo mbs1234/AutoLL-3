@@ -582,27 +582,35 @@ cancelling — and forty-five seconds is how you miss it.
 ### The Tier 1 hold
 
 Disney lets a party hold one Tier 1 selection at a time until the party's first
-redemption. So Autopilot will **decline a Tier 1 it could take** if a Tier 1 you
-ranked higher has a drop coming within **90 minutes**. Past that horizon the
-hold releases on its own.
+redemption of the day. This guide calls that Disney's **Tier 1 limit**, and
+Autopilot's answer to it the **Tier 1 hold**.
 
-It shows up in Activity as "held the Tier 1 slot for a better attraction".
-Pausing the attraction you want less removes the hold.
+While the limit applies, Autopilot will **decline a Tier 1 it could take** if a
+Tier 1 you ranked higher has a drop coming within **90 minutes**. Past that
+horizon the hold releases on its own, and after the party's first tap-in of the
+day there is no slot left to keep, so it stops.
+
+It shows up in Activity as "held the Tier 1 slot for a better attraction". To
+take the lower-ranked ride now, **pause the one it is waiting for**, the Tier 1
+you ranked higher: the hold then releases. Pausing the lower-ranked ride only
+stops it being booked at all.
 
 ### The passkey
 
 Mark one easy, high-availability, **non-Tier-1** attraction as the day's
 passkey, in its Configure card. Autopilot books it first; once Disney's own
 tracker says that entitlement is spent, it asks the eligibility endpoint whether
-the one-Tier-1 rule has actually lifted for everyone in your party.
+the Tier 1 limit has actually lifted for everyone in your party.
 
 **Tap in at the passkey's Lightning Lane entrance with everyone in the party**:
-the party's first redemption of the day is what lifts the hold. While it waits,
-Today's **Passkey** line names the ride to tap in at.
+the party's first redemption of the day is what lifts the Tier 1 limit. While it
+waits, Today's **Passkey** line names the ride to tap in at. Once Disney
+confirms, Autopilot raises a "Tier 1 limit lifted" alert, and its Tier 1 hold
+stops for the day.
 
-> Booking the passkey does nothing. It unlocks only when the pass is actually
-> *spent* — and Disney counts a window you let lapse the same as one you rode,
-> so Autopilot cannot tell those apart.
+> Booking the passkey does nothing. The limit lifts only when the pass is
+> actually *spent* — and Disney counts a window you let lapse the same as one
+> you rode, so Autopilot cannot tell those apart.
 
 ## 15. The LL tab — the tip board
 
@@ -1006,7 +1014,7 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.6.0.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.6.1.** Known, recorded, and not fixed yet:
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
@@ -1075,13 +1083,19 @@ further out than tomorrow gets no drop times at all and sits at 45 s.
 **Tier 1** — Disney's headliner group. One at a time until the party's first
 redemption.
 
+**Tier 1 limit** — Disney's rule that a party holds one Tier 1 selection at a
+time until its first redemption of the day.
+
+**Tier 1 hold** — Autopilot passing on a lower-ranked Tier 1 to keep that one
+slot for a better one with a drop due soon.
+
 **Drop** — a scheduled release of extra inventory at a fixed minute.
 
 **Refill window** — a span of hours over which an attraction trickles inventory
 back, instead of dropping at an instant.
 
 **Passkey** — an easy non-Tier-1 ride you mark to be booked and ridden first, to
-clear the Tier 1 hold.
+lift the Tier 1 limit.
 
 **Rank** — your own priority number for a target. Lower goes first. Blank falls
 back to the built-in ranking.

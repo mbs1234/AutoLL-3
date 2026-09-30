@@ -242,7 +242,7 @@ export function checkPlan(input: PlanCheckInput): PlanCheckItem[] {
     if (tierOneArmed.length > 1) {
       push(
         'review',
-        'More than one Tier 1 target is armed for booking. Autopilot may hold a lower-priority one back for a better imminent drop. Pausing the one you want less removes the hold.'
+        'More than one Tier 1 target is armed for booking. Autopilot may hold a lower-priority one back for a better imminent drop. To take the lower-priority one when it comes up, pause the better one.'
       );
     }
   }

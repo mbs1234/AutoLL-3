@@ -767,7 +767,7 @@ describe('Today context strip', () => {
 describe('Today with a passkey', () => {
   const passkey = { experienceId: DB, autoBook: true, passkey: true };
 
-  it('says where to tap in to lift the Tier 1 hold', () => {
+  it('says where to tap in to lift the Tier 1 limit', () => {
     setup({ targets: [passkey], passkeyStatus: 'waiting' });
     expect(
       screen.getByText(
@@ -780,7 +780,7 @@ describe('Today with a passkey', () => {
 
   it('says it is lifted once Disney confirms it', () => {
     setup({ targets: [passkey], passkeyStatus: 'unlocked' });
-    expect(screen.getByText(/Tier 1 hold is unlocked/)).toBeVisible();
+    expect(screen.getByText(/Tier 1 limit is lifted/)).toBeVisible();
     expect(screen.queryByText(/Tap in at/)).not.toBeInTheDocument();
   });
 });

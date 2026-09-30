@@ -132,7 +132,7 @@ export default function Today({ ref }: HomeTabProps) {
     target.name ??
     target.experienceId;
   // The attractions marked as the passkey: tapping in at one is what lifts
-  // the Tier 1 hold.
+  // the Tier 1 limit.
   const passkeyNames = targetsHere.filter(t => t.passkey).map(nameOf);
   const plan = [...targetsHere].sort(
     (a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity)
@@ -564,12 +564,12 @@ export default function Today({ ref }: HomeTabProps) {
         <p className="mt-2 text-sm">
           <span className="font-semibold">Passkey:</span>{' '}
           {passkeyStatus === 'unlocked'
-            ? 'Disney confirmed the Tier 1 hold is unlocked for the selected party.'
+            ? 'Disney confirmed the Tier 1 limit is lifted for the selected party.'
             : passkeyNames.length > 0
               ? // Where to go, not only what is being waited for: the hold
                 // lifts at a tap-in, and the line used to say neither.
-                `Tap in at ${passkeyNames.join(' or ')} with every selected guest. The party's first redemption of the day lifts the Tier 1 hold, once Disney confirms it.`
-              : 'Waiting for Disney to confirm every selected guest cleared the Tier 1 hold.'}
+                `Tap in at ${passkeyNames.join(' or ')} with every selected guest. The party's first redemption of the day lifts the Tier 1 limit, once Disney confirms it.`
+              : 'Waiting for Disney to confirm the Tier 1 limit is lifted for every selected guest.'}
         </p>
       )}
       {loaderElem}

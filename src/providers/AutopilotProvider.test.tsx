@@ -3095,6 +3095,10 @@ describe('AutopilotProvider passkey', () => {
     await waitFor(() =>
       expect(screen.getByTestId('passkey')).toHaveTextContent('unlocked')
     );
+    // Disney's rule is the Tier 1 limit; the hold is Autopilot's own.
+    expect(fireAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Tier 1 limit lifted' })
+    );
   });
 
   // The unlock was a bare boolean cleared only by turning autopilot off and

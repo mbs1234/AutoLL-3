@@ -109,7 +109,7 @@ export interface AutopilotState {
   setTargetRank: (experienceId: string, rank?: number) => void;
   /** Mark an easy early target as the day's optional passkey. */
   togglePasskey: (experienceId: string) => void;
-  /** Whether Disney has confirmed that the selected party cleared the Tier 1 hold. */
+  /** Whether Disney has confirmed the Tier 1 limit is lifted for the selected party. */
   passkeyStatus: 'off' | 'waiting' | 'unlocked';
   notifications: AlertPermission;
   /** Ask for notification permission from a user-initiated control. */
