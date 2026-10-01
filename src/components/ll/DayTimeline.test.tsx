@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 
-import { createBooking, hm, sm } from '@/__fixtures__/ll';
+import { createBooking, hm, lttRes, multiExp, sm } from '@/__fixtures__/ll';
+import { Booking } from '@/api/itinerary';
 import { WatchTarget } from '@/autopilot/watchlist';
 import { ParkTime } from '@/datetime';
 import { TODAY } from '@/testing';
@@ -9,11 +10,8 @@ import DayTimeline from './DayTimeline';
 
 const time = (hour: number, minute = 0) => new ParkTime(hour, minute);
 
-function setup(
-  lanes: ReturnType<typeof createBooking>[],
-  targets: WatchTarget[]
-) {
-  return render(<DayTimeline lanes={lanes} targets={targets} date={TODAY} />);
+function setup(plans: Booking[], targets: WatchTarget[]) {
+  return render(<DayTimeline plans={plans} targets={targets} date={TODAY} />);
 }
 
 /** The bar element for a target, found by the title the component sets. */
@@ -43,17 +41,96 @@ describe('DayTimeline', () => {
     expect(bar(sm.name)).toBeVisible();
   });
 
-  // The default: starring an attraction sets no window. It permits any time,
-  // so it is drawn across the day -- but it must not be flagged for crossing
-  // a held plan, because a full-day window crosses everything.
-  it('labels an un-windowed target as any time, without a clash warning', () => {
+  // The default: starring an attraction sets no window. It permits any time.
+  // Drawn as a bar the height of the rail it took a column, which on a narrow
+  // phone cut every name short; it is named instead, and never flagged.
+  it('names an un-windowed target as any time, rather than drawing it', () => {
+    const onTargetTap = jest.fn();
+    render(
+      <DayTimeline
+        plans={[createBooking(hm, { startTime: time(12) })]}
+        targets={[{ experienceId: sm.id, name: sm.name }]}
+        date={TODAY}
+        onTargetTap={onTargetTap}
+      />
+    );
+    expect(screen.getByText('Any time:').parentElement).toHaveTextContent(
+      `Any time: ${sm.name}.`
+    );
+    expect(
+      screen.queryByTitle(new RegExp(`^${sm.name}:`))
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('crosses a held plan')).not.toBeInTheDocument();
+    screen.getByRole('button', { name: sm.name }).click();
+    expect(onTargetTap).toHaveBeenCalledWith(sm.id);
+  });
+
+  it('says one bound in its own words, not "any time"', () => {
+    setup([], [{ experienceId: sm.id, name: sm.name, after: time(15) }]);
+    expect(bar(sm.name)).toHaveTextContent('from 3:00 PM');
+    expect(bar(sm.name)).toHaveAttribute('title', `${sm.name}: from 3:00 PM`);
+  });
+
+  // The title is what a screen reader reads, and it said "12:00:00".
+  it('gives its descriptions in 12-hour time', () => {
     setup(
       [createBooking(hm, { startTime: time(12) })],
-      [{ experienceId: sm.id, name: sm.name }]
+      [
+        {
+          experienceId: sm.id,
+          name: sm.name,
+          after: time(15),
+          before: time(20, 15),
+        },
+      ]
     );
-    expect(bar(sm.name)).toHaveAttribute('title', `${sm.name}: no window set`);
-    expect(screen.getByText('any time')).toBeVisible();
-    expect(screen.queryByText('crosses a held plan')).not.toBeInTheDocument();
+    expect(bar(hm.name).title).toMatch(/: 12:00 PM to 1:00 PM$/);
+    expect(bar(sm.name)).toHaveAttribute(
+      'title',
+      `${sm.name}: 3:00 PM to 8:15 PM`
+    );
+  });
+
+  // Lunch at 11:15 protects 10:35 to 12:15, as the booker has it.
+  it('draws dining in grey, and flags a window that crosses it', () => {
+    setup(
+      [lttRes],
+      [
+        {
+          experienceId: sm.id,
+          name: sm.name,
+          after: time(12),
+          before: time(13),
+        },
+      ]
+    );
+    expect(bar(lttRes.name)).toHaveClass('bg-gray-200');
+    expect(screen.getByText('crosses a held plan')).toBeVisible();
+  });
+
+  it('draws no protected band for a pass that protects nothing', () => {
+    setup([multiExp], []);
+    expect(bar(multiExp.name)).toBeVisible();
+    expect(
+      document.querySelectorAll('[aria-hidden][style*="top"]')
+    ).toHaveLength(0);
+  });
+
+  // A bar's height is its time, and a short one was too small for a thumb.
+  it('gives a short bar a thumb-sized hit area, and a tall one none', () => {
+    setup(
+      [createBooking(hm, { startTime: time(12) })],
+      [
+        {
+          experienceId: sm.id,
+          name: sm.name,
+          after: time(9),
+          before: time(17),
+        },
+      ]
+    );
+    expect(bar(hm.name).querySelector('.h-11')).toHaveAttribute('aria-hidden');
+    expect(bar(sm.name).querySelector('.h-11')).toBeNull();
   });
 
   it('warns when a bounded window crosses a held plan', () => {

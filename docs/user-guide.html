@@ -552,7 +552,7 @@
       stops working.
     </p>
     <div class="masthead-meta">
-      <span>Version 1.7.2</span>
+      <span>Version 1.8.0</span>
       <span>Three parts · 23 sections</span>
       <span>Unofficial · not endorsed by Disney</span>
     </div>
@@ -1066,51 +1066,54 @@
     <section id="timeline">
       <h3><span class="num">07</span> See it — the timeline</h3>
       <figure class="float">
-        <img src="user-guide/timeline.png" alt="The day timeline: two blue Held bars on the left column, three Target bars on the right, on a 4am-to-4am rail." loading="lazy">
+        <img src="user-guide/timeline.png" alt="The day timeline: Any time naming two rides with no window, three plans on the left (two Lightning Lanes in blue and a lunch in grey) and one amber target window on the right that crosses a plan, on a 4am-to-4am rail." loading="lazy">
         <figcaption>
-          Held passes left, watch windows right, one 4am-to-4am rail. Target
-          names truncate — tap a bar to see which ride it is.
+          Your plans left, watch windows right, one 4am-to-4am rail. Rides with
+          no window are named above it.
         </figcaption>
       </figure>
       <p>
-        Today tab → <span class="ui">Timeline</span>. Your held passes down the
-        left, the windows Autopilot may use down the right, both on one
-        4am-to-4am rail.
+        Today tab → <span class="ui">Timeline</span>. Your plans for the day
+        down the left (Lightning Lanes in blue, dining and other reservations in
+        grey) and the windows Autopilot may use down the right, both on one
+        4am-to-4am rail. A target with no window at all is named above the rail
+        under <span class="ui">Any time</span> rather than drawn: it permits
+        everything, and a bar the height of the rail only took room.
       </p>
       <p>
-        The pale band behind each held pass is the <strong>protected
-        time</strong> around it: 40 minutes before the return time, and after it
-        60 minutes when the pass has no known end or 40 when it does. A window
-        drawn over that band is a window Autopilot will mostly refuse.
+        The pale band behind each plan is the <strong>protected time</strong>
+        around it: 40 minutes before it starts, and after it 60 minutes when
+        the plan has no known end or 40 when it does. A window drawn over that
+        band is a window Autopilot will mostly refuse. A Multiple Experiences
+        Pass gets no band, since it protects nothing.
       </p>
       <div class="tablewrap">
         <table class="free">
           <tbody>
-            <tr><td>Green</td><td>Both bounds set, clear of every held Multi Pass</td></tr>
+            <tr><td>Green</td><td>Both bounds set, clear of every plan</td></tr>
             <tr><td>Amber</td><td>“crosses a held plan” — part of the window is still usable</td></tr>
             <tr><td>Red</td><td>“window fully blocked”, or “bounds reversed”</td></tr>
-            <tr><td>Grey</td><td>“any time” — no window, so it permits everything</td></tr>
+            <tr><td>Grey</td><td>Only one bound set, such as “from 3:00 PM”</td></tr>
           </tbody>
         </table>
       </div>
-      <p>Three limits worth knowing:</p>
+      <p>
+        Tap a bar, or a name under Any time, to open that plan, or that
+        target's card in Configure. A short bar answers a tap a little above and
+        below itself too.
+      </p>
+      <p>Two limits worth knowing:</p>
       <ul>
         <li>
-          <strong>Lunch is not on the timeline.</strong> Only Multi Passes are
-          drawn, and only they colour the windows. A dining reservation
-          constrains your bookings without appearing here — which is why Plan
-          Check can call a target blocked while the timeline shows it only amber.
-          Treat the timeline as the picture and Plan Check as the verdict.
+          <strong>A half-set window is not checked against your plans.</strong>
+          Set only an earliest time (or only a latest) and the bar runs from that
+          bound to the end (or from the start) of the day, grey and unflagged,
+          even though Autopilot does enforce the bound you set.
         </li>
         <li>
-          <strong>A half-set window reads as no window.</strong> Set only an
-          earliest time (or only a latest) and the bar is drawn grey across the
-          whole day, uncoloured and unflagged — even though Autopilot does
-          enforce the bound you set.
-        </li>
-        <li>
-          <strong>Names are truncated</strong> to about three characters. Tap a
-          bar to find out which attraction it is.
+          <strong>A short bar keeps one line.</strong> A plan an hour long is a
+          short bar; on a narrow phone with two plans at once, its name is cut
+          to a few letters. Tap it to open it.
         </li>
       </ul>
     </section>
@@ -2207,11 +2210,10 @@
         well, or it may start empty next time.
       </p>
       <p>
-        <strong>Rough edges, as of 1.7.2.</strong> Known, recorded, and not
+        <strong>Rough edges, as of 1.8.0.</strong> Known, recorded, and not
         fixed yet:
       </p>
       <ul>
-        <li>The day timeline truncates every target name at 360&nbsp;px, and its bars are 14–20&nbsp;px tall, which is a small tap target.</li>
         <li>Undoing two target removals in a row loses the first one's window and rank.</li>
         <li>A Plan Check item that names a setting opens Configure at the top of a long screen rather than at the setting.</li>
       </ul>

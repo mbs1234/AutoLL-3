@@ -1,4 +1,4 @@
-import { LLMP } from '@/api/itinerary';
+import { Booking } from '@/api/itinerary';
 import {
   TimedBooking,
   clashWindow,
@@ -6,7 +6,7 @@ import {
   windowClash,
 } from '@/autopilot/overlap';
 import { WatchTarget } from '@/autopilot/watchlist';
-import { ParkTime } from '@/datetime';
+import { ParkTime, parkDate } from '@/datetime';
 
 /** The end of a Disney park day, immediately before its 4am boundary. */
 export const DAY_END = new ParkTime(3, 59, 59);
@@ -17,6 +17,18 @@ const ASSUMED_LENGTH_MIN = 30;
 export interface TimelineLane {
   id: string;
   name: string;
+  /**
+   * A Lightning Lane, or another plan: dining, an activity, DAS, a boarding
+   * group. The booker keeps return times away from every timed plan, so every
+   * one is drawn; they are told apart because only the first is a pass.
+   */
+  kind: 'll' | 'other';
+  /**
+   * Whether the booker keeps return times out of the time around it. False
+   * only for a Multiple Experiences Pass, which is held all the same, so it is
+   * drawn, but protects nothing.
+   */
+  protects: boolean;
   start: ParkTime;
   end: ParkTime;
   /** The end was not in the itinerary and is drawn at an assumed length. */
@@ -53,6 +65,17 @@ export interface TimelineTarget {
 }
 
 /**
+ * A target with no window at all. It permits any time, so it is named rather
+ * than drawn: a bar the full height of the rail said nothing a name cannot,
+ * and took a column of its own, which on a narrow phone cut every name on the
+ * rail short.
+ */
+export interface TimelineAnyTime {
+  id: string;
+  name: string;
+}
+
+/**
  * Pack items into as few columns as possible without two overlapping.
  *
  * Greedy by start, which is enough here: a park day holds at most a handful
@@ -75,19 +98,27 @@ function pack<T extends { start: number; end: number }>(items: T[]) {
   return { placed, columns: Math.max(1, columnEnds.length) };
 }
 
-/** A presentation model for the selected park day's held reservations and plan. */
+/** A presentation model for the selected park day's plans and watch list. */
 export function dayTimeline(
-  lanes: LLMP[],
+  plans: Booking[],
   targets: WatchTarget[],
   date: string
 ) {
   // The same predicate the booker uses, so the timeline cannot disagree with
-  // it about what constrains a return time -- a Multiple Experiences Pass
-  // constrains nothing and used to be drawn as a clashing hold.
-  const clashable = clashablePlans(lanes, { date });
+  // it about what constrains a return time. It takes every plan: the timeline
+  // used to be given Lightning Lanes alone, so a window across lunch looked
+  // clear while the booker refused every time in it. A Multiple Experiences
+  // Pass constrains nothing and used to be drawn as a clashing hold.
+  const clashable = clashablePlans(plans, { date });
+  const protecting = new Set(clashable.map(plan => plan.id));
 
-  const drawable = lanes.filter(
-    (lane): lane is LLMP & { start: { time: ParkTime } } => !!lane.start?.time
+  // Everything the booker counts, and the passes it does not, which are held
+  // all the same.
+  const drawable = plans.filter(
+    (plan): plan is TimedBooking =>
+      !!plan.start?.time &&
+      parkDate(plan.start) === date &&
+      (protecting.has(plan.id) || plan.type === 'LL')
   );
   const laneRows = drawable
     .map(lane => {
@@ -95,6 +126,8 @@ export function dayTimeline(
       return {
         id: lane.id,
         name: lane.name,
+        kind: lane.type === 'LL' ? ('ll' as const) : ('other' as const),
+        protects: protecting.has(lane.id),
         start: lane.start.time,
         endAssumed: !lane.end?.time,
         // A missing end is unusual, but a marked bar is more useful than making
@@ -112,7 +145,14 @@ export function dayTimeline(
     laneRows.map(row => ({ ...row, start: +row.start, end: +row.end }))
   );
 
+  const anyTime: TimelineAnyTime[] = targets
+    .filter(target => !target.after && !target.before)
+    .map(target => ({
+      id: target.experienceId,
+      name: target.name ?? target.experienceId,
+    }));
   const targetRows = targets
+    .filter(target => target.after || target.before)
     .map(target => {
       const bounded = !!target.after && !!target.before;
       const after = target.after ?? ParkTime.dayStart;
@@ -156,6 +196,7 @@ export function dayTimeline(
       column,
       columns: packedTargets.columns,
     })) as TimelineTarget[],
+    anyTime,
   };
 }
 

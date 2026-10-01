@@ -84,6 +84,10 @@ From `UX-PLAN.md` §9 and the gaps its phase notes record.
 
 ### 2.1 The timeline truncates every target name
 
+**Done in 1.8.0** (ROADMAP item 32): windowless targets are named under Any
+time instead of drawn, each side's width follows its columns, and tall bars
+wrap. A short bar still keeps one truncated line. The finding as made:
+
 At 360 px the Targets column is split again for every simultaneous bar, so
 three full-day targets get about 50 px each and every name is cut. What shipped
 instead of a fix was a `title` tooltip, which a touchscreen never shows. A
@@ -95,6 +99,9 @@ wrapping, a legend and fewer columns each change the geometry the clash colours
 depend on — settle it in the harness at 360 px first.
 
 ### 2.2 Timeline bars are 14–20 px tall and are the tap target
+
+**Done in 1.8.0** (ROADMAP item 32): a 44 px invisible hit area on short bars.
+The finding as made:
 
 A bar's height is its time extent floored at 3 percent of the rail. Tapping one
 is now how you reach a card or a booking. Phase 2 proposed an enlarged
@@ -153,6 +160,8 @@ dependency list must include the held plans, or the timeline freezes after a
 booking.
 
 ### 2.7 The timeline's tooltips are in 24-hour time
+
+**Done in 1.8.0** (ROADMAP item 32). The finding as made:
 
 Every bar's `title` is built by interpolating a `ParkTime`, whose `toString()`
 is zero-padded `HH:MM:SS` — so the string a screen reader takes as the bar's

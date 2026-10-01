@@ -1126,6 +1126,33 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 32. A timeline that names what it draws, and draws lunch — _completed in 1.8.0_
+
+`FUTURE.md` §2.1, §2.2 and §2.7, and the dining the owner asked for
+(2026-10-01).
+
+- **Dining and every other timed plan are on it.** `dayTimeline` was given
+  Lightning Lanes alone, so a window across lunch looked clear while the booker
+  refused every time in it. It now takes every plan and keeps the timed ones
+  `clashablePlans` counts, as the booker does: dining and activity
+  reservations, DAS, boarding groups, drawn in grey beside the passes in blue.
+  A Multiple Experiences Pass is still drawn, and gets no protected band, since
+  it protects nothing.
+- **Names you can read.** A target with no window at all drew a bar the height
+  of the rail and took a column, so three targets at 360 px got about 50 px
+  each and every name was cut. Such targets are now named above the rail under
+  **Any time** (tappable, like the bars), and each side's width follows its
+  column count. A tall bar wraps its name and window; a short one keeps one
+  line, truncated, rather than lines cut off by its end.
+- **A bar's band no longer hides another bar.** Each protected band was drawn
+  just after the bar before it, so a later band lay over earlier bars; lunch's
+  band hid a pass held at the same time entirely. Every band is now drawn
+  first.
+- **Taps.** A bar shorter than 44 px gets an invisible hit area of 44 px,
+  centred on it, so the drawn height stays the time it stands for.
+- **12-hour descriptions**, where they read "20:15:00", and one bound in its own
+  words ("from 3:00 PM") where it read "any time".
+
 ### 31. Three small honesty fixes on Today — _completed in 1.7.2_
 
 - **No awake warning once stopped.** While Autopilot was stopped, Today's awake
