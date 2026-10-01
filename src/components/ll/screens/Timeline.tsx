@@ -1,6 +1,5 @@
 import { use } from 'react';
 
-import { LLMP, isLLMP } from '@/api/itinerary';
 import { targetApplies } from '@/autopilot/watchlist';
 import Screen from '@/components/Screen';
 import ContextStrip from '@/components/ll/ContextStrip';
@@ -17,7 +16,7 @@ import Configure from './Configure';
 
 export const TIMELINE = 'Timeline';
 
-/** The day's held passes beside the windows Autopilot may use, full height. */
+/** The day's plans beside the windows Autopilot may use, full height. */
 export default function Timeline() {
   const { bookingDate } = use(BookingDateContext);
   const { park } = use(ParkContext);
@@ -27,31 +26,30 @@ export default function Timeline() {
   const targetsToday = targets.filter(target =>
     targetApplies(target, park.id, bookingDate)
   );
-  // Every Multi Pass held on the date, in any park, as Today lists them.
-  const lanes = plans.filter(
-    (booking): booking is LLMP =>
-      isLLMP(booking) && parkDate(booking.start) === bookingDate
+  // Every plan on the date, in any park: Lightning Lanes as Today lists
+  // them, and the dining and other reservations the booker also keeps return
+  // times away from. The timeline draws the timed ones.
+  const plansToday = plans.filter(
+    booking => parkDate(booking.start) === bookingDate
   );
 
   return (
     <Screen title={TIMELINE} theme={park.theme} subhead={<ContextStrip />}>
-      {lanes.length === 0 && targetsToday.length === 0 ? (
+      {plansToday.length === 0 && targetsToday.length === 0 ? (
         <p>
           Nothing to draw yet: no Lightning Lane held on this date, and nothing
           watched at {park.name}.
         </p>
       ) : (
         <DayTimeline
-          lanes={lanes}
+          plans={plansToday}
           targets={targetsToday}
           date={bookingDate}
-          onTargetTap={target =>
-            goTo(
-              <Configure focus={{ kind: 'target', experienceId: target.id }} />
-            )
+          onTargetTap={experienceId =>
+            goTo(<Configure focus={{ kind: 'target', experienceId }} />)
           }
           onLaneTap={lane => {
-            const booking = lanes.find(item => item.id === lane.id);
+            const booking = plansToday.find(item => item.id === lane.id);
             if (booking) goTo(<BookingDetails booking={booking} />);
           }}
         />

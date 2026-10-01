@@ -1,4 +1,4 @@
-import { createBooking, hm, jc, multiExp, sm } from '@/__fixtures__/ll';
+import { createBooking, hm, jc, lttRes, multiExp, sm } from '@/__fixtures__/ll';
 import { WatchTarget } from '@/autopilot/watchlist';
 import { ParkTime } from '@/datetime';
 import { TODAY } from '@/testing';
@@ -65,17 +65,64 @@ describe('dayTimeline()', () => {
   // An un-windowed target is the default -- starring an attraction sets no
   // bounds -- and it spans the whole day, so it intersects everything held.
   // Flagging it made every default plan read as a warning.
-  it('does not flag a target with no window, and marks it unbounded', () => {
+  it('does not flag a target with one bound, and marks it unbounded', () => {
     const result = dayTimeline(
       [lane(hm, time(12), time(13))],
-      [target('open')],
+      [target('open', time(10))],
       TODAY
     );
     const open = result.targets[0]!;
     expect(open.bounded).toBe(false);
     expect(open.clashes).toEqual([]);
-    expect(+open.after).toBe(0);
+    expect(+open.after).toBe(+time(10));
     expect(+open.before).toBe(86_399);
+  });
+
+  // A full-height bar for a target with no window said nothing a name cannot,
+  // and took a column, which on a narrow phone cut every name on the rail.
+  it('lists a target with no window rather than drawing it', () => {
+    const result = dayTimeline(
+      [lane(hm, time(12), time(13))],
+      [target('open'), target('windowed', time(14), time(15))],
+      TODAY
+    );
+    expect(result.anyTime).toEqual([{ id: 'open', name: 'Target open' }]);
+    expect(result.targets.map(item => item.id)).toEqual(['windowed']);
+    expect(result.targets[0]?.columns).toBe(1);
+  });
+
+  // The timeline was given Lightning Lanes alone, so a window across lunch
+  // looked clear while the booker refused every time in it.
+  it('draws dining, and counts it as the booker does', () => {
+    const result = dayTimeline(
+      [lttRes],
+      [target('lunchtime', time(11), time(12))],
+      TODAY
+    );
+    expect(result.lanes).toEqual([
+      expect.objectContaining({
+        id: lttRes.id,
+        kind: 'other',
+        protects: true,
+      }),
+    ]);
+    expect(result.targets[0]?.clashes).toEqual([lttRes.id]);
+  });
+
+  it('draws a Multiple Experiences Pass, which protects nothing', () => {
+    const result = dayTimeline([multiExp as never], [], TODAY);
+    expect(result.lanes).toEqual([
+      expect.objectContaining({ id: multiExp.id, kind: 'll', protects: false }),
+    ]);
+  });
+
+  it('keeps plans from another day off the rail', () => {
+    const result = dayTimeline(
+      [createBooking(hm, { date: '2020-01-01', startTime: time(12) })],
+      [],
+      TODAY
+    );
+    expect(result.lanes).toEqual([]);
   });
 
   it('reports a window wholly inside a protected span as covered', () => {
@@ -128,10 +175,14 @@ describe('dayTimeline()', () => {
       expect(result.lanes.every(l => l.columns === 2)).toBe(true);
     });
 
-    // Two default targets both spanned the full rail with identical geometry
-    // and opaque backgrounds, so only the last one drawn was visible.
-    it('separates two full-day targets', () => {
-      const result = dayTimeline([], [target('a'), target('b')], TODAY);
+    // Two targets drawn from the start of the day overlapped with opaque
+    // backgrounds, so only the last one drawn was visible.
+    it('separates two windows that overlap', () => {
+      const result = dayTimeline(
+        [],
+        [target('a', undefined, time(16)), target('b', undefined, time(17))],
+        TODAY
+      );
       expect(result.targets.map(t => t.column).sort()).toEqual([0, 1]);
     });
 

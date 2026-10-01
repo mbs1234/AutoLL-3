@@ -284,36 +284,36 @@ offer and cannot spend an entitlement.
 
 ![The day timeline](user-guide/timeline.png)
 
-Today tab → **Timeline**. Your held passes down the left, the windows Autopilot
-may use down the right, both on one 4am-to-4am rail.
+Today tab → **Timeline**. Your plans for the day down the left (Lightning Lanes
+in blue, dining and other reservations in grey) and the windows Autopilot may
+use down the right, both on one 4am-to-4am rail. A target with no window at all
+is named above the rail under **Any time** rather than drawn: it permits
+everything, and a bar the height of the rail only took room.
 
-The pale band behind each held pass is the **protected time** around it: 40
-minutes before the return time, and after it 60 minutes when the pass has no
-known end or 40 when it does. A window drawn over that band is a window
-Autopilot will mostly refuse.
+The pale band behind each plan is the **protected time** around it: 40 minutes
+before it starts, and after it 60 minutes when the plan has no known end or 40
+when it does. A window drawn over that band is a window Autopilot will mostly
+refuse. A Multiple Experiences Pass gets no band, since it protects nothing.
 
 Colours on the Targets column:
 
-- **Green** — both bounds set, clear of every held Multi Pass
+- **Green** — both bounds set, clear of every plan
 - **Amber** — "crosses a held plan"; part of the window is still usable
 - **Red** — "window fully blocked", or "bounds reversed"
-- **Grey** — "any time"; no window, so it permits everything
+- **Grey** — only one bound set, such as "from 3:00 PM"
 
-Tap a bar to jump to that pass, or to that target's card in Configure.
+Tap a bar, or a name under Any time, to open that plan, or that target's card in
+Configure. A short bar answers a tap a little above and below itself too.
 
-Three limits worth knowing:
+Two limits worth knowing:
 
-- **Lunch is not on the timeline.** Only Multi Passes are drawn, and only they
-  colour the windows. A dining reservation constrains your bookings without
-  appearing here — which is why Plan Check can call a target blocked while the
-  timeline shows it only amber. Treat the timeline as the picture and Plan Check
-  as the verdict.
-- **A half-set window reads as no window.** Set only an earliest time (or only a
-  latest) and the bar is drawn grey across the whole day, uncoloured and
-  unflagged — even though Autopilot does enforce the bound you set.
-- **Names are truncated.** In the screenshot above every Targets label reads as
-  three characters. Tap a bar to find out which attraction it is. This is a
-  known rough edge, recorded in `docs/FUTURE.md` §2.1.
+- **A half-set window is not checked against your plans.** Set only an earliest
+  time (or only a latest) and the bar runs from that bound to the end (or from
+  the start) of the day, grey and unflagged, even though Autopilot does enforce
+  the bound you set.
+- **A short bar keeps one line.** A plan an hour long is a short bar; on a
+  narrow phone with two plans at once, its name is cut to a few letters. Tap it
+  to open it.
 
 ## 8. The pre-trip checklist
 
@@ -1030,10 +1030,8 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.7.2.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.8.0.** Known, recorded, and not fixed yet:
 
-- The day timeline truncates every target name at 360 px, and its bars are
-  14–20 px tall, which is a small tap target.
 - Undoing two target removals in a row loses the first one's window and rank.
 - A Plan Check item that names a setting opens Configure at the top of a long
   screen rather than at the setting.
