@@ -262,8 +262,20 @@ describe('checkPlan', () => {
       expect(texts(tierOne())).toMatch(/More than one Tier 1/);
     });
 
-    // Pausing is the remedy the warning itself recommends, and the provider
-    // drops a paused target from the armed set before the hold is considered.
+    // It said "Pausing the one you want less removes the hold", which is
+    // backwards: pausing the lesser ride only stops it being booked. Pausing
+    // the better one, the ride the slot is kept for, is what lets the lesser
+    // one be taken.
+    it('says pausing the better one lets the other be taken', () => {
+      expect(texts(tierOne())).toMatch(
+        /To take the lower-priority one when it comes up, pause the better one/
+      );
+      expect(texts(tierOne())).not.toMatch(/want less/);
+    });
+
+    // Pausing either one ends the warning: the provider drops a paused target
+    // from the armed set before the hold is considered, so one armed Tier 1
+    // is never held back for another.
     it('stops warning once one of them is paused', () => {
       const input = tierOne();
       input.targets[1] = { ...input.targets[1]!, paused: true };

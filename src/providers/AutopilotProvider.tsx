@@ -2175,8 +2175,8 @@ export default function AutopilotProvider({
           cacheRef.current.clear();
           setPasskeyStatus('unlocked');
           fireAlert({
-            title: 'Tier 1 hold unlocked',
-            body: 'Your passkey is spent and Disney is no longer holding the Tier 1 limit for your party.',
+            title: 'Tier 1 limit lifted',
+            body: 'Your passkey is spent and Disney has lifted the Tier 1 limit for your party.',
             tag: `${NOTIFICATION_TAG_NAMESPACE}passkey-${date}`,
           });
         } else {

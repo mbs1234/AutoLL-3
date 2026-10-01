@@ -552,7 +552,7 @@
       stops working.
     </p>
     <div class="masthead-meta">
-      <span>Version 1.6.0</span>
+      <span>Version 1.6.1</span>
       <span>Three parts · 23 sections</span>
       <span>Unofficial · not endorsed by Disney</span>
     </div>
@@ -1526,11 +1526,23 @@
       <h4>The Tier 1 hold</h4>
       <p>
         Disney lets a party hold one Tier 1 selection at a time until the party's
-        first redemption. So Autopilot will <strong>decline a Tier 1 it could
+        first redemption of the day. This guide calls that Disney's
+        <strong>Tier 1 limit</strong>, and Autopilot's answer to it the
+        <strong>Tier 1 hold</strong>.
+      </p>
+      <p>
+        While the limit applies, Autopilot will <strong>decline a Tier 1 it could
         take</strong> if a Tier 1 you ranked higher has a drop coming within
         <strong>90 minutes</strong>. Past that horizon the hold releases on its
-        own. It shows up in Activity as “held the Tier 1 slot for a better
-        attraction”; pausing the attraction you want less removes the hold.
+        own, and after the party's first tap-in of the day there is no slot left
+        to keep, so it stops.
+      </p>
+      <p>
+        It shows up in Activity as “held the Tier 1 slot for a better
+        attraction”. To take the lower-ranked ride now, <strong>pause the one it
+        is waiting for</strong>, the Tier 1 you ranked higher: the hold then
+        releases. Pausing the lower-ranked ride only stops it being booked at
+        all.
       </p>
 
       <h4>The passkey</h4>
@@ -1538,19 +1550,21 @@
         Mark one easy, high-availability, <strong>non-Tier-1</strong> attraction
         as the day's passkey in its Configure card. Autopilot books it first;
         once Disney's own tracker says that entitlement is spent, it asks the
-        eligibility endpoint whether the one-Tier-1 rule has actually lifted for
+        eligibility endpoint whether the Tier 1 limit has actually lifted for
         everyone in your party.
       </p>
       <p>
         <strong>Tap in at the passkey's Lightning Lane entrance with everyone in
         the party</strong>: the party's first redemption of the day is what lifts
-        the hold. While it waits, Today's <span class="ui">Passkey</span> line
-        names the ride to tap in at.
+        the Tier 1 limit. While it waits, Today's
+        <span class="ui">Passkey</span> line names the ride to tap in at. Once
+        Disney confirms, Autopilot raises a “Tier 1 limit lifted” alert, and its
+        Tier 1 hold stops for the day.
       </p>
       <div class="call">
         <span class="call-label">Booking it is not enough</span>
         <p>
-          The passkey unlocks only when the pass is actually <em>spent</em> — and
+          The limit lifts only when the pass is actually <em>spent</em> — and
           Disney counts a window you let lapse the same as one you rode, so
           Autopilot cannot tell those apart.
         </p>
@@ -2169,7 +2183,7 @@
         well, or it may start empty next time.
       </p>
       <p>
-        <strong>Rough edges, as of 1.6.0.</strong> Known, recorded, and not
+        <strong>Rough edges, as of 1.6.1.</strong> Known, recorded, and not
         fixed yet:
       </p>
       <ul>
@@ -2273,9 +2287,11 @@
           <tbody>
             <tr><td>Multi Pass</td><td>The Lightning Lane product this app books. Three at a time.</td></tr>
             <tr><td>Tier 1</td><td>Disney's headliner group. One at a time until the party's first redemption.</td></tr>
+            <tr><td>Tier 1 limit</td><td>Disney's rule that a party holds one Tier 1 selection at a time until its first redemption of the day.</td></tr>
+            <tr><td>Tier 1 hold</td><td>Autopilot passing on a lower-ranked Tier 1 to keep that one slot for a better one with a drop due soon.</td></tr>
             <tr><td>Drop</td><td>A scheduled release of extra inventory at a fixed minute.</td></tr>
             <tr><td>Refill window</td><td>A span of hours over which an attraction trickles inventory back, instead of dropping at an instant.</td></tr>
-            <tr><td>Passkey</td><td>An easy non-Tier-1 ride you mark to be booked and ridden first, to clear the Tier 1 hold.</td></tr>
+            <tr><td>Passkey</td><td>An easy non-Tier-1 ride you mark to be booked and ridden first, to lift the Tier 1 limit.</td></tr>
             <tr><td>Rank</td><td>Your own priority number for a target. Lower goes first; blank uses the built-in ranking.</td></tr>
             <tr><td>Protected time</td><td>The span around a plan you hold that Autopilot treats as spoken for.</td></tr>
             <tr><td>Dry run</td><td>Rehearsal: every check runs, nothing is booked.</td></tr>

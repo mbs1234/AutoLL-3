@@ -1,7 +1,7 @@
 import { Guests } from '@/api/ll';
 
 /**
- * Whether Disney has stopped reporting the Tier 1 hold for the selected party.
+ * Whether Disney has stopped reporting the Tier 1 limit for the selected party.
  *
  * Guests outside the saved party are explicitly marked NOT_IN_PARTY and must
  * not hold the group back. Any selected guest still reporting

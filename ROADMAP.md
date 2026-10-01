@@ -1126,6 +1126,24 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 28. One name for Disney's Tier 1 rule, another for Autopilot's — _completed in 1.6.1_
+
+"Tier 1 hold" meant two things. The guide's section of that name, the Activity
+line and item 4 use it for Autopilot passing on a lower-ranked Tier 1 to keep
+the one slot for a better one. The passkey lines, the unlock alert and the
+glossary used it for Disney's rule itself: one Tier 1 at a time until the
+party's first redemption.
+
+- **Two names.** Disney's rule is now the **Tier 1 limit**: the passkey lines
+  on Today and Configure, the alert ("Tier 1 limit lifted"), the guide's
+  passkey section and its glossary. **Tier 1 hold** is kept for Autopilot's
+  choice, and the glossary defines both.
+- **The advice to override the hold was backwards.** The guide and Plan Check
+  said pausing the ride you want less removes the hold. That only stops the
+  lesser ride being booked. Pausing the better one, the ride the slot is kept
+  for, is what releases it (`armed` in the provider skips a paused target), and
+  both now say so.
+
 ### 27. Restart in one tap, and a checklist to go back into — _completed in 1.6.0_
 
 Left for AutoLL-3 by AutoLL-5's usability review, with `FUTURE.md` §2.5.
@@ -1162,7 +1180,7 @@ already knew.
   That line is now about the alert sound: **Test** plays it, and it ticks only
   once it has played (`alertItem` in `checklist.ts`).
 - **Where to tap in.** The passkey lines on Today and Configure said Autopilot
-  was waiting for the Tier 1 hold to lift, not what lifts it. They name the
+  was waiting for the Tier 1 limit to lift, not what lifts it. They name the
   passkey attraction to tap in at, with every selected guest, since the party's
   first redemption of the day is what lifts it.
 - **"Why nothing was booked" survives a reload.** The counts and the newest

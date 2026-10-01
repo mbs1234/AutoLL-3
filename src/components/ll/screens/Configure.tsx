@@ -73,7 +73,7 @@ export default function Configure({
   const targetFor = (experienceId: string) =>
     targetsHere.find(t => t.experienceId === experienceId);
   // The attractions marked as the passkey: tapping in at one is what lifts
-  // the Tier 1 hold, so the strategy line names them.
+  // the Tier 1 limit, so the strategy line names them.
   const passkeyNames = targets
     .filter(target => target.passkey)
     .map(
@@ -316,8 +316,8 @@ export default function Configure({
         <p className="mt-2 text-sm">
           <span className="font-semibold">Passkey strategy:</span>{' '}
           {passkeyStatus === 'unlocked'
-            ? 'Disney confirmed every selected guest cleared the Tier 1 hold.'
-            : `Autopilot books the marked easy attraction first. Tap in at ${passkeyNames.join(' or ') || 'it'} with every selected guest: the party's first redemption of the day lifts the Tier 1 hold, once Disney confirms it.`}
+            ? 'Disney confirmed the Tier 1 limit is lifted for every selected guest.'
+            : `Autopilot books the marked easy attraction first. Tap in at ${passkeyNames.join(' or ') || 'it'} with every selected guest: the party's first redemption of the day lifts the Tier 1 limit, once Disney confirms it.`}
         </p>
       )}
 
