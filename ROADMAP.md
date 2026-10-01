@@ -1126,6 +1126,27 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 29. Pocket mode for a NextLL search — _completed in 1.7.0_
+
+Left for AutoLL-3 by AutoLL-5's usability review, because it needs the shield
+to see a second engine. The pocket screen sits above every tab and read only
+the day plan's Autopilot, so a NextLL search had no **Pocket it** of its own,
+and pocketing from Today could only ever describe the day plan.
+
+- **Pocket it on NextLL's running screen**, under **Stop looking**, while the
+  search runs. It raises the same guard as Today's, lifted the same way.
+- **The guard shows the search.** NextLL's provider is nested below the shield,
+  out of its sight, so the search reports itself through the shield's context
+  (`showInPocket`, a small store in `pocketSearch.ts`) in its own screen's
+  words: the ride, what it holds, the window it is aiming at, the number of
+  checks. A store rather than state, so each check re-renders only the shield.
+- **Done is not an alarm.** A search that stopped because it has what was asked
+  for reads **Done**; any other stop turns the guard red, as Autopilot's does.
+- **It reports only while it runs.** Stopping the search, or leaving the tab,
+  clears the report, so Today's guard goes back to the day plan.
+
+Time Search and Change attraction can report the same way; they do not yet.
+
 ### 28. One name for Disney's Tier 1 rule, another for Autopilot's — _completed in 1.6.1_
 
 "Tier 1 hold" meant two things. The guide's section of that name, the Activity

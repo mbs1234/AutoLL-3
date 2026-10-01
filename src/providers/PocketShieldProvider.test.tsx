@@ -2,7 +2,7 @@ import '@testing-library/jest-dom';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { use, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 
 import {
   MAX_FINGER_RADIUS_PX,
@@ -44,6 +44,33 @@ describe('raising the shield from a screen inside it', () => {
       'aria-hidden',
       'true'
     );
+  });
+
+  // NextLL's search runs in a provider of its own, below the shield. It
+  // reaches the shield through the context, since the tree cannot.
+  it('shows a search reported from a screen inside it', () => {
+    function Reporter() {
+      const { showInPocket } = use(PocketShieldContext);
+      useEffect(() => {
+        showInPocket({
+          title: 'Slinky Dog Dash',
+          state: 'running',
+          lines: ['3 checks'],
+        });
+      }, [showInPocket]);
+      return null;
+    }
+    render(
+      <PocketShieldProvider>
+        <Reporter />
+        <Raiser />
+      </PocketShieldProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Pocket it' }));
+    expect(screen.getByTestId('pocket-shield')).toHaveTextContent(
+      'Slinky Dog Dash'
+    );
+    expect(screen.getByTestId('pocket-shield')).toHaveTextContent('3 checks');
   });
 
   it('restores the underlying app after the deliberate unlock sequence', () => {
@@ -178,7 +205,9 @@ describe('state above NavProvider', () => {
       const [shielded, setShielded] = useState(false);
       return (
         <NavProvider>
-          <PocketShieldContext value={{ shielded, setShielded }}>
+          <PocketShieldContext
+            value={{ shielded, setShielded, showInPocket: () => undefined }}
+          >
             <Raiser2 />
             {shielded && <div data-testid="frozen-shield" />}
           </PocketShieldContext>
