@@ -1,5 +1,7 @@
 import { createContext } from 'react';
 
+import type { PocketSearch } from '@/components/ll/pocketSearch';
+
 /**
  * Whether the screen is guarded, and how to guard it.
  *
@@ -11,4 +13,14 @@ import { createContext } from 'react';
 export default createContext<{
   shielded: boolean;
   setShielded: (on: boolean) => void;
-}>({ shielded: false, setShielded: () => undefined });
+  /**
+   * What a search a person started reports, for the shield to show instead
+   * of the day plan's Autopilot; undefined once it is no longer running. See
+   * `pocketSearch.ts`.
+   */
+  showInPocket: (search: PocketSearch | undefined) => void;
+}>({
+  shielded: false,
+  setShielded: () => undefined,
+  showInPocket: () => undefined,
+});

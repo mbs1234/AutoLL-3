@@ -34,9 +34,14 @@ import {
   reportedMajorRadius,
   reportedMinorRadius,
 } from './pocketGuard';
+import { PocketSearch, PocketSearchStore } from './pocketSearch';
 
 /** Compatibility clicks arrive immediately after the touch that created them. */
 const COMPATIBILITY_CLICK_MS = 1_000;
+
+/** With no search store, there is never a search to show. */
+const NO_SEARCH = (): PocketSearch | undefined => undefined;
+const NO_UPDATES = () => () => undefined;
 
 const SOUND_TEXT: Record<AudioStatus, string> = {
   armed: 'Sound on',
@@ -113,12 +118,20 @@ export default function PocketShield({
   onExit,
   wideTouchLearned = false,
   onLearnWideTouch = () => undefined,
+  search: searchStore,
 }: {
   onExit: () => void;
   wideTouchLearned?: boolean;
   onLearnWideTouch?: () => void;
+  /** What a NextLL search reports; while set, it is shown instead. */
+  search?: PocketSearchStore;
 }) {
   const autopilot = use(TopAutopilotContext);
+  const search = useSyncExternalStore(
+    searchStore?.subscribe ?? NO_UPDATES,
+    searchStore?.get ?? NO_SEARCH,
+    searchStore?.get ?? NO_SEARCH
+  );
   const [guard, setGuard] = useState(INITIAL);
   const [wideGuard, setWideGuard] = useState(INITIAL_WIDE_TOUCH);
   const shield = useRef<HTMLDivElement>(null);
@@ -159,7 +172,9 @@ export default function PocketShield({
   const mode = autopilot?.status.mode ?? 'off';
   const stopped = mode === 'stopped';
   const off = mode === 'off';
-  const alarm = stopped || off;
+  // A search stopped for a good reason -- it has what it was asked for -- is
+  // not an alarm, which is why the search says which kind of stop it is.
+  const alarm = search ? search.state === 'stopped' : stopped || off;
   const alertChannelsHealthy =
     soundStatus === 'armed' && awakeStatus === 'held';
   const armed =
@@ -287,7 +302,55 @@ export default function PocketShield({
       data-testid="pocket-shield"
     >
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
-        {alarm ? (
+        {search ? (
+          <>
+            {search.state !== 'running' && (
+              <div
+                className={`text-4xl font-bold ${
+                  search.state === 'done' ? 'text-green-300' : 'text-red-300'
+                }`}
+              >
+                {search.state === 'done' ? 'Done' : 'Stopped'}
+              </div>
+            )}
+            <div
+              className={
+                search.state === 'running'
+                  ? 'text-4xl font-bold'
+                  : 'mt-3 text-2xl font-semibold'
+              }
+            >
+              {search.title}
+            </div>
+            {search.lines.map((line, index) => (
+              <p
+                key={index}
+                className={`mt-2 max-w-xs text-lg ${
+                  search.state === 'stopped' ? 'text-red-100' : 'text-gray-300'
+                }`}
+              >
+                {line}
+              </p>
+            ))}
+            {search.state === 'stopped' && (
+              <p className="mt-3 max-w-xs text-base text-red-100">
+                Lift the shield and start it again.
+              </p>
+            )}
+            {search.state === 'running' && (
+              <div
+                className={`mt-3 text-sm ${
+                  alertChannelsHealthy
+                    ? 'text-gray-400'
+                    : 'font-semibold text-red-300'
+                }`}
+                data-testid="pocket-health"
+              >
+                {SOUND_TEXT[soundStatus]} · {SCREEN_TEXT[awakeStatus]}
+              </div>
+            )}
+          </>
+        ) : alarm ? (
           <>
             <div className="text-4xl font-bold text-red-300">
               {stopped ? 'Stopped' : 'Off'}

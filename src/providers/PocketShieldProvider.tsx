@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import PocketShield from '@/components/ll/PocketShield';
+import { createPocketSearchStore } from '@/components/ll/pocketSearch';
 import PocketShieldContext from '@/contexts/PocketShieldContext';
 
 /**
@@ -27,8 +28,13 @@ export default function PocketShieldProvider({
   // memory only. A wide thumb should not pay the escape cost every time the
   // phone is re-pocketed, while a reload starts from the strict defaults.
   const [wideTouchLearned, setWideTouchLearned] = useState(false);
+  // What a NextLL search reports about itself. The shield reads it while it
+  // is set; otherwise it describes the day plan's Autopilot.
+  const [search] = useState(createPocketSearchStore);
   return (
-    <PocketShieldContext value={{ shielded, setShielded }}>
+    <PocketShieldContext
+      value={{ shielded, setShielded, showInPocket: search.set }}
+    >
       <div
         className="contents"
         inert={shielded}
@@ -42,6 +48,7 @@ export default function PocketShieldProvider({
           onExit={() => setShielded(false)}
           wideTouchLearned={wideTouchLearned}
           onLearnWideTouch={() => setWideTouchLearned(true)}
+          search={search}
         />
       )}
     </PocketShieldContext>

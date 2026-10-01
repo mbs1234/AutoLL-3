@@ -18,6 +18,7 @@ import {
   MIN_TAP_GAP_MS,
   TAPS_REQUIRED,
 } from './pocketGuard';
+import { PocketSearch, createPocketSearchStore } from './pocketSearch';
 
 const state: AutopilotState = {
   enabled: true,
@@ -726,5 +727,90 @@ describe('the pocket shield', () => {
       ],
     });
     expect(screen.getByText(/1 armed/)).toBeInTheDocument();
+  });
+});
+
+// The shield sits above every tab and read only the day plan's Autopilot, so a
+// pocketed NextLL search showed "1 armed" for a plan nobody was running. The
+// search says how it stands instead, through the store the provider hands in.
+describe('the pocket shield over a NextLL search', () => {
+  function searching(search: PocketSearch) {
+    const store = createPocketSearchStore();
+    store.set(search);
+    render(
+      <TopAutopilotContext value={state}>
+        <PocketShield onExit={() => {}} search={store} />
+      </TopAutopilotContext>
+    );
+    return store;
+  }
+
+  it('shows the search, not the day plan', () => {
+    searching({
+      title: 'Slinky Dog Dash',
+      state: 'running',
+      lines: [
+        'Holding 10:35 AM: still looking for a time inside your window.',
+        '57 checks',
+      ],
+    });
+    expect(screen.getByText('Slinky Dog Dash')).toBeInTheDocument();
+    expect(screen.getByText(/Holding 10:35 AM/)).toBeInTheDocument();
+    expect(screen.getByText('57 checks')).toBeInTheDocument();
+    expect(screen.queryByText(/armed/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('pocket-health')).toBeInTheDocument();
+  });
+
+  it('follows the search as it changes, without being raised again', () => {
+    const store = searching({
+      title: 'Slinky Dog Dash',
+      state: 'running',
+      lines: ['57 checks'],
+    });
+    act(() =>
+      store.set({
+        title: 'Slinky Dog Dash',
+        state: 'running',
+        lines: ['58 checks'],
+      })
+    );
+    expect(screen.getByText('58 checks')).toBeInTheDocument();
+  });
+
+  it('says so loudly when the search has stopped', () => {
+    searching({
+      title: 'Slinky Dog Dash',
+      state: 'stopped',
+      lines: ['Disney refused a request, so everything has stopped.'],
+    });
+    expect(screen.getByText('Stopped')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Lift the shield and start it again/)
+    ).toBeInTheDocument();
+    expect(backdrop()).toHaveClass('bg-red-950');
+    expect(screen.queryByTestId('pocket-health')).not.toBeInTheDocument();
+  });
+
+  // It stopped because it has what was asked for: the one stop that is good
+  // news, so not the alarm.
+  it('is not an alarm when the search is done', () => {
+    searching({
+      title: 'Slinky Dog Dash',
+      state: 'done',
+      lines: ['Holding 10:35 AM, inside your window.'],
+    });
+    expect(screen.getByText('Done')).toBeInTheDocument();
+    expect(backdrop()).not.toHaveClass('bg-red-950');
+  });
+
+  it('goes back to the day plan once the search stops reporting', () => {
+    const store = searching({
+      title: 'Slinky Dog Dash',
+      state: 'running',
+      lines: [],
+    });
+    act(() => store.set(undefined));
+    expect(screen.queryByText('Slinky Dog Dash')).not.toBeInTheDocument();
+    expect(screen.getByText('Checking often')).toBeInTheDocument();
   });
 });

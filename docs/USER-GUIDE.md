@@ -451,7 +451,8 @@ sleep** means to lift the guard and check the named channel; the status follows
 the browser directly rather than waiting for the next poll. If Autopilot stops
 or the 4am rollover turns it off, the guard changes to a red warning. Lift it
 and deliberately start a new run; an off or stopped guard is not still
-checking.
+checking. A NextLL search has its own **Pocket it**, and its guard shows that
+search instead (section 19).
 
 ### Lock the phone to Safari with Guided Access
 
@@ -750,6 +751,12 @@ stops checking, and waits for you to tap **Done**. **With no time set, it keeps
 going:** it books the first time it can, then keeps moving the pass earlier
 until you tap Done, or until the ten minutes below run out.
 
+**Pocket it works here too.** While the search runs, **Pocket it** under **Stop
+looking** puts up the same guard as Today's, lifted the same way. The guarded
+screen shows this search rather than your day plan: the ride, what it holds,
+the window it is aiming at and the number of checks. It reads **Done** once the
+search has what you asked for, and turns red if it stops for any other reason.
+
 **It stops after ten minutes with nothing booked or moved**, and says to take a
 break: long searches can make Disney pause your account. The ten minutes count
 from the last booking or move. Starting again is allowed. It also stops, and
@@ -1014,7 +1021,7 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.6.1.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.7.0.** Known, recorded, and not fixed yet:
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.

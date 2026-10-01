@@ -1,4 +1,4 @@
-import { ReactNode, use, useEffect, useRef, useState } from 'react';
+import { ReactNode, use, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Booking, LLMP, isLLMP } from '@/api/itinerary';
 import { Experience } from '@/api/ll';
@@ -11,6 +11,7 @@ import {
   loadPendingSearch,
   savePendingSearch,
 } from '@/autopilot/nextll';
+import { PollerStatus } from '@/autopilot/usePoller';
 import {
   WatchTarget,
   inWindow,
@@ -22,11 +23,13 @@ import Tab from '@/components/Tab';
 import { Time } from '@/components/Time';
 import ContextStrip from '@/components/ll/ContextStrip';
 import PushbackWarning from '@/components/ll/PushbackWarning';
+import { PocketSearch } from '@/components/ll/pocketSearch';
 import AutopilotContext from '@/contexts/AutopilotContext';
 import BookingDateContext from '@/contexts/BookingDateContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import PlansContext from '@/contexts/PlansContext';
-import { parkDate } from '@/datetime';
+import PocketShieldContext from '@/contexts/PocketShieldContext';
+import { formatTime, parkDate } from '@/datetime';
 import useSavedParty from '@/hooks/useSavedParty';
 import AutopilotProvider from '@/providers/AutopilotProvider';
 import { NEXTLL_WATCHLIST_KEY } from '@/storageNamespace';
@@ -128,6 +131,71 @@ function SeveralHeld({
       </p>
     </div>
   );
+}
+
+/** The same window as `GoalLine`, in plain words for the pocket screen. */
+function goalText({ after, before }: WatchTarget): string | undefined {
+  if (after && before) {
+    return `between ${formatTime(after)} and ${formatTime(before)}`;
+  }
+  if (after) return `at or after ${formatTime(after)}`;
+  if (before) return `at or before ${formatTime(before)}`;
+  return undefined;
+}
+
+/**
+ * The search as the pocket screen tells it: the facts this screen shows, a
+ * line each, read at arm's length without lifting the shield.
+ */
+function pocketLines({
+  status,
+  held,
+  goalMet,
+  several,
+  target,
+  bookingDate,
+}: {
+  status: PollerStatus;
+  held?: LLMP;
+  goalMet: boolean;
+  several: boolean;
+  target?: WatchTarget;
+  bookingDate: string;
+}): string[] {
+  const holding = held && formatTime(held.start.time);
+  if (status.mode === 'stopped') {
+    if (status.stopReason === 'goal') {
+      return [
+        holding
+          ? `Holding ${holding}, inside your window.`
+          : 'It has what it was asked for.',
+        'NextLL has stopped checking. Lift the shield and tap Done.',
+      ];
+    }
+    const why =
+      status.stopReason === 'refused'
+        ? 'Disney refused a request, so everything has stopped.'
+        : status.stopReason === 'throttled'
+          ? 'Disney asked to slow down, so NextLL has stopped.'
+          : status.stopReason === 'session'
+            ? 'Stopped after ten minutes with nothing booked. Take a break before starting again.'
+            : `Stopped after ${status.consecutiveFailures} failed checks.`;
+    return holding ? [why, `Still holding ${holding}.`] : [why];
+  }
+  const lines = [
+    holding
+      ? `Holding ${holding}: ${goalMet ? 'that will do' : 'still looking for a time inside your window'}.`
+      : several
+        ? 'More than one person holds it. Lift the shield to see whose.'
+        : 'Nothing held yet.',
+    `${status.polls} ${status.polls === 1 ? 'check' : 'checks'}`,
+  ];
+  const goal = target && goalText(target);
+  if (goal) lines.push(`Goal: a return time ${goal}.`);
+  if (bookingDate !== parkDate()) {
+    lines.push(`Working on ${bookingDate}, not today.`);
+  }
+  return lines;
 }
 
 function GoalText({ children }: { children: ReactNode }) {
@@ -261,6 +329,43 @@ export function NextLL({
   // "that will do" about a 9:40 return for a search asked to return after 3pm,
   // and offered Done beside it.
   const goalMet = !!held && (!target || inWindow(held.start.time, target));
+
+  // The pocket screen sits above every tab and reads the day plan's
+  // Autopilot. This search runs in a provider of its own, so while it runs it
+  // tells the shield how it stands, in this screen's words.
+  const { setShielded, showInPocket } = use(PocketShieldContext);
+  const pocketTitle = enabled ? chosen?.name : undefined;
+  const pocketState: PocketSearch['state'] =
+    status.mode !== 'stopped'
+      ? 'running'
+      : status.stopReason === 'goal'
+        ? 'done'
+        : 'stopped';
+  // Joined, so the report changes only when its words do, not on every render.
+  const pocketText = pocketLines({
+    status,
+    held,
+    goalMet,
+    several,
+    target,
+    bookingDate,
+  }).join('\n');
+  const pocket = useMemo<PocketSearch | undefined>(
+    () =>
+      pocketTitle
+        ? {
+            title: pocketTitle,
+            state: pocketState,
+            lines: pocketText.split('\n'),
+          }
+        : undefined,
+    [pocketTitle, pocketState, pocketText]
+  );
+  useEffect(() => {
+    showInPocket(pocket);
+  }, [pocket, showInPocket]);
+  // Leaving the tab ends the search, so it must not linger on the shield.
+  useEffect(() => () => showInPocket(undefined), [showInPocket]);
 
   // `replaceTargets` rather than `addTarget`: this screen watches exactly one
   // attraction and names it, so a target from an earlier search must not
@@ -541,11 +646,27 @@ export function NextLL({
               {goalMet ? 'Done' : 'Stop looking'}
             </Button>
           </div>
+          {/* Guards the glass while the search runs in a pocket, as Today's
+              does for Autopilot; the shield then shows this search rather
+              than the day plan. Not once it has stopped: nothing is left
+              running to guard. */}
+          {status.mode !== 'stopped' && (
+            <div className="mt-2">
+              <Button
+                type="full"
+                color="bg-black text-white"
+                onClick={() => setShielded(true)}
+              >
+                Pocket it
+              </Button>
+            </div>
+          )}
 
           <p className="mt-3 text-sm text-gray-600">
-            Keep this screen open and in front. Your phone will not sleep while
-            it runs. Switching tabs stops the search &mdash; come back and it
-            will offer to pick it up again.
+            Keep this screen open and in front, or tap Pocket it to guard the
+            screen while the phone is in your pocket. Your phone will not sleep
+            while it runs. Switching tabs stops the search &mdash; come back and
+            it will offer to pick it up again.
           </p>
         </>
       )}

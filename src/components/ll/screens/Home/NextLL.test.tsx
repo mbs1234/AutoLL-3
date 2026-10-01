@@ -18,6 +18,7 @@ import ClientsContext, { Clients } from '@/contexts/ClientsContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
+import PocketShieldContext from '@/contexts/PocketShieldContext';
 import TabsContext from '@/contexts/TabContext';
 import { DateTime, ParkTime } from '@/datetime';
 import kvdb from '@/kvdb';
@@ -86,6 +87,8 @@ function setup({
   const setPartyIds = jest.fn();
   const replaceTargets = jest.fn();
   const changeTab = jest.fn();
+  const setShielded = jest.fn();
+  const showInPocket = jest.fn();
   const tab = (name: string) => ({ name, icon: null, component: () => null });
   const tabs = [tab('LL'), tab('Plans'), tab(NEXTLL)];
 
@@ -129,46 +132,52 @@ function setup({
     );
   }
   const view = render(
-    <ClientsContext value={{ ll: { setPartyIds } } as unknown as Clients}>
-      <TabsContext
-        value={{
-          tabs,
-          active: tabs[2]!,
-          changeTab,
-          scrollPos: { get: () => 0, set: () => {} },
-        }}
-      >
-        <ParkContext value={{ park: mk, setPark: () => {} }}>
-          <BookingDateContext value={{ bookingDate, setBookingDate: () => {} }}>
-            <PlansContext
-              value={{
-                plans,
-                plansLoaded: true,
-                refreshPlans: () => {},
-                pollPlans: async () => plans,
-                loaderElem: null,
-              }}
+    <PocketShieldContext value={{ shielded: false, setShielded, showInPocket }}>
+      <ClientsContext value={{ ll: { setPartyIds } } as unknown as Clients}>
+        <TabsContext
+          value={{
+            tabs,
+            active: tabs[2]!,
+            changeTab,
+            scrollPos: { get: () => 0, set: () => {} },
+          }}
+        >
+          <ParkContext value={{ park: mk, setPark: () => {} }}>
+            <BookingDateContext
+              value={{ bookingDate, setBookingDate: () => {} }}
             >
-              <ExperiencesContext
+              <PlansContext
                 value={{
-                  experiences: [llExperience(BZ)],
-                  refreshExperiences: () => {},
-                  pollExperiences: async () => [],
+                  plans,
+                  plansLoaded: true,
+                  refreshPlans: () => {},
+                  pollPlans: async () => plans,
                   loaderElem: null,
                 }}
               >
-                <Autopilot>
-                  {chooser ? <NextLLChooser /> : <NextLL />}
-                </Autopilot>
-              </ExperiencesContext>
-            </PlansContext>
-          </BookingDateContext>
-        </ParkContext>
-      </TabsContext>
-    </ClientsContext>
+                <ExperiencesContext
+                  value={{
+                    experiences: [llExperience(BZ)],
+                    refreshExperiences: () => {},
+                    pollExperiences: async () => [],
+                    loaderElem: null,
+                  }}
+                >
+                  <Autopilot>
+                    {chooser ? <NextLLChooser /> : <NextLL />}
+                  </Autopilot>
+                </ExperiencesContext>
+              </PlansContext>
+            </BookingDateContext>
+          </ParkContext>
+        </TabsContext>
+      </ClientsContext>
+    </PocketShieldContext>
   );
   return {
     ...view,
+    setShielded,
+    showInPocket,
     setEnabled,
     addTarget,
     removeTarget,
@@ -750,5 +759,102 @@ describe('the booking date is on screen before anything is booked', () => {
   it('names the date on the search screen', () => {
     setup({ bookingDate: TOMORROW });
     expect(screen.getByText('October 2')).toBeInTheDocument();
+  });
+});
+
+// The pocket screen reads the day plan's Autopilot, and this search runs in a
+// provider of its own, so it tells the shield how it stands.
+describe('NextLL in a pocket', () => {
+  const search: WatchTarget = { experienceId: BZ, bookThenMove: true };
+
+  it('offers Pocket it while it searches, and tells the shield how it stands', () => {
+    const { setShielded, showInPocket } = setup({
+      enabled: true,
+      status: RUNNING,
+      targets: [search],
+    });
+    expect(showInPocket).toHaveBeenLastCalledWith({
+      title: name,
+      state: 'running',
+      lines: expect.arrayContaining(['Nothing held yet.', '7 checks']),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Pocket it' }));
+    expect(setShielded).toHaveBeenCalledWith(true);
+  });
+
+  it('tells it what it holds and what it is aiming at', () => {
+    const { showInPocket } = setup({
+      enabled: true,
+      status: RUNNING,
+      targets: [{ ...search, before: new ParkTime(10) }],
+      plans: [heldAt(11)],
+    });
+    expect(showInPocket).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        lines: expect.arrayContaining([
+          'Holding 11:00 AM: still looking for a time inside your window.',
+          '7 checks',
+          'Goal: a return time at or before 10:00 AM.',
+        ]),
+      })
+    );
+  });
+
+  it('tells it the search is done once it has what was asked for', () => {
+    const { showInPocket } = setup({
+      enabled: true,
+      status: { ...STOPPED, stopReason: 'goal' },
+      targets: [{ ...search, before: new ParkTime(12) }],
+      plans: [heldAt(11)],
+    });
+    expect(showInPocket).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'done',
+        lines: expect.arrayContaining([
+          'Holding 11:00 AM, inside your window.',
+        ]),
+      })
+    );
+    // Nothing left running to guard.
+    expect(
+      screen.queryByRole('button', { name: 'Pocket it' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('tells it when the search has stopped for a bad reason', () => {
+    const { showInPocket } = setup({
+      enabled: true,
+      status: { ...STOPPED, stopReason: 'refused' },
+      targets: [search],
+    });
+    expect(showInPocket).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'stopped',
+        lines: ['Disney refused a request, so everything has stopped.'],
+      })
+    );
+  });
+
+  it('stops reporting when the search ends, and when the tab is left', () => {
+    const { showInPocket, unmount } = setup({
+      enabled: true,
+      status: RUNNING,
+      targets: [search],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Stop looking' }));
+    expect(showInPocket).toHaveBeenLastCalledWith(undefined);
+    showInPocket.mockClear();
+    unmount();
+    expect(showInPocket).toHaveBeenCalledWith(undefined);
+  });
+
+  it('reports nothing before a search starts', () => {
+    const { showInPocket } = setup();
+    expect(showInPocket).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.anything() })
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Pocket it' })
+    ).not.toBeInTheDocument();
   });
 });
