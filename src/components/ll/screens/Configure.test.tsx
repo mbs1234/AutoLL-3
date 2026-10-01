@@ -1,9 +1,9 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 
 import { wdw } from '@/__fixtures__/resort';
 import { ParkTime } from '@/datetime';
 
-import Configure from './Configure';
+import Configure, { UNDO_MS } from './Configure';
 import {
   BZ,
   DB,
@@ -91,6 +91,91 @@ describe('Configure watch list', () => {
     fireEvent.click(screen.getByText('Undo'));
     expect(addTarget).toHaveBeenCalledWith({ experienceId: BZ });
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  // A second removal used to wipe the first one's undo, and with it the first
+  // target's window and rank.
+  it('keeps an undo for every removal in the moment', () => {
+    const first = {
+      experienceId: BZ,
+      rank: 1,
+      after: new ParkTime(10, 0),
+      before: new ParkTime(12, 0),
+    };
+    const { addTarget } = setup({
+      watched: [BZ, DB],
+      targets: [first, { experienceId: DB }],
+    });
+    const other = wdw.experience(DB).name;
+    fireEvent.click(screen.getByTitle(`Stop watching ${NAME}`));
+    fireEvent.click(screen.getByTitle(`Stop watching ${other}`));
+    const strip = screen.getByRole('status');
+    expect(strip).toHaveTextContent(`Stopped watching ${NAME}.`);
+    expect(strip).toHaveTextContent(`Stopped watching ${other}.`);
+    const undos = within(strip).getAllByRole('button', { name: 'Undo' });
+    expect(undos).toHaveLength(2);
+    fireEvent.click(undos[0]!);
+    expect(addTarget).toHaveBeenCalledWith(first);
+    expect(strip).not.toHaveTextContent(`Stopped watching ${NAME}.`);
+    expect(
+      within(strip).getByRole('button', { name: 'Undo' })
+    ).toBeInTheDocument();
+  });
+
+  it('lets the undo go a moment after the last removal', () => {
+    jest.useFakeTimers();
+    try {
+      setup({ watched: [BZ, DB] });
+      fireEvent.click(screen.getByTitle(`Stop watching ${NAME}`));
+      act(() => jest.advanceTimersByTime(UNDO_MS / 2));
+      fireEvent.click(
+        screen.getByTitle(`Stop watching ${wdw.experience(DB).name}`)
+      );
+      // The first removal's time is up, but the strip is the moment's, and a
+      // second removal starts the moment again.
+      act(() => jest.advanceTimersByTime(UNDO_MS / 2));
+      expect(screen.getByRole('status')).toHaveTextContent(
+        `Stopped watching ${NAME}.`
+      );
+      act(() => jest.advanceTimersByTime(UNDO_MS / 2));
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // It opened the card where it was, often below the fold of a long screen.
+  it('brings a card opened from elsewhere into view', () => {
+    const scrolled = jest.spyOn(Element.prototype, 'scrollIntoView');
+    renderScreen(<Configure focus={{ kind: 'target', experienceId: BZ }} />, {
+      watched: [BZ, DB],
+    });
+    const card = screen.getByText(NAME).closest('details')!;
+    expect(card).toHaveAttribute('open');
+    expect(scrolled.mock.contexts).toEqual([card.closest('li')]);
+    scrolled.mockRestore();
+  });
+
+  // Once a visit, so the screen does not jump while the filter is typed in.
+  it('does not bring the card back into view when the filter shows it again', () => {
+    const scrolled = jest.spyOn(Element.prototype, 'scrollIntoView');
+    renderScreen(<Configure focus={{ kind: 'target', experienceId: BZ }} />, {
+      watched: [BZ, DB],
+    });
+    const filter = screen.getByLabelText('Filter attractions');
+    fireEvent.change(filter, { target: { value: wdw.experience(DB).name } });
+    expect(screen.queryByText(NAME)).not.toBeInTheDocument();
+    fireEvent.change(filter, { target: { value: '' } });
+    expect(screen.getByText(NAME)).toBeInTheDocument();
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    scrolled.mockRestore();
+  });
+
+  it('opens at the top with nothing to bring into view', () => {
+    const scrolled = jest.spyOn(Element.prototype, 'scrollIntoView');
+    setup({ watched: [BZ, DB] });
+    expect(scrolled).not.toHaveBeenCalled();
+    scrolled.mockRestore();
   });
 });
 

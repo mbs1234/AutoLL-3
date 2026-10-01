@@ -1126,6 +1126,26 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 33. Undo every removal, and a card opened from elsewhere in view — _completed in 1.8.1_
+
+`FUTURE.md` §2.3 and §2.4: the two rough edges AutoLL-5 fixed alone (usability
+slice 5), re-made here as the owner asked (2026-10-01).
+
+- **Every removal can be undone.** The undo held one removal in a single state
+  slot, so tidying two cards in a row lost the first one's window, rank and
+  flags. The strip now keeps an Undo for each removal made while it shows, and
+  goes 8 seconds after the last.
+- **A card opened from elsewhere is in view.** A Timeline bar or a Plan Check
+  item about an attraction unfolded its card wherever it was, often below the
+  fold. It is now scrolled to the middle of the screen, once a visit, so a card
+  the filter hides and shows again does not move the screen while it is typed
+  in. A card just added from the list is left where it is, as before.
+- **A settings item needed nothing.** §2.4 said a settings item opened Configure
+  at the top of a long screen rather than at the setting. Every visit starts at
+  the top, and the three safeguards are the first thing there, so the item
+  already lands on them; AutoLL-5's scroll to them moves nothing and was not
+  copied.
+
 ### 32. A timeline that names what it draws, and draws lunch — _completed in 1.8.0_
 
 `FUTURE.md` §2.1, §2.2 and §2.7, and the dining the owner asked for

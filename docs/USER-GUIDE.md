@@ -208,8 +208,8 @@ gives up.
 
 Inside the card, at the bottom. Removal is inside the card on purpose, so a
 mis-tap on the list cannot lose a window and a rank. An **Undo** strip appears
-for **8 seconds** and remembers only the most recent removal — remove a second
-attraction and the first one's undo is gone.
+for **8 seconds** after the last removal, with an Undo for each attraction
+removed while it shows.
 
 ### The three safeguards
 
@@ -265,7 +265,9 @@ Reviews ("Review:"):
 - More than one Tier 1 target armed to book
 - Whole party only is off / Avoid clashes is off
 
-Most items carry an **Open Configure** button; items about the tip board carry
+Most items carry an **Open Configure** button. One about an attraction opens its
+card, unfolded and in view; one about a setting opens Configure at its top, where
+the three safeguards are. Items about the tip board carry
 **Refresh LL list**, which is one of only two things on this screen that go to
 the network. The other is **Check current party** at the bottom, which asks
 Disney whether your saved guests are generally eligible — it cannot create an
@@ -275,8 +277,8 @@ offer and cannot spend an entitlement.
 > Lightning Lane exists. Eligibility, inventory and the offer's real return time
 > are checked again immediately before every action.
 
-> Two rough edges visible in the screenshot: with exactly one blocker the bar
-> reads "1 blocker need attention." (the verb is not pluralised), and the
+> Two rough edges: with exactly one blocker the bar reads "1 blocker need
+> attention." (the verb is not pluralised), and, as the screenshot shows, the
 > **Open Configure** buttons sit inline inside the sentence, so text wraps around
 > them. "Retired Ride" is the harness's fake data, not a real attraction.
 
@@ -303,7 +305,8 @@ Colours on the Targets column:
 - **Grey** — only one bound set, such as "from 3:00 PM"
 
 Tap a bar, or a name under Any time, to open that plan, or that target's card in
-Configure. A short bar answers a tap a little above and below itself too.
+Configure, unfolded and in view. A short bar answers a tap a little above and
+below itself too.
 
 Two limits worth knowing:
 
@@ -1030,14 +1033,14 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.8.0.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.8.1.** Known and not fixed yet:
 
-- Undoing two target removals in a row loses the first one's window and rank.
-- A Plan Check item that names a setting opens Configure at the top of a long
-  screen rather than at the setting.
+- With exactly one blocker, Plan Check's bar reads "1 blocker need attention."
+- Plan Check's **Open Configure** buttons sit inside the sentence, so its text
+  wraps around them.
 
-These and everything else outstanding are in [docs/FUTURE.md](FUTURE.md), with
-what each would cost to fix.
+Everything else outstanding is in [docs/FUTURE.md](FUTURE.md), with what each
+would cost to fix.
 
 ---
 
@@ -1076,7 +1079,7 @@ further out than tomorrow gets no drop times at all and sits at 45 s.
 | Time Search minimum gain | 5 minutes |
 | Tier 1 hold horizon | 90 minutes |
 | Protected span around a plan | 40 min before; 60 after with no end time, 40 with one; 20 before a show ends |
-| Undo after Stop watching | 8 seconds, most recent removal only |
+| Undo after Stop watching | 8 seconds after the last removal, one Undo for each |
 | Activity log | 20 rows |
 | Drop learning | 2 distinct park days before a time is used |
 | Party cap | 20 guests |

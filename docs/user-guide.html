@@ -965,7 +965,8 @@
         Inside the card, at the bottom. Removal is inside the card on purpose,
         so a mis-tap on the list cannot lose a window and a rank. An
         <span class="ui">Undo</span> strip appears for <strong>8 seconds</strong>
-        and remembers only the most recent removal.
+        after the last removal, with an Undo for each attraction removed while
+        it shows.
       </p>
 
       <h4>The three safeguards</h4>
@@ -1045,8 +1046,10 @@
         <li>Whole party only is off, or Avoid clashes is off</li>
       </ul>
       <p>
-        Most items carry an <span class="ui">Open Configure</span> button. Items
-        about the tip board carry <span class="ui">Refresh LL list</span>, one of
+        Most items carry an <span class="ui">Open Configure</span> button. One
+        about an attraction opens its card, unfolded and in view; one about a
+        setting opens Configure at its top, where the three safeguards are.
+        Items about the tip board carry <span class="ui">Refresh LL list</span>, one of
         only two things here that go to the network. The other is
         <span class="ui">Check current party</span>, which asks Disney whether
         your saved guests are generally eligible — it cannot create an offer and
@@ -1099,8 +1102,8 @@
       </div>
       <p>
         Tap a bar, or a name under Any time, to open that plan, or that
-        target's card in Configure. A short bar answers a tap a little above and
-        below itself too.
+        target's card in Configure, unfolded and in view. A short bar answers a
+        tap a little above and below itself too.
       </p>
       <p>Two limits worth knowing:</p>
       <ul>
@@ -2210,12 +2213,11 @@
         well, or it may start empty next time.
       </p>
       <p>
-        <strong>Rough edges, as of 1.8.0.</strong> Known, recorded, and not
-        fixed yet:
+        <strong>Rough edges, as of 1.8.1.</strong> Known and not fixed yet:
       </p>
       <ul>
-        <li>Undoing two target removals in a row loses the first one's window and rank.</li>
-        <li>A Plan Check item that names a setting opens Configure at the top of a long screen rather than at the setting.</li>
+        <li>With exactly one blocker, Plan Check's bar reads “1 blocker need attention.”</li>
+        <li>Plan Check's <span class="ui">Open Configure</span> buttons sit inside the sentence, so its text wraps around them.</li>
       </ul>
     </section>
 
@@ -2266,7 +2268,7 @@
         <div><dt>Auto-move gain</dt><dd>30 min<small>1 min for a NextLL target with a bound</small></dd></div>
         <div><dt>Time Search gain</dt><dd>5 min<small>in either direction</small></dd></div>
         <div><dt>Tier 1 hold horizon</dt><dd>90 min<small>then the hold releases itself</small></dd></div>
-        <div><dt>Undo window</dt><dd>8 s<small>most recent removal only</small></dd></div>
+        <div><dt>Undo window</dt><dd>8 s<small>after the last removal, one Undo for each</small></dd></div>
         <div><dt>Activity log</dt><dd>20<small>rows, then the oldest fall off</small></dd></div>
         <div><dt>Drop learning</dt><dd>2 days<small>distinct park days before a time is used</small></dd></div>
         <div><dt>Party cap</dt><dd>20<small>guests per Lightning Lane</small></dd></div>
