@@ -112,6 +112,9 @@ adjacent bars' hit areas overlapping.
 
 ### 2.3 A second removal inside the undo window destroys the first undo
 
+**Done in 1.8.1** (ROADMAP item 33): the strip keeps an Undo for every removal
+made while it shows. The finding as made:
+
 The undo holds one removal in a single state slot. Tidying two rows in a row —
 the ordinary way to hit it — loses the first target's window, rank and flags
 with no way back.
@@ -121,6 +124,15 @@ small. _Risk:_ keep the flash to one row at a time, or the footer grows
 unpredictably at 360 px.
 
 ### 2.4 A Plan Check settings item opens Configure and abandons you
+
+**Not a defect as written**, found while fixing it in 1.8.1 (ROADMAP item 33).
+Every visit to Configure starts at its top, and the three safeguards are the
+first thing there, so a settings item already lands on them. AutoLL-5's fix,
+a scroll to the safeguards, moves nothing, and was not copied. What the item
+does not do is mark which of the three chips it means; its text names the
+setting in the chip's own words. The same look found the real gap next to it:
+an item about an attraction opened its card wherever it was, often below the
+fold. That card is now brought into view. The finding as made:
 
 `Configure` accepts a focus of `{kind:'target'}` or `{kind:'setting'}` and
 reads only the target case, so following a settings blocker drops you at the

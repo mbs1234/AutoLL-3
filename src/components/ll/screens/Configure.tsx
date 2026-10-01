@@ -1,4 +1,4 @@
-import { use, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useRef, useState } from 'react';
 
 import { Experience } from '@/api/ll';
 import { WatchTarget, targetApplies } from '@/autopilot/watchlist';
@@ -50,16 +50,34 @@ export default function Configure({
   const { bookingDate } = use(BookingDateContext);
 
   // A removal can be undone for a moment. The target is kept whole, flags and
-  // window included, because that is what a mis-tap used to lose.
-  const [removed, setRemoved] = useState<{
-    target: WatchTarget;
-    name: string;
-  }>();
+  // window included, because that is what a mis-tap used to lose. Every
+  // removal in the moment is kept: a second one used to wipe the first's
+  // undo, so two quick removals lost the first for good.
+  const [removed, setRemoved] = useState<
+    { target: WatchTarget; name: string }[]
+  >([]);
+  const remember = (target: WatchTarget, name: string) =>
+    setRemoved(current => [
+      ...current.filter(r => r.target.experienceId !== target.experienceId),
+      { target, name },
+    ]);
   useEffect(() => {
-    if (!removed) return;
-    const timer = setTimeout(() => setRemoved(undefined), UNDO_MS);
+    if (removed.length === 0) return;
+    const timer = setTimeout(() => setRemoved([]), UNDO_MS);
     return () => clearTimeout(timer);
   }, [removed]);
+  // A card opened from elsewhere -- a Timeline bar, a Plan Check item -- is
+  // brought into view as well as unfolded. It used to open where it was, often
+  // below the fold of a long screen. Once a visit: a card the filter hides and
+  // shows again stays where it is, rather than the screen jumping while the
+  // filter is typed in. A settings item needs nothing: the safeguards are the
+  // first thing here.
+  const broughtIntoView = useRef(false);
+  const bringIntoView = useCallback((card: HTMLLIElement | null) => {
+    if (!card || broughtIntoView.current) return;
+    broughtIntoView.current = true;
+    card.scrollIntoView?.({ block: 'center' });
+  }, []);
   // The target just added starts unfolded: adding is when it gets set up.
   const [justAdded, setJustAdded] = useState<string>();
   const [filterText, setFilterText] = useState('');
@@ -269,7 +287,14 @@ export default function Configure({
       ) : (
         <ul className="mt-2 space-y-2">
           {watched.map(exp => (
-            <li key={exp.id}>
+            <li
+              key={exp.id}
+              ref={
+                focus?.kind === 'target' && exp.id === focus.experienceId
+                  ? bringIntoView
+                  : undefined
+              }
+            >
               <TargetCard
                 experience={exp}
                 target={targetFor(exp.id)}
@@ -280,28 +305,35 @@ export default function Configure({
                 onRemove={() => {
                   const target = targetFor(exp.id) ?? { experienceId: exp.id };
                   removeTarget(exp.id);
-                  setRemoved({ target, name: exp.name });
+                  remember(target, exp.name);
                 }}
               />
             </li>
           ))}
         </ul>
       )}
-      {removed && (
+      {removed.length > 0 && (
         <div
           role="status"
-          className="mt-2 flex items-center gap-2 rounded-sm bg-gray-100 p-2 text-sm"
+          className="mt-2 flex flex-col gap-1 rounded-sm bg-gray-100 p-2 text-sm"
         >
-          <span className="flex-1">Stopped watching {removed.name}.</span>
-          <Button
-            type="small"
-            onClick={() => {
-              addTarget(removed.target);
-              setRemoved(undefined);
-            }}
-          >
-            Undo
-          </Button>
+          {removed.map(entry => (
+            <div
+              key={entry.target.experienceId}
+              className="flex items-center gap-2"
+            >
+              <span className="flex-1">Stopped watching {entry.name}.</span>
+              <Button
+                type="small"
+                onClick={() => {
+                  addTarget(entry.target);
+                  setRemoved(current => current.filter(r => r !== entry));
+                }}
+              >
+                Undo
+              </Button>
+            </div>
+          ))}
         </div>
       )}
 
