@@ -160,6 +160,21 @@ export async function loading() {
   }
 }
 
+/**
+ * Waits out a refresh of data already on screen, which shows a thin bar along
+ * the top rather than the spinner `loading` waits for.
+ */
+export async function refreshing() {
+  try {
+    await waitForElementToBeRemoved(
+      () => withinActive().queryByRole('status', { name: 'Refreshing…' }),
+      { timeout: 5000 }
+    );
+  } catch {
+    throw getQueryError("Didn't show the refreshing bar");
+  }
+}
+
 export function setTime(time: unknown, minutes = 0) {
   const now = new Date(`${TODAY}T${time}-0400`);
   jest.useFakeTimers({ now });
