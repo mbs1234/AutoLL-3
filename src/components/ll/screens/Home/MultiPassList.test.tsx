@@ -24,6 +24,7 @@ import {
   TOMORROW,
   click,
   loading,
+  refreshing,
   screen,
   see,
   setTime,
@@ -131,7 +132,8 @@ describe('MultiPassList', () => {
 
     setTime('10:00');
     click('Refresh Experiences');
-    await loading();
+    // The list is on screen already, so it refreshes under the thin bar.
+    await refreshing();
     expect(ll.experiences).toHaveBeenCalledTimes(2);
 
     see.no(NEXT_DROP_INFO);
@@ -205,7 +207,7 @@ describe('MultiPassList', () => {
     await loading();
     const row = see(sm.name).closest('li')!;
     click('Refresh Experiences');
-    await loading();
+    await refreshing();
     expect(ll.experiences).toHaveBeenCalledTimes(2);
     expect(row).toBeInTheDocument();
   });

@@ -164,3 +164,81 @@ describe('ExperiencesProvider request scope', () => {
     );
   });
 });
+
+// The tip board was covered by the spinner on every refresh, not only the
+// first: half a second or more of a screen nobody could read or tap.
+describe('ExperiencesProvider refreshing', () => {
+  // The tests above pin `Date.now`, which would hold the refresh throttle's
+  // clock still and swallow the second refresh.
+  beforeEach(() => jest.restoreAllMocks());
+
+  function Screen() {
+    const { experiences, refreshExperiences, loaderElem } =
+      use(ExperiencesContext);
+    const { setPark } = use(ParkContext);
+    return (
+      <>
+        <div data-testid="experiences">
+          {experiences.map(exp => exp.name).join(',')}
+        </div>
+        <button onClick={() => refreshExperiences()}>Refresh</button>
+        <button onClick={() => setPark(ep)}>Epcot</button>
+        {loaderElem}
+      </>
+    );
+  }
+
+  it('covers the first load of a park, and no refresh after it', async () => {
+    const ll = {
+      unknownExperienceIds: [] as string[],
+      experiences: jest.fn(async (park: typeof mk) => [
+        experience(park.id, park.name),
+      ]),
+    };
+    const clients = {
+      ll,
+      liveData: { shows: jest.fn(async () => ({})) },
+    } as unknown as Clients;
+    function Harness() {
+      const [park, setPark] = useState(mk);
+      return (
+        <ClientsContext value={clients}>
+          <ParkContext value={{ park, setPark }}>
+            <BookingDateContext
+              value={{ bookingDate: TODAY, setBookingDate: () => {} }}
+            >
+              <ExperiencesProvider>
+                <Screen />
+              </ExperiencesProvider>
+            </BookingDateContext>
+          </ParkContext>
+        </ClientsContext>
+      );
+    }
+    render(<Harness />);
+    // Nothing on screen yet, so the first load covers it.
+    expect(screen.getByLabelText('Loading…')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId('experiences')).toHaveTextContent(mk.name)
+    );
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Loading…')).not.toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(
+      screen.getByRole('status', { name: 'Refreshing…' })
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Loading…')).not.toBeInTheDocument();
+    expect(screen.getByTestId('experiences')).toHaveTextContent(mk.name);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('status', { name: 'Refreshing…' })
+      ).not.toBeInTheDocument()
+    );
+
+    // Another park starts empty, so its first load covers again.
+    fireEvent.click(screen.getByRole('button', { name: 'Epcot' }));
+    expect(await screen.findByLabelText('Loading…')).toBeInTheDocument();
+  });
+});

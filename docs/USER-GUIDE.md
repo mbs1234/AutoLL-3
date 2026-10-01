@@ -386,6 +386,10 @@ This is the line that tells you whether to believe the rest of the screen. If it
 is climbing, tap the refresh button in the header. If there is **no line at
 all**, neither list has ever loaded — that is not the same as fresh.
 
+A refresh leaves the screen as it is, readable and tappable, with a thin bar
+pulsing along the top edge until it is done. Only a first load, or a new park or
+day, covers the screen with a spinner, since there is nothing to read yet.
+
 **Held (N)** is what you are actually holding, at every park on that date.
 **Plan (N)** is what Autopilot is still after, for the park in the header only.
 The two lists are scoped differently on purpose, which is why you can see
@@ -1021,7 +1025,7 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.7.0.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.7.1.** Known, recorded, and not fixed yet:
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.

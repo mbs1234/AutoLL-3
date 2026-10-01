@@ -4,6 +4,7 @@ import {
   click,
   loading,
   render,
+  screen,
   see,
   waitForElementToBeRemoved,
 } from '@/testing';
@@ -114,5 +115,43 @@ describe('useDataLoader()', () => {
 
     await clickFlash('Load', 'Success!');
     see('loaded');
+  });
+});
+
+// A refresh of data already on screen covered it for half a second or more,
+// hiding what was being read and blocking a tap on it.
+describe('useDataLoader() quietly', () => {
+  function Loader() {
+    const { loadData, loaderElem } = useDataLoader();
+    return (
+      <div>
+        <button onClick={() => void loadData(async () => {}, { quiet: true })}>
+          Refresh
+        </button>
+        <button onClick={() => void loadData(async () => {})}>Load</button>
+        {loaderElem}
+      </div>
+    );
+  }
+
+  it('leaves the screen uncovered, with a small badge', async () => {
+    render(<Loader />);
+    click('Refresh');
+    expect(
+      screen.getByRole('status', { name: 'Refreshing…' })
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Loading…')).not.toBeInTheDocument();
+    await waitForElementToBeRemoved(() =>
+      screen.queryByRole('status', { name: 'Refreshing…' })
+    );
+  });
+
+  it('still covers the screen for an ordinary load', async () => {
+    render(<Loader />);
+    click('Load');
+    expect(
+      screen.queryByRole('status', { name: 'Refreshing…' })
+    ).not.toBeInTheDocument();
+    await loading();
   });
 });

@@ -35,6 +35,11 @@ export default function ExperiencesProvider({
   const scopeGeneration = useRef(0);
   const requestSequence = useRef(0);
   const publishedSequence = useRef(0);
+  // Whether this park and date have a tip board on screen yet. Refreshing one
+  // leaves the screen readable; the first load of a scope covers it. A ref,
+  // read when a refresh starts: as state it would re-create the refresh, and
+  // the effect below runs it whenever it changes.
+  const loadedRef = useRef(false);
 
   // This layout effect must be registered before `useThrottleable` below.
   // That hook re-runs its callback when the park/date-bound fetch function
@@ -42,6 +47,7 @@ export default function ExperiencesProvider({
   // member of the new generation rather than immediately making it stale.
   useLayoutEffect(() => {
     ++scopeGeneration.current;
+    loadedRef.current = false;
     setExperiences([]);
     setUnknownExperienceIds([]);
     setLastUpdated(undefined);
@@ -75,6 +81,7 @@ export default function ExperiencesProvider({
       request > publishedSequence.current
     ) {
       publishedSequence.current = request;
+      loadedRef.current = true;
       setExperiences(merged);
       // Held in state rather than read from the client: the client mutates the
       // list in place, which would never re-render the warning that shows it.
@@ -88,7 +95,9 @@ export default function ExperiencesProvider({
     useCallback(() => {
       // Discard the returned list: loadData's callback must resolve to void,
       // and the visible path reads the state this already set.
-      loadData(async () => void (await fetchExperiences()));
+      loadData(async () => void (await fetchExperiences()), {
+        quiet: loadedRef.current,
+      });
     }, [fetchExperiences, loadData])
   );
 

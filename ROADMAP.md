@@ -1126,6 +1126,26 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 30. Refreshes that keep the screen — _completed in 1.7.1_
+
+Left for AutoLL-3 by AutoLL-5's usability review, because the spinner is the
+providers', not a screen's. Every visible refresh of the tip board or the plans
+went through `useDataLoader`, which covered the screen with a spinner for at
+least half a second, so the screen being read was hidden, and a tap on it
+blocked, each time.
+
+- **`quiet`**, a new `loadData` option: the screen stays uncovered, with a thin
+  bar pulsing along the top edge (`Refreshing`). An edge rather than a badge,
+  because the header's height differs from screen to screen, and a badge in it
+  covered what sat there.
+- **The two providers ask for it once they have data.** `ExperiencesProvider`
+  is quiet once the current park and day have a tip board, and covers again
+  when a new one starts empty; `PlansProvider` once plans have loaded. Each
+  tracks that in a ref, read when a refresh starts: as state it would re-create
+  the refresh, which an effect runs whenever it changes.
+- **Everything else still covers.** A screen's own action, such as booking,
+  keeps the spinner, which also stops a second tap.
+
 ### 29. Pocket mode for a NextLL search — _completed in 1.7.0_
 
 Left for AutoLL-3 by AutoLL-5's usability review, because it needs the shield

@@ -348,3 +348,45 @@ describe('PlansProvider reconciles unresolved reservations', () => {
     expect(quarantinedAt(key)).toBe(2000);
   });
 });
+
+// Plans were covered by the spinner on every refresh, not only the first.
+describe('PlansProvider refreshing', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  function Screen() {
+    const { plans, refreshPlans, loaderElem } = use(PlansContext);
+    return (
+      <>
+        <div data-testid="plans">{plans.map(plan => plan.name).join(',')}</div>
+        <button onClick={() => refreshPlans()}>Refresh</button>
+        {loaderElem}
+      </>
+    );
+  }
+
+  it('covers the first load, and no refresh after it', async () => {
+    const plans = jest.fn(async () => [booking('a', 'A pass')]);
+    const clients = { itinerary: { plans } } as unknown as Clients;
+    render(
+      <ClientsContext value={clients}>
+        <PlansProvider>
+          <Screen />
+        </PlansProvider>
+      </ClientsContext>
+    );
+    expect(screen.getByLabelText('Loading…')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId('plans')).toHaveTextContent('A pass')
+    );
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Loading…')).not.toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(
+      screen.getByRole('status', { name: 'Refreshing…' })
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Loading…')).not.toBeInTheDocument();
+    expect(screen.getByTestId('plans')).toHaveTextContent('A pass');
+  });
+});

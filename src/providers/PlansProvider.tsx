@@ -23,6 +23,10 @@ export default function PlansProvider({
   // Plans at once. A slower, older response must not replace the newest view.
   const requestSequence = useRef(0);
   const publishedSequence = useRef(0);
+  // Whether plans are on screen yet: refreshing them leaves the screen
+  // readable, and only the first load covers it. A ref for the reason
+  // ExperiencesProvider gives.
+  const loadedRef = useRef(false);
   // Separate from `publishedSequence` on purpose. That one lets an older
   // success stand when a newer request failed, because stale data beats no
   // data on screen. Evidence has the opposite rule: an older response can only
@@ -49,6 +53,7 @@ export default function PlansProvider({
     // succeeds first, this prevents the older snapshot from regressing it.
     if (request > publishedSequence.current) {
       publishedSequence.current = request;
+      loadedRef.current = true;
       setPlans(fetched);
       setPlansLoaded(true);
       setLastUpdated(Date.now());
@@ -107,9 +112,12 @@ export default function PlansProvider({
   const refreshPlans = useThrottleable(
     useCallback(() => {
       // Return value discarded: the visible path renders from `plans` state.
-      loadData(async () => {
-        await fetchPlans();
-      });
+      loadData(
+        async () => {
+          await fetchPlans();
+        },
+        { quiet: loadedRef.current }
+      );
     }, [fetchPlans, loadData])
   );
 
