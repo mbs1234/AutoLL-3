@@ -154,6 +154,46 @@ describe('checklist()', () => {
   });
 });
 
+// ROADMAP item 5: a row with a route to the names, where Today only had a red
+// line saying where to look.
+describe('checklist() and attractions this build does not recognise', () => {
+  const base = {
+    partySize: 1,
+    targets: [{ experienceId: 'ride', autoBook: true }],
+    notifications: 'granted' as const,
+    sound: 'idle' as const,
+    windowsConfirmed: true,
+    planReviewed: true,
+    planBlockers: 0,
+  };
+
+  it('says how many, and is never ticked: only a build update fixes it', () => {
+    expect(
+      checklist({ ...base, unknownAttractions: 1 }).find(
+        item => item.subject === 'unknown'
+      )
+    ).toEqual({
+      subject: 'unknown',
+      done: false,
+      text: 'Disney lists 1 attraction this build does not recognise',
+    });
+  });
+
+  it('comes after the targets', () => {
+    expect(
+      checklist({ ...base, unknownAttractions: 3 })
+        .map(item => item.subject)
+        .slice(0, 3)
+    ).toEqual(['party', 'targets', 'unknown']);
+  });
+
+  it('is not a row when every attraction is known', () => {
+    expect(checklist(base).some(item => item.subject === 'unknown')).toBe(
+      false
+    );
+  });
+});
+
 describe('windowsKey()', () => {
   const mk = 'mk';
   const day = 'day';

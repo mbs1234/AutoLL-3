@@ -125,10 +125,10 @@ rather than a hash.
 
 ### 2.5 The pre-trip checklist is missing three steps and has no way back into a finished one
 
-**Mostly done in 1.6.0** (ROADMAP item 27). "Windows set where wanted" is a
-step you confirm, and a finished step keeps its button. Still open: a row for
-unrecognised attraction IDs. "Park and date chosen" is not to be built
-(ROADMAP item 5). What follows is the finding as it was made.
+**Done in 1.6.0 and 1.7.2** (ROADMAP items 27 and 31). "Windows set where
+wanted" is a step you confirm, a finished step keeps its button, and
+unrecognised attraction IDs have a row of their own. "Park and date chosen" is
+not to be built (ROADMAP item 5). What follows is the finding as it was made.
 
 It ships five of its eight steps: party, targets, an action armed,
 notifications, Plan Check. "Park and date chosen", "windows set where wanted"

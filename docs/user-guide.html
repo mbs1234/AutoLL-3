@@ -552,7 +552,7 @@
       stops working.
     </p>
     <div class="masthead-meta">
-      <span>Version 1.7.1</span>
+      <span>Version 1.7.2</span>
       <span>Three parts · 23 sections</span>
       <span>Unofficial · not endorsed by Disney</span>
     </div>
@@ -1125,8 +1125,11 @@
       </figure>
       <p>
         When the day on screen is <strong>not today</strong>, the Today tab
-        becomes a readiness list of up to six items: party saved, at least one
-        target, an action actually armed, return windows confirmed (once there
+        becomes a readiness list of up to seven items: party saved, at least
+        one target, any attractions this build does not recognise (if Disney
+        lists any; <span class="ui">Open</span> goes to Configure, which names
+        them, and it cannot be ticked, since only an update to the app
+        recognises a ride), an action actually armed, return windows confirmed (once there
         is a target), notifications allowed (or, where there are none, the
         alert sound tested), Plan Check reviewed. Each item still to do has a
         button: <span class="ui">Open</span> goes to the screen that fixes it,
@@ -1254,13 +1257,16 @@
           this, and it is best-effort. Today says <strong>Screen is being kept
           awake</strong> while it is held and warns <strong>Screen may
           sleep</strong> when the browser supports the lock but has not granted
-          one. That row appears only while Autopilot is on, because an idle
-          wake lock is expected when no checks are running.
+          one. That row appears only while Autopilot is running, because an
+          idle wake lock is expected when no checks are running: not while it
+          is off, and not once it has stopped, since a stop gives the lock back
+          on purpose.
         </p>
       </div>
       <h4>Put the running phone in your pocket</h4>
       <p>
-        Once Autopilot is on, tap <span class="ui">Pocket it</span>. The
+        Once Autopilot is running, tap <span class="ui">Pocket it</span>. (A
+        stopped run does not offer it: nothing is running to guard.) The
         full-screen guard leaves the poller and notifications running while
         preventing the live glass from reaching the controls underneath it. It
         also blocks page scrolling and pull-to-refresh; a reload would turn
@@ -2201,7 +2207,7 @@
         well, or it may start empty next time.
       </p>
       <p>
-        <strong>Rough edges, as of 1.7.1.</strong> Known, recorded, and not
+        <strong>Rough edges, as of 1.7.2.</strong> Known, recorded, and not
         fixed yet:
       </p>
       <ul>

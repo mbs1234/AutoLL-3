@@ -320,10 +320,13 @@ Three limits worth knowing:
 ![The pre-trip checklist](user-guide/pretrip-checklist.png)
 
 When the day on screen is **not today**, the Today tab becomes a readiness list
-of up to six items:
+of up to seven items:
 
 - Party saved
 - At least one target selected
+- Attractions this build does not recognise, if Disney lists any. **Open** goes
+  to Configure, which names them; it cannot be ticked, since only an update to
+  the app recognises a ride
 - An action actually armed
 - Return windows confirmed, once there is a target
 - Notifications allowed — or, where there are none, the alert sound tested
@@ -428,12 +431,14 @@ verify it manually. If you hear two notes, the channel works.
 > screen wake lock exists to prevent exactly this, and it is best-effort.
 > Today says **Screen is being kept awake** while it is held and warns
 > **Screen may sleep** when the browser supports the lock but has not granted
-> one. That row appears only while Autopilot is on, because an idle wake lock is
-> expected when no checks are running.
+> one. That row appears only while Autopilot is running, because an idle wake
+> lock is expected when no checks are running: not while it is off, and not
+> once it has stopped, since a stop gives the lock back on purpose.
 
 ### Put the running phone in your pocket
 
-Once Autopilot is on, tap **Pocket it**. The full-screen guard leaves the
+Once Autopilot is running, tap **Pocket it**. (A stopped run does not offer
+it: nothing is running to guard.) The full-screen guard leaves the
 poller and notifications running while preventing the live glass from reaching
 the controls underneath it. It also blocks page scrolling and pull-to-refresh;
 a reload would turn Autopilot off.
@@ -1025,7 +1030,7 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.7.1.** Known, recorded, and not fixed yet:
+**Rough edges, as of 1.7.2.** Known, recorded, and not fixed yet:
 
 - The day timeline truncates every target name at 360 px, and its bars are
   14–20 px tall, which is a small tap target.
