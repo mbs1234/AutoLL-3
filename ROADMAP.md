@@ -1126,6 +1126,24 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 31. Three small honesty fixes on Today — _completed in 1.7.2_
+
+- **No awake warning once stopped.** While Autopilot was stopped, Today's awake
+  line read red "Screen may sleep, which can slow or pause checks", though a
+  stop gives the wake lock back on purpose and nothing is checking. The line
+  now shows only while it runs; **Restart autopilot** takes the lock again,
+  and the line comes back.
+- **No Pocket it on a stopped run.** Its own comment said it was offered "only
+  while the engine is running", since only then is the screen held, but it was
+  offered whenever Autopilot was switched on, stopped included, where the
+  shield could only say "Stopped". NextLL's new **Pocket it** already went once
+  its search stopped; Today's now does too.
+- **A checklist row for attractions this build does not recognise** (item 5's
+  last part, `FUTURE.md` §2.5's last missing step). Today's red line about them
+  said where to look and offered no way there. The pre-trip list now has a row
+  saying how many, with **Open** to Configure, which names them. It cannot be
+  ticked: only an update to the build's data recognises a ride.
+
 ### 30. Refreshes that keep the screen — _completed in 1.7.1_
 
 Left for AutoLL-3 by AutoLL-5's usability review, because the spinner is the

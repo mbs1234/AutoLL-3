@@ -86,6 +86,23 @@ describe('Today', () => {
     expect(setEnabled).not.toHaveBeenCalled();
   });
 
+  // Its own comment said "only while the engine is running", and it was
+  // offered on a stopped run too, whose shield could only say "Stopped".
+  it('offers Pocket it only while the engine runs', () => {
+    setup({ enabled: true, status: { ...OFF, mode: 'idle', polls: 3 } });
+    expect(screen.getByRole('button', { name: 'Pocket it' })).toBeVisible();
+  });
+
+  it('offers no Pocket it once it has stopped', () => {
+    setup({
+      enabled: true,
+      status: { ...OFF, mode: 'stopped', consecutiveFailures: 8, polls: 20 },
+    });
+    expect(
+      screen.queryByRole('button', { name: 'Pocket it' })
+    ).not.toBeInTheDocument();
+  });
+
   it('offers a restart only once it has stopped', () => {
     setup({ enabled: true, status: { ...OFF, mode: 'idle', polls: 3 } });
     expect(
@@ -741,6 +758,17 @@ describe('Today screen wake status', () => {
     expect(screen.queryByText(/Screen may sleep/)).not.toBeInTheDocument();
   });
 
+  // A stop gives the lock back on purpose, and nothing is checking, so the
+  // red "can slow or pause checks" was an alarm about nothing.
+  it('omits it once autopilot has stopped', () => {
+    installWakeLock();
+    setup({
+      enabled: true,
+      status: { ...OFF, mode: 'stopped', consecutiveFailures: 8, polls: 20 },
+    });
+    expect(screen.queryByText(/Screen may sleep/)).not.toBeInTheDocument();
+  });
+
   it('shows a held lock and reacts when the browser releases it', async () => {
     const sentinel = installWakeLock();
     await holdScreenAwake(OWNER);
@@ -866,6 +894,18 @@ describe('Today before the trip', () => {
     review(/Return windows confirmed/);
     expect(nav.goTo).toHaveBeenLastCalledWith(<Configure />);
     expect(nav.goTo).toHaveBeenCalledTimes(4);
+  });
+
+  // ROADMAP item 5: Today's red line about these said where to look and
+  // offered no way there.
+  it('lists attractions this build does not recognise, with a way to them', () => {
+    setup({ bookingDate: TOMORROW, unknownExperienceIds: ['a', 'b'] });
+    const row = step(/does not recognise/);
+    expect(row).toHaveTextContent(
+      '○ Disney lists 2 attractions this build does not recognise'
+    );
+    fireEvent.click(within(row).getByRole('button', { name: 'Open' }));
+    expect(nav.goTo).toHaveBeenLastCalledWith(<Configure />);
   });
 
   // Only the browser's own settings change an allowed permission.

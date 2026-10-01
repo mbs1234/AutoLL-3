@@ -203,6 +203,7 @@ export default function Today({ ref }: HomeTabProps) {
     notifications,
     sound: soundStatus,
     windowsConfirmed: confirmedWindows === currentWindows,
+    unknownAttractions: unknown,
     planReviewed: reviewedPlan?.key === currentReview.key,
     planBlockers: currentReview.blockers,
   });
@@ -282,8 +283,9 @@ export default function Today({ ref }: HomeTabProps) {
             changes what the screen will accept, which is a different kind of
             action and reads as one at this size. Offered only while the engine
             is running, because that is the only time the wake lock holds the
-            screen on and the glass stays live in a pocket. */}
-        {enabled && (
+            screen on and the glass stays live in a pocket -- which a stopped
+            run is not, though it is still switched on. */}
+        {enabled && status.mode !== 'stopped' && (
           <div className="mt-2">
             <Button
               type="full"
@@ -365,6 +367,7 @@ export default function Today({ ref }: HomeTabProps) {
                         else if (
                           item.subject === 'targets' ||
                           item.subject === 'settings' ||
+                          item.subject === 'unknown' ||
                           (item.subject === 'windows' && item.done)
                         ) {
                           goTo(<Configure />);
@@ -442,19 +445,24 @@ export default function Today({ ref }: HomeTabProps) {
           </Button>
         </div>
       )}
-      {enabled && awakeStatus !== 'unsupported' && (
-        <p
-          className={`mt-3 text-sm ${
-            awakeStatus === 'held'
-              ? 'text-gray-600'
-              : 'font-semibold text-red-700'
-          }`}
-        >
-          {awakeStatus === 'held'
-            ? 'Screen is being kept awake.'
-            : 'Screen may sleep, which can slow or pause checks.'}
-        </p>
-      )}
+      {/* Not once stopped: a stop gives the wake lock back on purpose, and
+          with nothing checking, "can slow or pause checks" was an alarm about
+          nothing. Restart takes the lock again, and the line comes back. */}
+      {enabled &&
+        status.mode !== 'stopped' &&
+        awakeStatus !== 'unsupported' && (
+          <p
+            className={`mt-3 text-sm ${
+              awakeStatus === 'held'
+                ? 'text-gray-600'
+                : 'font-semibold text-red-700'
+            }`}
+          >
+            {awakeStatus === 'held'
+              ? 'Screen is being kept awake.'
+              : 'Screen may sleep, which can slow or pause checks.'}
+          </p>
+        )}
       {unknown > 0 && (
         <p className="mt-3 text-sm font-semibold text-red-700">
           Disney is listing {unknown} attraction{unknown === 1 ? '' : 's'} this

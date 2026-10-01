@@ -7,6 +7,7 @@ export interface ChecklistItem {
   subject:
     | 'party'
     | 'targets'
+    | 'unknown'
     | 'settings'
     | 'windows'
     | 'notifications'
@@ -109,6 +110,7 @@ export function checklist({
   notifications,
   sound,
   windowsConfirmed,
+  unknownAttractions = 0,
   planReviewed,
   planBlockers,
 }: {
@@ -119,6 +121,12 @@ export function checklist({
   sound: AudioStatus;
   /** Whether these targets' windows, as they are now, were confirmed. */
   windowsConfirmed: boolean;
+  /**
+   * How many attractions Disney lists that this build does not recognise.
+   * They cannot be watched, so a plan may be missing one; Configure names
+   * them.
+   */
+  unknownAttractions?: number;
   /** Whether the current park/date/configuration's result was actually shown. */
   planReviewed: boolean;
   /** Blocking findings in that current result. */
@@ -139,6 +147,18 @@ export function checklist({
           : 'Choose at least one target',
       subject: 'targets',
     },
+    // Not a step anyone can tick: only an update to the build's data can
+    // recognise a ride. It is here so the route to the names is a tap, where
+    // Today's red line about it only said where to look.
+    ...(unknownAttractions > 0
+      ? [
+          {
+            done: false,
+            text: `Disney lists ${unknownAttractions} attraction${unknownAttractions === 1 ? '' : 's'} this build does not recognise`,
+            subject: 'unknown' as const,
+          },
+        ]
+      : []),
     {
       done: actions,
       text: actions
