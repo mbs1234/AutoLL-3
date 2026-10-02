@@ -277,10 +277,9 @@ offer and cannot spend an entitlement.
 > Lightning Lane exists. Eligibility, inventory and the offer's real return time
 > are checked again immediately before every action.
 
-> Two rough edges: with exactly one blocker the bar reads "1 blocker need
-> attention." (the verb is not pluralised), and, as the screenshot shows, the
-> **Open Configure** buttons sit inline inside the sentence, so text wraps around
-> them. "Retired Ride" is the harness's fake data, not a real attraction.
+> "Retired Ride" is the harness's fake data, not a real attraction. The harness
+> also leaves Avoid clashes off, so a window inside lunch's protected time is
+> not a blocker here; Plan Check says instead that clashes are allowed.
 
 ## 7. See it — the Timeline
 
@@ -1033,14 +1032,8 @@ included, stay as they are. Reload the page afterwards.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.8.1.** Known and not fixed yet:
-
-- With exactly one blocker, Plan Check's bar reads "1 blocker need attention."
-- Plan Check's **Open Configure** buttons sit inside the sentence, so its text
-  wraps around them.
-
-Everything else outstanding is in [docs/FUTURE.md](FUTURE.md), with what each
-would cost to fix.
+**Rough edges, as of 1.8.2.** None known beyond what
+[docs/FUTURE.md](FUTURE.md) lists, with what each would cost to fix.
 
 ---
 

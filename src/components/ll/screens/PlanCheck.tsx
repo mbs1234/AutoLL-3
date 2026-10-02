@@ -222,7 +222,9 @@ export default function PlanCheck({
         }`}
       >
         {blockers
-          ? `${blockers} blocker${blockers === 1 ? '' : 's'} need attention.`
+          ? blockers === 1
+            ? '1 blocker needs attention.'
+            : `${blockers} blockers need attention.`
           : reviews
             ? `${reviews} item${reviews === 1 ? '' : 's'} to review.`
             : 'Ready to run within the current safeguards.'}
@@ -245,14 +247,15 @@ export default function PlanCheck({
             <span className="font-semibold">{LABEL[item.level]}:</span>{' '}
             {item.text}
             {item.subject && (
-              <Button
-                type="small"
-                className="mt-2"
-                disabled={item.subject.kind === 'tipboard' && refreshing}
-                onClick={() => actOn(item)}
-              >
-                {tipboardLabel(item.subject.kind, refreshing)}
-              </Button>
+              <div className="mt-2">
+                <Button
+                  type="small"
+                  disabled={item.subject.kind === 'tipboard' && refreshing}
+                  onClick={() => actOn(item)}
+                >
+                  {tipboardLabel(item.subject.kind, refreshing)}
+                </Button>
+              </div>
             )}
           </li>
         ))}

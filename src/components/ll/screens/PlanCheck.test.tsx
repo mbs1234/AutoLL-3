@@ -130,6 +130,19 @@ describe('PlanCheck', () => {
     expect(onReviewed).toHaveBeenCalledWith(
       expect.objectContaining({ blockers: 1 })
     );
+    // It read "1 blocker need attention."
+    expect(screen.getByText('1 blocker needs attention.')).toBeVisible();
+  });
+
+  // Inline, the button sat inside the sentence and the text wrapped around it.
+  it("puts each item's button on a line of its own", async () => {
+    const { onReviewed } = setup({ experiences: [jc] });
+    await waitFor(() => expect(onReviewed).toHaveBeenCalledTimes(1));
+    const button = screen.getAllByRole('button', {
+      name: 'Open Configure',
+    })[0]!;
+    expect(button.parentElement?.tagName).toBe('DIV');
+    expect(button.parentElement).not.toBe(button.closest('li'));
   });
 
   // The screen's central safety claim, and the one thing no unit test of the
