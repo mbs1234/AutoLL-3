@@ -9,6 +9,7 @@ import {
   buildQueries,
   fireEvent,
   queryHelpers,
+  waitFor,
   waitForElementToBeRemoved,
 } from '@testing-library/react';
 
@@ -173,6 +174,39 @@ export async function refreshing() {
   } catch {
     throw getQueryError("Didn't show the refreshing bar");
   }
+}
+
+/** `useDataLoader`'s minimum load time, which every load waits out. */
+const LOAD_MIN_MS = 500;
+
+/**
+ * Lets every load still in flight finish, for the end of a test whose last
+ * step starts one that it does not wait for.
+ *
+ * A load still running when a test ends never finishes. The next test's
+ * `setTime` installs a new fake clock, and the old clock's timers are dropped,
+ * the load's minimum time among them. React 19 runs every async transition
+ * that starts while another is pending in one shared scope, held in module
+ * state that all the tests in a file share, and none of them finishes until
+ * all have. So once one load is stuck, every later load in the file is stuck
+ * with it: the next test's spinner never goes, and `loading` times out with
+ * "Didn't show loading spinner".
+ *
+ * Advancing past the minimum first lets a load finish that is running but not
+ * drawn; then it waits until no spinner and no refreshing bar is left.
+ */
+export async function settled() {
+  await act(async () => {
+    jest.advanceTimersByTime(LOAD_MIN_MS);
+  });
+  await waitFor(
+    () =>
+      expect([
+        ...screen.queryAllByLabelText('Loading…'),
+        ...screen.queryAllByRole('status', { name: 'Refreshing…' }),
+      ]).toHaveLength(0),
+    { timeout: 5000 }
+  );
 }
 
 export function setTime(time: unknown, minutes = 0) {
