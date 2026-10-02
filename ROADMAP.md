@@ -1126,6 +1126,17 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 34. Plan Check's verb and its buttons — _completed in 1.8.2_
+
+The two rough edges the guide listed as of 1.8.1, both fixed in AutoLL-5 by
+its usability slice 1 and re-made here as the owner asked (2026-10-01).
+
+- **"1 blocker needs attention."** With exactly one blocker the bar read "1
+  blocker need attention."
+- **Each item's button on a line of its own.** Open Configure and Refresh LL
+  list sat inline at the end of the item's sentence, so the text wrapped
+  around them.
+
 ### 33. Undo every removal, and a card opened from elsewhere in view — _completed in 1.8.1_
 
 `FUTURE.md` §2.3 and §2.4: the two rough edges AutoLL-5 fixed alone (usability
