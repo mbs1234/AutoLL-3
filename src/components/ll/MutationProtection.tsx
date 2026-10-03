@@ -1,5 +1,5 @@
 import type { ManualMutation } from '@/autopilot/manualMutation';
-import useQuarantine from '@/autopilot/useQuarantine';
+import { useMutationDoubts } from '@/hooks/useMutationDoubts';
 
 import QuarantinePanel from './QuarantinePanel';
 
@@ -9,14 +9,5 @@ export default function MutationProtection({
 }: {
   mutation: ManualMutation;
 }) {
-  const doubts = useQuarantine();
-  return (
-    <QuarantinePanel
-      doubts={doubts.filter(doubt =>
-        mutation.keys.some(
-          key => key === doubt.key || doubt.blockingKeys?.includes(key)
-        )
-      )}
-    />
-  );
+  return <QuarantinePanel doubts={useMutationDoubts(mutation)} />;
 }

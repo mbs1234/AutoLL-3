@@ -14,6 +14,8 @@ export interface MutationEvidence {
   gaining?: string;
   /** Booking/entitlement identities that name the reservation being changed. */
   reservationIds: string[];
+  /** For a new booking, the guests it is for: what plans can settle it by. */
+  guestIds?: string[];
 }
 
 export type MutationAbandonReason =

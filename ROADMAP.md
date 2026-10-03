@@ -1126,6 +1126,40 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 35. The October 3 audit — _completed in 1.8.3 and 1.8.4_
+
+An outside audit of `4d01832` (2026-10-03) found seven defects, and 1.8.3 fixed
+them. A review of 1.8.3 the same day found that several of those fixes stopped
+something that used to work; 1.8.4 keeps each fix and restores what it broke.
+
+- **Manual actions take part in reservation protection** (1.8.3). Book, Change,
+  Modify, Cancel and the guest cleanup after a booking lock the reservation as
+  Autopilot does, and an answer that never comes back protects it across screens
+  and reloads. In 1.8.4 a lost booking or cancel clears itself from Plans instead
+  of freezing the attraction for the day; a refusal (403 or 429) is no longer
+  read as no answer; "Nothing was sent" says whether something else is changing
+  the reservation or it is protected; a screen offers its button again once the
+  protection clears; and a return time changed by hand reaches Disney again,
+  which 1.8.3 stopped before sending.
+- **A party change stops prepared work** (1.8.3). In 1.8.4 a Time Search it
+  stops says so, and a saved guest no longer on the account is named on Party
+  Selection and Plan Check and dropped on save, rather than leaving Whole party
+  only waiting for them.
+- **Capacity is counted per guest** (1.8.3). In 1.8.4 it is counted over the
+  guests who would actually be booked, with one rule for when to swap, so a
+  linked guest who cannot be booked no longer blocks a swap, and a whole party
+  holding unequal passes swaps again.
+- **An unreadable booking answer counts as no answer** (1.8.3). In 1.8.4 only
+  what the app needs is required — the attraction's entry, a return window, one
+  booked guest — so a Modify for part of the party is no longer refused, and
+  anything unexpected is logged.
+- **A failed restore keeps the original plan** (1.8.3). In 1.8.4 the recovery
+  notice says once what happened, confirms the export, counts failed retries
+  and holds the screen for a reload when the plan is back.
+- **Sign-in's Retry works** (1.8.3). In 1.8.4 the download and Disney's setup
+  are timed separately, and a slow setup carries on so Retry picks it up.
+- **Development tools updated** (1.8.3); the dependency audit is clean.
+
 ### 34. Plan Check's verb and its buttons — _completed in 1.8.2_
 
 The two rough edges the guide listed as of 1.8.1, both fixed in AutoLL-5 by

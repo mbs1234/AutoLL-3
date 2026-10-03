@@ -169,7 +169,16 @@ export default function PlanCheck({
   // earlier trip come back stamped NOT_IN_PARTY and filtered out above, which
   // used to leave an empty list reading as a clean bill of health.
   const eligibleCount = party?.eligible.length ?? 0;
-  const allEligible = !!party && eligibleCount > 0 && !ineligible.length;
+  // Saved guests Disney did not return at all. With "whole party only" on,
+  // every booking waits for them, so this is not a clean bill of health
+  // either; Party Selection names them and drops them on save.
+  const missingSaved = party
+    ? loadSavedPartyIds().filter(
+        id => ![...party.eligible, ...party.ineligible].some(g => g.id === id)
+      )
+    : [];
+  const allEligible =
+    !!party && eligibleCount > 0 && !ineligible.length && !missingSaved.length;
   const nobodyEligible = !!party && eligibleCount === 0;
 
   function checkParty() {
@@ -285,6 +294,16 @@ export default function PlanCheck({
         <p className="mt-2 rounded-sm bg-red-100 p-2 text-sm text-red-900">
           No guests came back eligible. Check the party selection on the LL tab
           — the saved party may no longer be on this account.
+        </p>
+      )}
+      {missingSaved.length > 0 && (
+        <p className="mt-2 rounded-sm bg-amber-100 p-2 text-sm text-amber-900">
+          {missingSaved.length === 1
+            ? '1 saved guest did not come back from Disney.'
+            : `${missingSaved.length} saved guests did not come back from Disney.`}{' '}
+          {requireWholeParty
+            ? 'With Whole party only on, Autopilot books nothing until they are removed: open Party Selection and save.'
+            : 'Open Party Selection and save to remove them.'}
         </p>
       )}
       {ineligible.length > 0 && (

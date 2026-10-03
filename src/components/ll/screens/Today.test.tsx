@@ -247,7 +247,7 @@ describe('Today', () => {
       '1 unresolved Lightning Lane change needs review.'
     );
     expect(
-      screen.getByText(/stopped automatically booking, moving, or swapping/)
+      screen.getByText(/are paused, by Autopilot and by hand/)
     ).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Review protection' }));
     expect(nav.goTo.mock.calls[0]?.[0].type).toBe(Activity);

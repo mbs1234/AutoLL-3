@@ -552,7 +552,7 @@
       stops working.
     </p>
     <div class="masthead-meta">
-      <span>Version 1.8.0</span>
+      <span>Version 1.8.4</span>
       <span>Three parts · 23 sections</span>
       <span>Unofficial · not endorsed by Disney</span>
     </div>
@@ -745,9 +745,15 @@
         <strong>Signing in.</strong> AutoLL-3 never asks for your Disney
         password. It loads Disney's own OneID sheet, which opens by itself, and
         Disney hands back a session token held in your browser only. If the
-        sheet does not load, the card gives up after fifteen seconds and offers
-        a retry button — that is the fix for the blank white screen v1.0 used to
-        leave you on. If you close Disney's sheet on purpose, it stays closed.
+        sheet does not appear, the card says “Disney sign-in could not start.
+        Check your connection and try again.” and offers
+        <span class="ui">Sign in with Disney</span> again — after fifteen
+        seconds when Disney's sign-in code will not download, or thirty more
+        when it downloads but Disney's setup does not finish. That is the fix
+        for the blank white screen v1.0 used to leave you on. A slow setup
+        carries on behind that button, so tapping it picks the setup up rather
+        than starting it over. If you close Disney's sheet on purpose, it stays
+        closed.
       </p>
       <p>If it asks you to sign in again, a line under the heading says why:</p>
       <div class="tablewrap">
@@ -796,6 +802,15 @@
         <span class="ui">Save</span>. After that, anyone outside your saved
         party appears on booking screens under Ineligible Guests marked
         <span class="ui">NOT IN PARTY</span>.
+      </p>
+      <p>
+        If someone you saved is no longer on the Disney account, Party
+        Selection says “1 saved guest is no longer on this account. Saving
+        removes them from your party.” Tap <span class="ui">Save</span>. Until
+        you do, <strong>Whole party only</strong> waits for a guest who can
+        never be booked, so Autopilot books nothing; Plan Check's
+        <span class="ui">Check current party</span> says “1 saved guest did not
+        come back from Disney.” for the same reason.
       </p>
       <p>
         The same menu carries <span class="ui">Backup and Restore</span> (see
@@ -1713,9 +1728,18 @@
           the party is unchanged. If Disney does not answer at all, it says so —
           the cancel may or may not have gone through — and points to Plans.
           Booking and modifying by hand do the same: a request with no answer is
-          never shown as a plain failure beside a live button.
+          never shown as a plain failure beside a live button, and the
+          reservation is protected until Plans show what happened (see
+          <a href="#unresolved">A change that never came back</a>).
         </p>
       </div>
+      <p>
+        <strong>“Nothing was sent”</strong> means what it says. “Another AutoLL
+        action is changing this reservation right now” is Autopilot or a time
+        search part-way through a change to it, and passes within two minutes;
+        “this reservation has an unresolved change” is a protection, shown below
+        the message, that Plans or you settle.
+      </p>
       <p>
         Plans mirrors Disney; it is not live. A pass cancelled on another phone
         will not disappear until you refresh.
@@ -2134,24 +2158,41 @@
       </figure>
       <p>
         A booking request can leave the phone and never return: the park's wifi
-        drops, the response never arrives. It may have worked or it may not, and
-        nothing arriving later can tell you which. Retrying risks moving a
-        reservation twice; forgetting it leaves a pass unprotected.
+        drops, the response never arrives, or what arrives cannot be read. It
+        may have worked or it may not, and nothing arriving later can tell you
+        which. Retrying risks booking or moving twice; forgetting it leaves a
+        pass unprotected.
       </p>
       <p>
         So that reservation is <strong>held</strong>, and the hold is visible.
         Activity and Plan Check both list it under a red panel, naming the
         attraction and what the change was trying to do — “Move Haunted Mansion
-        from 7:15 PM to 11:40 AM on March 5”. Nothing touches that pass until
-        Disney's own itinerary shows the exact result the request asked for.
+        from 7:15 PM to 11:40 AM on March 5” — and Today says so in a banner.
+        The same goes for a booking, a change or a cancel you made by hand.
+        Booking, moving, swapping and cancelling that attraction are paused, by
+        Autopilot and by hand, until it is settled.
       </p>
+      <p>Most holds settle themselves from Plans:</p>
+      <ul>
+        <li>
+          <strong>A booking or a cancel</strong> clears once Plans have caught
+          up, usually within a minute. Plans showing the pass (or no longer
+          showing the cancelled one) means it went through; Plans read at least
+          thirty seconds after the request still showing nothing changed means
+          it did not. Disney would refuse the same booking twice, so the next
+          try is safe either way.
+        </li>
+        <li>
+          <strong>A move or a swap</strong> clears only when Plans show the
+          exact requested time. Plans that still show the old time cannot tell
+          a move that failed from one Disney has not shown yet.
+        </li>
+      </ul>
       <p>
         <strong>Open Disney's Plans and look.</strong> Then, to release it
         yourself: <span class="ui">I checked Disney — resolve this</span> →
         <span class="ui">Clear this protection</span>. It asks twice because
-        clearing it is the one action here that can cost you a reservation. The
-        protection can also clear itself: a later Plans refresh showing the exact
-        requested time resolves it with no tap from you.
+        clearing it is the one action here that can cost you a reservation.
       </p>
 
       <h4>Common questions</h4>
@@ -2208,12 +2249,17 @@
         <span class="ui">Replace this phone’s plan</span> swaps in the file’s
         watch lists, party and starred attractions and adds the file’s drops to
         what the phone has seen. Your sign-in and settings, dry run included,
-        stay as they are. Reload the page afterwards.
+        stay as they are. Reload the page afterwards. If a restore fails
+        part-way and the phone's own plan cannot be put back either, a red
+        notice says “The original plan isn’t fully back”. Keep the page open,
+        tap <span class="ui">Export original plan</span> first, then
+        <span class="ui">Retry recovering original plan</span>, and reload when
+        it says it has recovered.
         <strong>Between trips, open AutoLL-3 at least once a week</strong> as
         well, or it may start empty next time.
       </p>
       <p>
-        <strong>Rough edges, as of 1.8.2.</strong> None known beyond what
+        <strong>Rough edges, as of 1.8.4.</strong> None known beyond what
         <a href="https://github.com/mbs1234/AutoLL-3/blob/main/docs/FUTURE.md">docs/FUTURE.md</a>
         lists, with what each would cost to fix.
       </p>

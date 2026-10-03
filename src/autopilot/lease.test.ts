@@ -6,6 +6,7 @@ import {
   LEASE_TTL_MS,
   QUARANTINE_KEY,
   RENEW_INTERVAL_MS,
+  SETTLE_AFTER_MS,
   acquire,
   available,
   holder,
@@ -424,6 +425,91 @@ describe('the operation lease', () => {
      * against it, and the plans pipeline knows when each read *started* for
      * exactly this reason.
      */
+    /*
+     * A booking and a cancellation settle either way, once a read is late
+     * enough: Disney refuses the repeat that holding them would prevent, and
+     * holding them until a person cleared them froze the attraction.
+     */
+    describe('a booking or a cancellation', () => {
+      const bookDoubt = {
+        id: 'book-1',
+        kind: 'book' as const,
+        to: '11:00:00',
+        guestIds: ['mickey', 'minnie'],
+      };
+      const cancelDoubt = {
+        id: 'cancel-1',
+        kind: 'cancel' as const,
+        to: '',
+        reservationIds: ['ent-1', 'ent-2'],
+      };
+      const holding =
+        (guestIds: string[], reservationIds = ['ent-9']) =>
+        () => [{ time: '11:00:00', reservationIds, guestIds }];
+      const none = () => [];
+      const LATE = RAISED + SETTLE_AFTER_MS;
+
+      it('clears a booking once any of its guests holds the attraction', async () => {
+        await quarantine(KEY, bookDoubt, RAISED);
+        await reconcile(nothing, RAISED + 1, holding(['minnie']));
+        expect(await acquire(KEY, A, RAISED + 1)).toBe(true);
+      });
+
+      it('does not count another guest holding the attraction', async () => {
+        await quarantine(KEY, bookDoubt, RAISED);
+        await reconcile(nothing, RAISED + 1, holding(['pluto']));
+        expect(await acquire(KEY, A, RAISED + 1)).toBe(false);
+      });
+
+      it('lets an absent booking count only once the window has passed', async () => {
+        await quarantine(KEY, bookDoubt, RAISED);
+        await reconcile(nothing, LATE - 1, none);
+        expect(await acquire(KEY, A, LATE)).toBe(false);
+        await reconcile(nothing, LATE, none);
+        expect(await acquire(KEY, A, LATE)).toBe(true);
+      });
+
+      it('ignores a read that started before the booking was sent', async () => {
+        await quarantine(KEY, bookDoubt, RAISED);
+        await reconcile(nothing, RAISED, holding(['mickey']));
+        expect(await acquire(KEY, A, RAISED)).toBe(false);
+      });
+
+      it('keeps a booking that names no guests for a person', async () => {
+        await quarantine(
+          KEY,
+          { id: 'book-legacy', kind: 'book', to: '11:00:00' },
+          RAISED
+        );
+        await reconcile(nothing, RAISED + 10 * SETTLE_AFTER_MS, none);
+        expect(await acquire(KEY, A, RAISED + 10 * SETTLE_AFTER_MS)).toBe(
+          false
+        );
+      });
+
+      it('clears a cancellation once its passes are gone', async () => {
+        await quarantine(KEY, cancelDoubt, RAISED);
+        await reconcile(nothing, RAISED + 1, holding(['mickey'], ['ent-3']));
+        expect(await acquire(KEY, A, RAISED + 1)).toBe(true);
+      });
+
+      it('clears a cancellation that did not happen once the window has passed', async () => {
+        await quarantine(KEY, cancelDoubt, RAISED);
+        await reconcile(nothing, RAISED + 1, holding(['mickey'], ['ent-1']));
+        expect(await acquire(KEY, A, RAISED + 1)).toBe(false);
+        await reconcile(nothing, LATE, holding(['mickey'], ['ent-1']));
+        expect(await acquire(KEY, A, LATE)).toBe(true);
+      });
+
+      it('keeps a move to its exact evidence however late the read', async () => {
+        await quarantine(KEY, modifyDoubt, RAISED);
+        await reconcile(nothing, RAISED + 10 * SETTLE_AFTER_MS, none);
+        expect(await acquire(KEY, A, RAISED + 10 * SETTLE_AFTER_MS)).toBe(
+          false
+        );
+      });
+    });
+
     it('ignores a read that started before the doubt was raised', async () => {
       await quarantine(KEY, modifyDoubt, RAISED);
       // Data that would settle it outright, from a read that began earlier.

@@ -1,4 +1,8 @@
-import { RequestControl, RequestError } from '@/api/client';
+import {
+  RequestControl,
+  RequestError,
+  requireMutationControl,
+} from '@/api/client';
 import { DasClient, DasParty } from '@/api/das';
 import { Booking, ItineraryClient, LLMP } from '@/api/itinerary';
 import { LiveDataClient } from '@/api/livedata';
@@ -170,6 +174,9 @@ export class FakeLLClient extends LLClient {
     guestsToModify?: Pick<Guest, 'id'>[],
     control?: RequestControl
   ): Promise<LLMP> {
+    // As the real client does: a booking path that forgot its safety control
+    // fails here too, rather than only on a phone against Disney.
+    requireMutationControl(control);
     void guestsToModify;
     await sleep(LATENCY_MS * 2);
     const send = async () => {
@@ -215,6 +222,7 @@ export class FakeLLClient extends LLClient {
     guests: LLMP['guests'],
     control?: RequestControl
   ): Promise<void> {
+    requireMutationControl(control);
     await sleep(LATENCY_MS);
     const send = async () => {
       control?.onDispatch?.();

@@ -12,6 +12,7 @@ import NavContext from '@/contexts/NavContext';
 import PlansContext from '@/contexts/PlansContext';
 import useDataLoader from '@/hooks/useDataLoader';
 import useManualMutation from '@/hooks/useManualMutation';
+import { useUnanswered } from '@/hooks/useMutationDoubts';
 
 import MutationProtection from '../MutationProtection';
 import ReturnTime from '../ReturnTime';
@@ -34,7 +35,9 @@ export default function CancelGuests<B extends LightningLane | DasBooking>({
     Set<LightningLane['guests'][0]>
   >(new Set());
   const { loadData, loaderElem } = useDataLoader();
-  const [unanswered, setUnanswered] = useState(false);
+  const [unanswered, setUnanswered] = useUnanswered(
+    cancellationMutation(booking)
+  );
   const mutate = useManualMutation();
 
   const { name, park, guests } = booking;
@@ -46,8 +49,9 @@ export default function CancelGuests<B extends LightningLane | DasBooking>({
     let cancelled = false;
     await loadData(async () => {
       try {
-        await mutate(cancellationMutation(booking), control =>
-          client.cancelBooking([...guestsToCancel], control)
+        await mutate(
+          cancellationMutation(booking, [...guestsToCancel]),
+          control => client.cancelBooking([...guestsToCancel], control)
         );
         cancelled = true;
       } catch (error) {

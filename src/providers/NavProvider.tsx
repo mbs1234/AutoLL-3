@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 
 import NavContext, { NavError } from '@/contexts/NavContext';
-import ScreensContext, { Screens } from '@/contexts/ScreensContext';
+import ScreensContext, {
+  FIRST_SCREEN_KEY,
+  ScreenKeyContext,
+  Screens,
+} from '@/contexts/ScreensContext';
 
 let keyInc = 0;
 const nextKey = () => ++keyInc;
@@ -17,10 +21,12 @@ export default function NavProvider({
 }) {
   const [screens, setScreens] = useState<Screens>({
     activeScreen: children,
-    activeKey: 0,
+    activeKey: FIRST_SCREEN_KEY,
   });
+  // Position 0 keeps FIRST_SCREEN_KEY for good: a `replace` there reuses it,
+  // and a push never lands there.
   const stack = useRef<{ elem: React.JSX.Element; key: number }[]>([
-    { elem: children, key: 0 },
+    { elem: children, key: FIRST_SCREEN_KEY },
   ]);
   const nav = useRef({
     goTo(elem: React.JSX.Element, options?: { replace?: boolean }) {
@@ -105,7 +111,7 @@ export default function NavProvider({
           const hidden = idx !== pos;
           return (
             <article key={key} hidden={hidden}>
-              {elem}
+              <ScreenKeyContext value={key}>{elem}</ScreenKeyContext>
             </article>
           );
         })}

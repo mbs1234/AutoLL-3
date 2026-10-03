@@ -15,6 +15,7 @@ import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
 import { ParkTime, modifyDate, parkDate } from '@/datetime';
 import { RateLimitExceeded } from '@/ratelimit';
+import { saveSavedPartyIds } from '@/savedParty';
 import { TODAY, settled } from '@/testing';
 
 import PlanCheck from './PlanCheck';
@@ -213,6 +214,25 @@ describe('PlanCheck', () => {
       expect.objectContaining({ id: mk.id })
     );
     // The check is still in its minimum load time. See `settled`.
+    await settled();
+  });
+
+  it('warns about a saved guest Disney no longer returns', async () => {
+    saveSavedPartyIds(['g1', 'stale-id']);
+    setup({
+      guests: jest.fn(async () => ({
+        eligible: [guest('g1', 'Ana')],
+        ineligible: [],
+      })),
+    });
+    await tapCheck();
+    await waitFor(() =>
+      expect(
+        screen.getByText(/1 saved guest did not come back from Disney/)
+      ).toBeVisible()
+    );
+    expect(screen.getByText(/Autopilot books nothing/)).toBeVisible();
+    expect(screen.queryByText(/generally eligible/)).not.toBeInTheDocument();
     await settled();
   });
 

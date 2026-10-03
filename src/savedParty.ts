@@ -37,6 +37,24 @@ export function savedPartyScope(): string {
 
 const listeners = new Set<() => void>();
 
+/** A stored party as the scope compares it: its distinct ids, in order. */
+function normalizedParty(raw: string | null): string {
+  try {
+    const ids: unknown = JSON.parse(raw ?? 'null');
+    return JSON.stringify(
+      Array.isArray(ids)
+        ? [
+            ...new Set(
+              ids.filter((id): id is string => typeof id === 'string' && !!id)
+            ),
+          ].sort()
+        : []
+    );
+  } catch {
+    return raw ?? '';
+  }
+}
+
 /**
  * Save the party, and tell every screen that shows or uses it.
  *
@@ -60,7 +78,11 @@ export function subscribeSavedParty(listener: () => void): () => void {
     if (event.key === PARTY_IDS_KEY || event.key === null) {
       // A → B → A may already have completed in the writing tab before this
       // tab handles either event. The events still invalidate prepared work.
-      if (event.oldValue !== event.newValue) generation++;
+      // Compared as the scope compares them, so the same people saved in
+      // another order is no change.
+      if (normalizedParty(event.oldValue) !== normalizedParty(event.newValue)) {
+        generation++;
+      }
       savedPartyScope();
       listener();
     }

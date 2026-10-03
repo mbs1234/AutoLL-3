@@ -77,10 +77,14 @@ appears again in that browser.
 
 **Signing in.** AutoLL-3 never asks for your Disney password. It loads Disney's
 own OneID sheet, which opens by itself, and Disney hands back a session token
-that is held in your browser only. If the sheet does not load, the card gives up
-after fifteen seconds and offers a retry button — that is the fix for the blank
-white screen v1.0 used to leave you on. If you close Disney's sheet on purpose,
-it stays closed.
+that is held in your browser only. If the sheet does not appear, the card says
+"Disney sign-in could not start. Check your connection and try again." and offers
+**Sign in with Disney** again — after fifteen seconds when Disney's sign-in code
+will not download, or thirty more when it downloads but Disney's setup does not
+finish. That is the fix for the blank white screen v1.0 used to leave you on. A
+slow setup carries on behind that button, so tapping it picks the setup up
+rather than starting it over. If you close Disney's sheet on purpose, it stays
+closed.
 
 If it asks you to sign in again, a line under the heading says why:
 
@@ -102,6 +106,12 @@ Tap the **gear** at the right-hand end of the bottom tab bar → **Party
 Selection**. Choose "Only book for selected guests" and tick the people you
 actually want, then **Save**. After that, anyone outside your saved party is
 shown on booking screens under Ineligible Guests marked `NOT IN PARTY`.
+
+If someone you saved is no longer on the Disney account, Party Selection says
+"1 saved guest is no longer on this account. Saving removes them from your
+party." Tap **Save**. Until you do, **Whole party only** waits for a guest who
+can never be booked, so Autopilot books nothing; Plan Check's **Check current
+party** says "1 saved guest did not come back from Disney." for the same reason.
 
 The same menu carries **Backup and Restore** (see *It cannot protect its own
 storage*, below), **Log Out**, a **Session-only login** switch for a borrowed
@@ -703,7 +713,15 @@ On a Multi Pass's details screen:
 > screen stays where it is with the error, and the party is unchanged. If Disney
 > does not answer at all, it says so — the cancel may or may not have gone
 > through — and points to Plans. Booking and modifying by hand do the same: a
-> request with no answer is never shown as a plain failure beside a live button.
+> request with no answer is never shown as a plain failure beside a live button,
+> and the reservation is protected until Plans show what happened (see *A change
+> that never came back*).
+
+> **"Nothing was sent"** means what it says. "Another AutoLL action is changing
+> this reservation right now" is Autopilot or a time search part-way through a
+> change to it, and passes within two minutes; "this reservation has an
+> unresolved change" is a protection, shown below the message, that Plans or you
+> settle.
 
 > Plans mirrors Disney; it is not live. A pass cancelled on another phone will
 > not disappear until you refresh.
@@ -971,22 +989,31 @@ under "Not on today's list" with a remove button.
 ![A move whose outcome is unknown](user-guide/time-search-unresolved.png)
 
 A booking request can leave the phone and never return: the park's wifi drops,
-the response never arrives. It may have worked or it may not, and nothing
-arriving later can tell you which. Retrying risks moving a reservation twice;
-forgetting it leaves a pass unprotected.
+the response never arrives, or what arrives cannot be read. It may have worked
+or it may not, and nothing arriving later can tell you which. Retrying risks
+booking or moving twice; forgetting it leaves a pass unprotected.
 
 So that reservation is **held**, and the hold is visible. Activity and Plan
 Check both list it under a red panel, naming the attraction and what the change
 was trying to do — "Move Haunted Mansion from 7:15 PM to 11:40 AM on March
-5". Nothing touches that pass until Disney's own itinerary shows the exact
-result the request asked for.
+5" — and Today says so in a banner. The same goes for a booking, a change or a
+cancel you made by hand. Booking, moving, swapping and cancelling that
+attraction are paused, by Autopilot and by hand, until it is settled.
+
+Most holds settle themselves from Plans:
+
+- **A booking or a cancel** clears once Plans have caught up, usually within a
+  minute. Plans showing the pass (or no longer showing the cancelled one) means
+  it went through; Plans read at least thirty seconds after the request still
+  showing nothing changed means it did not. Disney would refuse the same
+  booking twice, so the next try is safe either way.
+- **A move or a swap** clears only when Plans show the exact requested time.
+  Plans that still show the old time cannot tell a move that failed from one
+  Disney has not shown yet.
 
 **Open Disney's Plans and look.** Then, if you want to release it yourself:
 **I checked Disney — resolve this** → **Clear this protection**. It asks twice
 because clearing it is the one action here that can cost you a reservation.
-
-The protection can also clear itself: a later Plans refresh showing the exact
-requested time resolves it with no tap from you.
 
 ## Common questions
 
@@ -1028,11 +1055,15 @@ Autopilot off, open **Backup and Restore**, then **Choose a backup file**. It
 shows what the file holds before it changes anything, and **Replace this phone’s
 plan** swaps in the file’s watch lists, party and starred attractions and adds
 the file’s drops to what the phone has seen. Your sign-in and settings, dry run
-included, stay as they are. Reload the page afterwards.
+included, stay as they are. Reload the page afterwards. If a restore fails
+part-way and the phone's own plan cannot be put back either, a red notice says
+"The original plan isn’t fully back". Keep the page open, tap **Export original
+plan** first, then **Retry recovering original plan**, and reload when it says
+it has recovered.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.8.2.** None known beyond what
+**Rough edges, as of 1.8.4.** None known beyond what
 [docs/FUTURE.md](FUTURE.md) lists, with what each would cost to fix.
 
 ---
