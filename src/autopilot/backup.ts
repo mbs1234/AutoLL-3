@@ -362,8 +362,10 @@ export class RestoreRecoveryError extends Error {
     public backup: Backup,
     cause: unknown
   ) {
+    // What went wrong, and only that: the restore screen says what to do about
+    // it, and repeating that here put it on the screen twice.
     super(
-      `Storage recovery is incomplete. Keep this page open and export the original plan before reloading. ${cause instanceof Error ? cause.message : String(cause)}`
+      `Storage recovery is incomplete: ${cause instanceof Error ? cause.message : String(cause)}`
     );
     this.backup = {
       ...backup,

@@ -2,6 +2,7 @@ import { use } from 'react';
 
 import {
   booking,
+  bookings,
   createBooking,
   donald,
   guests,
@@ -29,11 +30,13 @@ import RebookingProvider from '@/providers/RebookingProvider';
 import {
   TODAY,
   YESTERDAY,
+  act,
   click,
   loading,
   screen,
   see,
   setTime,
+  settled,
   waitFor,
 } from '@/testing';
 
@@ -323,14 +326,42 @@ describe('BookExperience', () => {
   // No answer is not a failure: the booking may exist. The button used to stay
   // live under a three-second error, one tap from trying the same thing again.
   it('stops offering Book when Disney does not answer', async () => {
+    // Plans that do not hold the ride, so the booking stays in doubt: one
+    // Plans already show is settled at once (see the next test).
+    itinerary.plans.mockResolvedValue(bookings.filter(b => b !== booking));
+    try {
+      await renderComponent();
+      await mockBook(0);
+      see(
+        'Disney did not return a definite result. Check Plans and resolve the protected change before trying again.'
+      );
+      see('Disney did not answer.');
+      see('Open Plans');
+      see.no('Book Lightning Lane');
+    } finally {
+      itinerary.plans.mockResolvedValue([...bookings]);
+    }
+  });
+
+  // The fixture's Plans hold this ride for the party, which is a booking that
+  // landed. The doubt settles on that read, and the screen asks Disney again
+  // rather than offering the same Book.
+  it('asks Disney again once Plans show the unanswered booking', async () => {
+    // A fresh copy: other tests trim the shared fixture's guests in place.
+    itinerary.plans.mockResolvedValue([createBooking(hm)]);
     await renderComponent();
+    const asked = ll.guests.mock.calls.length;
     await mockBook(0);
-    see(
-      'Disney did not return a definite result. Check Plans and resolve the protected change before trying again.'
+    // The screen asks Plans again a few seconds on; that read settles it.
+    act(() => jest.advanceTimersByTime(5_000));
+    await waitFor(() =>
+      expect(ll.guests.mock.calls.length).toBeGreaterThan(asked)
     );
-    see('Disney did not answer.');
-    see('Open Plans');
-    see.no('Book Lightning Lane');
+    expect(
+      screen.queryByText('Disney did not answer.')
+    ).not.toBeInTheDocument();
+    // The new ask is still loading: let it finish here, not in a later test.
+    await settled();
   });
 
   // The booking went through for everyone on the offer; only trimming the
@@ -346,12 +377,33 @@ describe('BookExperience', () => {
     });
     errorMock.mockImplementationOnce(() => null);
     ll.cancelBooking.mockRejectedValueOnce(
-      new RequestError({ ok: false, status: 500, data: {} })
+      new RequestError({ ok: false, status: 400, data: {} })
     );
     click('Book Lightning Lane');
     await loading();
     see('Your Lightning Lane');
     expect(screen.getByText(/removing Donald Duck failed/)).toBeVisible();
+  });
+
+  // A removal whose answer was lost may have happened, and is protected until
+  // Plans say; "failed" sent people to cancel again and meet that protection.
+  it('says a removal with no answer may not have gone through', async () => {
+    await renderComponent();
+    ll.book.mockResolvedValueOnce({
+      ...booking,
+      guests: [...booking.guests, { ...donald, entitlementId: 'donald-ent' }],
+    });
+    errorMock.mockImplementation(() => null);
+    ll.cancelBooking.mockRejectedValueOnce(
+      new RequestError({ ok: false, status: 500, data: {} })
+    );
+    click('Book Lightning Lane');
+    await loading();
+    see('Your Lightning Lane');
+    expect(
+      screen.getByText(/Removing Donald Duck may not have gone through/)
+    ).toBeVisible();
+    errorMock.mockReset();
   });
 
   it('limits offers to maxPartySize', async () => {

@@ -719,6 +719,7 @@ describe('LLClientWDW', () => {
       };
       const orderDetailsById = new Map(guests.map(g => [g.id, g.orderDetails]));
       const modGuests = booking.guests.slice(0, 2);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       respond(
         response({
           booking: {
@@ -730,17 +731,22 @@ describe('LLClientWDW', () => {
               entitlementId: g.entitlementId,
             })),
           },
+          // Everyone on the offer, though only two were moved: Disney's party
+          // may well say so, and 1.8.3 called that booking unreadable.
           party: {
-            guests: modGuests.map(apiGuest),
+            guests: booking.guests.map(apiGuest),
             ineligibleGuests: [],
           },
         })
       );
+      // The guests moved, and no one else: Pluto stays where he was.
       expect(await client.book(modOffer, modGuests, control)).toEqual({
         ...booking,
         experience: modOffer.experience,
         guests: modGuests,
       });
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
       expect(startCalled).toHaveBeenCalledTimes(1);
       expect(onDispatch).toHaveBeenCalledTimes(1);
       expect(fetchJson).toHaveBeenCalledWith(

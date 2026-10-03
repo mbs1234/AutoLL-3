@@ -485,8 +485,23 @@ export default function useTimeSearch(deps: TimeSearchDeps) {
     // lint is right to ask.
     const guardForCleanup = guardRef.current;
     const partyScope = savedPartyScope();
-    const stopped = () =>
-      cancelled || !runningRef.current || savedPartyScope() !== partyScope;
+    const stopped = () => {
+      if (cancelled || !runningRef.current) return true;
+      if (savedPartyScope() === partyScope) return false;
+      // The party changed under the search, so its offers are for the wrong
+      // people. It used to stop without saying so: still showing as running,
+      // Start doing nothing, and its lease and wake lock kept, so Autopilot
+      // went on skipping this reservation until someone tapped Stop.
+      if (mountedRef.current) {
+        setState(s => ({
+          ...s,
+          lastError:
+            'The party changed, so this search stopped. Start it again for the new party.',
+        }));
+      }
+      stop('failed');
+      return true;
+    };
 
     /** Commit one quoted offer through the shared mutation lifecycle. */
     async function commitQuoted(quoted: Offer<LLMP>): Promise<void> {

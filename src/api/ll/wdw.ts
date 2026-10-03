@@ -138,6 +138,37 @@ export class Overlap {
  */
 export const AVAILABILITY_BUNDLE_RETRY_MS = 5 * 60_000;
 
+/** A booked guest as the app needs one: who, and the entitlement to act on. */
+interface BookedGuest {
+  guestId: string;
+  entitlementId: string;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const isId = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0;
+
+/**
+ * A date and time that names a real day. `Date.parse` alone takes 2021-02-31
+ * and quietly rolls it into March.
+ */
+function isDateTime(value: unknown): value is string {
+  if (
+    typeof value !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value) ||
+    !Number.isFinite(Date.parse(value))
+  ) {
+    return false;
+  }
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number);
+  return (
+    new Date(Date.UTC(year!, month! - 1, day)).toISOString().slice(0, 10) ===
+    value.slice(0, 10)
+  );
+}
+
 export class LLClientWDW extends LLClient {
   readonly rules = {
     book: true,
@@ -485,7 +516,7 @@ export class LLClientWDW extends LLClient {
       sensorData: true,
       control,
     });
-    return this.createLLFromResponse(offer.experience, data);
+    return this.createLLFromResponse(offer, data);
   }
 
   protected async modify(
@@ -518,63 +549,153 @@ export class LLClientWDW extends LLClient {
       sensorData: true,
       control,
     });
-    return this.createLLFromResponse(offer.experience, {
+    return this.createLLFromResponse(offer, {
       entitlementExperiences: [data?.booking],
       party: data?.party,
     });
   }
 
   protected createLLFromResponse(
-    experience: OfferExperience,
+    offer: Offer,
     response: NewBookingResponse
   ): LLMP {
-    const booking = response?.entitlementExperiences?.[0];
-    const validDate = (value: unknown): value is string => {
-      if (
-        typeof value !== 'string' ||
-        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value) ||
-        !Number.isFinite(Date.parse(value))
-      ) {
-        return false;
-      }
-      const [year, month, day] = value.slice(0, 10).split('-').map(Number);
-      return (
-        new Date(Date.UTC(year!, month! - 1, day))
-          .toISOString()
-          .slice(0, 10) === value.slice(0, 10)
-      );
-    };
-    const nonempty = (value: unknown) =>
-      typeof value === 'string' && value.length > 0;
-    if (
-      !booking ||
-      !Array.isArray(response.entitlementExperiences) ||
-      response.entitlementExperiences.length !== 1 ||
-      booking.experienceId !== experience.id ||
-      !validDate(booking.startDateTime) ||
-      !validDate(booking.endDateTime) ||
-      Date.parse(booking.endDateTime) < Date.parse(booking.startDateTime) ||
-      !Array.isArray(booking.guests) ||
-      !booking.guests.length ||
-      !booking.guests.every(
-        g => g && nonempty(g.guestId) && nonempty(g.entitlementId)
-      ) ||
-      !Array.isArray(response.party?.guests) ||
-      !response.party.guests.length ||
-      !response.party.guests.every(
-        g => g && nonempty(g.id) && booking.guests.some(b => b.guestId === g.id)
-      ) ||
-      !booking.guests.every(g =>
-        response.party.guests.some(p => p.id === g.guestId)
-      )
-    ) {
+    // Everything here reads the answer to a request Disney has already
+    // received, so whatever goes wrong reading it -- one of the checks below,
+    // or something none of them foresaw -- has to come out as an unknown
+    // outcome. Any other error reads on the booking screens as an ordinary
+    // failure, with the button still live, and the next tap books the
+    // attraction a second time.
+    try {
+      return this.readBooking(offer, response);
+    } catch (error) {
+      console.error(error);
       throw new UnknownMutationOutcome(
         'Disney returned an unreadable booking result. Check Plans before trying again.'
       );
     }
-    const entIdsByGuestId = Object.fromEntries(
-      booking.guests.map(g => [g.guestId, g.entitlementId])
+  }
+
+  /**
+   * What the app needs from a booking response, and no more: the entry for
+   * the attraction, a return window that parses, and at least one guest booked
+   * with an entitlement. Throws when any of that is missing.
+   *
+   * Nothing stricter has ever been checked against a real Disney response, and
+   * a false refusal is the expensive mistake here: it turns a booking that
+   * happened into an unresolved change, which freezes the attraction until
+   * someone clears it by hand. So a party that names more people than were
+   * booked (a Modify for part of the party), a second entry, or a guest listed
+   * without a name is read and logged rather than refused. The guests are the
+   * ones Disney says it booked; the party only lends them their names.
+   */
+  protected readBooking(offer: Offer, response: NewBookingResponse): LLMP {
+    const { experience } = offer;
+    const entries: unknown[] = Array.isArray(response?.entitlementExperiences)
+      ? response.entitlementExperiences
+      : [];
+    // This attraction's entry, or failing that the only entry there is. Two
+    // entries and neither of them this attraction would be a guess.
+    const entry =
+      entries.find(e => isRecord(e) && e.experienceId === experience.id) ??
+      (entries.length === 1 ? entries[0] : undefined);
+    if (!isRecord(entry)) {
+      throw new Error(
+        `Booking response has no entry for ${experience.id} among ${entries.length}`
+      );
+    }
+    if (entry.experienceId !== experience.id) {
+      console.warn(
+        `Booking response is for ${String(entry.experienceId)}, not ${experience.id}; reading its only entry`
+      );
+    } else if (entries.length > 1) {
+      console.warn(
+        `Booking response has ${entries.length} entries; reading the one for ${experience.id}`
+      );
+    }
+
+    const { startDateTime: start, endDateTime: end } = entry;
+    if (
+      !isDateTime(start) ||
+      !isDateTime(end) ||
+      Date.parse(end) < Date.parse(start)
+    ) {
+      throw new Error(
+        `Booking response has no usable return window: ${String(start)} to ${String(end)}`
+      );
+    }
+
+    const listed: unknown[] = Array.isArray(entry.guests) ? entry.guests : [];
+    const booked = listed.filter(
+      (g): g is BookedGuest =>
+        isRecord(g) && isId(g.guestId) && isId(g.entitlementId)
     );
+    if (booked.length === 0) {
+      throw new Error('Booking response names no guest with an entitlement');
+    }
+    if (booked.length < listed.length) {
+      console.warn(
+        `Booking response: left out ${listed.length - booked.length} guest(s) with no id or entitlement`
+      );
+    }
+
+    // The party has to be there, even if it names other people: a body with no
+    // party at all is a shape this was never written for, and is as unreadable
+    // as any other.
+    const party: unknown = response?.party;
+    const partyGuests: unknown = isRecord(party) ? party.guests : undefined;
+    if (!Array.isArray(partyGuests)) {
+      throw new Error('Booking response has no party');
+    }
+    const partyById = new Map(
+      partyGuests
+        .filter((g): g is ApiGuest => isRecord(g) && isId(g.id))
+        .map(g => [g.id, g] as const)
+    );
+    const bookedIds = new Set(booked.map(g => g.guestId));
+    const unlisted = booked.filter(g => !partyById.has(g.guestId)).length;
+    const unbooked = [...partyById.keys()].filter(
+      id => !bookedIds.has(id)
+    ).length;
+    if (unlisted > 0 || unbooked > 0) {
+      // Expected after a Modify for part of the party, if Disney's party names
+      // everyone on the offer. Logged, so that a real response shows which way
+      // Disney does it.
+      console.warn(
+        `Booking response: ${unlisted} booked guest(s) missing from its party, ${unbooked} party guest(s) not booked`
+      );
+    }
+
+    // Names come from the party where it lists the guest, then from what the
+    // offer already knew, then the bare id. Display only: none of it decides
+    // whether the booking happened.
+    const known = new Map(
+      [...(offer.booking?.guests ?? []), ...offer.guests.eligible].map(
+        g => [g.id, g] as const
+      )
+    );
+    const convert = (guest: ApiGuest | undefined) => {
+      if (!guest) return undefined;
+      try {
+        return this.convertGuest(guest);
+      } catch (error) {
+        // An odd field on a party entry costs that guest's name, not the
+        // booking.
+        console.warn(error);
+        return undefined;
+      }
+    };
+    const guests = booked.map(({ guestId, entitlementId }) => {
+      const guest = convert(partyById.get(guestId));
+      const fallback = known.get(guestId);
+      return {
+        ...guest,
+        id: guestId,
+        name: guest?.name || fallback?.name || guestId,
+        avatarImageUrl: guest?.avatarImageUrl ?? fallback?.avatarImageUrl,
+        entitlementId,
+      };
+    });
+
     const { id, name, land, park } = experience;
     return {
       facilityId: id,
@@ -584,15 +705,12 @@ export class LLClientWDW extends LLClient {
       park,
       type: 'LL',
       subtype: 'MP',
-      id: booking.guests[0]!.entitlementId,
-      start: DateTime.from(booking.startDateTime),
-      end: DateTime.from(booking.endDateTime),
+      id: booked[0]!.entitlementId,
+      start: DateTime.from(start),
+      end: DateTime.from(end),
       cancellable: true,
       modifiable: true,
-      guests: response.party.guests.map(g => ({
-        ...this.convertGuest(g),
-        entitlementId: entIdsByGuestId[g.id]!,
-      })),
+      guests,
     };
   }
 

@@ -14,6 +14,7 @@ import {
   leaseKey,
   mutationId,
   quarantine,
+  quarantinedAt,
   release,
   resolveDoubt,
   startWhileHeld,
@@ -57,19 +58,35 @@ export function bookingMutation(offer: Offer): ManualMutation {
       reservationIds: booking
         ? [booking.id, ...booking.guests.map(g => g.entitlementId)]
         : [],
+      // Plans settle a new booking by its guests: a booking has no identity of
+      // its own until Disney's answer, which is the thing that may be lost.
+      ...(booking
+        ? {}
+        : { guestIds: offer.guests.eligible.map(guest => guest.id) }),
     },
   };
 }
 
+/**
+ * Cancelling `guests` (all of them when omitted) from one reservation.
+ *
+ * The evidence names only what the cancellation removes. Removing some guests
+ * leaves the reservation and everyone else on it in place, so naming those as
+ * well would read as "still there" and the doubt could never see its answer.
+ */
 export function cancellationMutation(
-  booking: LightningLane | DasBooking
+  booking: LightningLane | DasBooking,
+  guests: readonly { entitlementId: string }[] = booking.guests
 ): ManualMutation {
+  const all = guests.length >= booking.guests.length;
   return {
     keys: [leaseKey(booking.facilityId, parkDate(booking.start))],
     evidence: {
       kind: 'cancel',
       to: '',
-      reservationIds: [booking.id, ...booking.guests.map(g => g.entitlementId)],
+      reservationIds: all
+        ? [booking.id, ...booking.guests.map(g => g.entitlementId)]
+        : guests.map(g => g.entitlementId),
     },
   };
 }
@@ -143,9 +160,27 @@ export async function runManualMutation<T>(
       if (signal?.aborted || !authorize()) {
         throw new RequestNotSent('Action stopped before send');
       }
-      if (!(await acquire(keys, id))) {
+      let acquired: boolean;
+      try {
+        acquired = await acquire(keys, id);
+      } catch (error) {
+        // The lease could not be written, so the change could not be
+        // protected. Said as what it is: "Unknown error occurred" sent people
+        // looking at Disney for a problem on the phone.
+        console.error(error);
         throw new RequestNotSent(
-          'This reservation is busy or has an unresolved change. Check Plans before trying again.'
+          "Nothing was sent: this phone's storage for AutoLL is full or unavailable, so the change could not be protected. Free some space and try again."
+        );
+      }
+      if (!acquired) {
+        // Two different situations, and only one of them has anything for the
+        // person to resolve. A lease is held by Autopilot, a search, or an
+        // attempt a reload interrupted, and lapses by itself within two
+        // minutes; an unresolved change waits for plans or for the person.
+        throw new RequestNotSent(
+          keys.some(key => quarantinedAt(key) !== undefined)
+            ? 'Nothing was sent: this reservation has an unresolved change. Check Plans, then resolve it below before trying again.'
+            : 'Nothing was sent: another AutoLL action is changing this reservation right now. Try again in a minute or two.'
         );
       }
       stopRenewal = keepAlive(keys, id, () =>

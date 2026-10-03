@@ -33,6 +33,13 @@ export default function PartySelector() {
 
   const partyGuests = guests?.filter(g => partyIds.has(g.id));
   const nonpartyGuests = guests?.filter(g => !partyIds.has(g.id));
+  // Saved guests this account no longer returns -- unlinked, or saved under
+  // another account. They are invisible in the lists above, and with "whole
+  // party only" on they make every booking wait for someone who cannot be
+  // booked here, so they are named and saving drops them.
+  const missing = guests
+    ? [...partyIds].filter(id => !guests.some(g => g.id === id))
+    : [];
 
   const Mode = (props: { auto: boolean; children: string }) => (
     <li>
@@ -97,11 +104,23 @@ export default function PartySelector() {
           )}
         </>
       ) : null}
+      {!auto && missing.length > 0 && (
+        <p className="text-red-d" role="status">
+          {missing.length === 1
+            ? '1 saved guest is no longer on this account.'
+            : `${missing.length} saved guests are no longer on this account.`}{' '}
+          Saving removes them from your party.
+        </p>
+      )}
       {loaderElem}
       <FloatingButton
         back
-        disabled={!auto && partyIds.size === 0}
-        onClick={() => savePartyIds(partyIds)}
+        disabled={!auto && partyIds.size - missing.length === 0}
+        onClick={() =>
+          savePartyIds(
+            new Set([...partyIds].filter(id => !missing.includes(id)))
+          )
+        }
       >
         Save
       </FloatingButton>

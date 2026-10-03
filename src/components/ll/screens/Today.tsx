@@ -325,9 +325,9 @@ export default function Today({ ref }: HomeTabProps) {
             {doubts.length === 1 ? ' needs' : 's need'} review.
           </p>
           <p className="mt-1">
-            Autopilot has stopped automatically booking, moving, or swapping the
-            affected attractions until Disney Plans confirms what happened or
-            you resolve the protection.
+            Booking, moving, swapping and cancelling the affected attractions
+            are paused, by Autopilot and by hand, until Disney Plans show what
+            happened or you resolve the protection.
           </p>
           <Button
             type="small"

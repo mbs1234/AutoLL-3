@@ -17,3 +17,17 @@ export interface Screens {
 }
 
 export default createContext<Screens>({ activeScreen: null, activeKey: 0 });
+
+/** The key of the stack position the first screen sits at. */
+export const FIRST_SCREEN_KEY = 0;
+
+/**
+ * The key of the stack position a screen sits at, set by the navigator around
+ * each one. Undefined outside a navigator, as when a test renders one screen.
+ *
+ * A screen cannot work this out from `activeKey` when it mounts. One opened
+ * straight after going back -- the times screen goes back, then opens the
+ * Modify screen -- is first drawn while `activeKey` still names the screen it
+ * went back to, and took that for its own position.
+ */
+export const ScreenKeyContext = createContext<number | undefined>(undefined);

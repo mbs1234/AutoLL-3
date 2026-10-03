@@ -1,10 +1,12 @@
 import { booking, ll, mickey, pluto, renderResort } from '@/__fixtures__/ll';
 import { RequestError } from '@/api/client';
-import { click, loading, nav, see } from '@/testing';
+import { click, loading, nav, see, setTime } from '@/testing';
 
 import CancelGuests from './CancelGuests';
 
-jest.useFakeTimers();
+// The fixtures' park day. Protection for a day already past is pruned, so the
+// real date would clear an unresolved change the moment it was raised.
+setTime('09:00');
 
 const { guests } = booking;
 const onCancel = jest.fn();

@@ -69,39 +69,61 @@ export default function PlansProvider({
     // plans should not also wait on a lock.
     if (request > reconciledSequence.current) {
       reconciledSequence.current = request;
-      void reconcile((key, reservationIds, requestedTime) => {
-        const { date, facilityId } = leaseParts(key);
-        // Evidence asks a different question from swap eligibility. A fully
-        // redeemed pass no longer occupies a slot, but its exact requested
-        // time still proves that the mutation landed before it was redeemed.
-        // A historical/non-cancellable entry, another booking kind, or a
-        // Multiple Experiences replacement cannot answer merely because it
-        // shares a facility id.
-        const expected = new Set(reservationIds);
-        const idsOf = (plan: LLMP) => [
-          plan.id,
-          ...plan.guests.map(guest => guest.entitlementId),
-        ];
-        const booking = fetched.find((plan): plan is LLMP => {
-          if (
-            !isLLMP(plan) ||
-            parkDate(plan.start) !== date ||
-            !plan.cancellable ||
-            isMultipleExperiences(plan) ||
-            plan.facilityId !== facilityId ||
-            String(plan.start.time) !== requestedTime
-          ) {
-            return false;
-          }
-          return idsOf(plan).some(id => expected.has(id));
-        });
-        return booking
-          ? {
-              time: String(booking.start.time),
-              reservationIds: idsOf(booking),
+      const idsOf = (plan: LLMP) => [
+        plan.id,
+        ...plan.guests.map(guest => guest.entitlementId),
+      ];
+      void reconcile(
+        (key, reservationIds, requestedTime) => {
+          const { date, facilityId } = leaseParts(key);
+          // Evidence asks a different question from swap eligibility. A fully
+          // redeemed pass no longer occupies a slot, but its exact requested
+          // time still proves that the mutation landed before it was redeemed.
+          // A historical/non-cancellable entry, another booking kind, or a
+          // Multiple Experiences replacement cannot answer merely because it
+          // shares a facility id.
+          const expected = new Set(reservationIds);
+          const booking = fetched.find((plan): plan is LLMP => {
+            if (
+              !isLLMP(plan) ||
+              parkDate(plan.start) !== date ||
+              !plan.cancellable ||
+              isMultipleExperiences(plan) ||
+              plan.facilityId !== facilityId ||
+              String(plan.start.time) !== requestedTime
+            ) {
+              return false;
             }
-          : undefined;
-      }, polledAt).catch(error => console.error(error));
+            return idsOf(plan).some(id => expected.has(id));
+          });
+          return booking
+            ? {
+                time: String(booking.start.time),
+                reservationIds: idsOf(booking),
+              }
+            : undefined;
+        },
+        polledAt,
+        // Every Lightning Lane for the attraction and day, for a booking or a
+        // cancellation in doubt. Redeemed or not: a pass that was used still
+        // shows that the booking which created it landed.
+        key => {
+          const { date, facilityId } = leaseParts(key);
+          return fetched
+            .filter(
+              (plan): plan is LLMP =>
+                isLLMP(plan) &&
+                !isMultipleExperiences(plan) &&
+                plan.facilityId === facilityId &&
+                parkDate(plan.start) === date
+            )
+            .map(plan => ({
+              time: String(plan.start.time),
+              reservationIds: idsOf(plan),
+              guestIds: plan.guests.map(guest => guest.id),
+            }));
+        }
+      ).catch(error => console.error(error));
     }
     // Returned as well as stored: `plans` will not reflect this until the next
     // render, so a background caller acting within the same tick needs the

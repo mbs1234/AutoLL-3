@@ -107,6 +107,8 @@ import {
 } from '@/autopilot/priority';
 import {
   Pushback,
+  REFUSED_STATUS,
+  THROTTLED_STATUS,
   noteRefusal,
   noteThrottle,
   pushbackOf,
@@ -385,10 +387,17 @@ export default function AutopilotProvider({
   const parkDayRef = useRef(parkDate());
 
   const cacheRef = useRef(new GuestCache());
+  // Only a real change of party empties the cache: saving the same party
+  // again cost an eligibility round trip on the next action for nothing.
+  const partyScopeRef = useRef(savedPartyScope());
   useEffect(
     () =>
       subscribeSavedParty(() => {
-        cacheRef.current.clear();
+        const scope = savedPartyScope();
+        if (scope !== partyScopeRef.current) {
+          partyScopeRef.current = scope;
+          cacheRef.current.clear();
+        }
         ll.setPartyIds(loadSavedPartyIds());
       }),
     [ll]
@@ -1053,10 +1062,14 @@ export default function AutopilotProvider({
           id => expected.includes(id)
         );
       };
-      const slotsAreFull = (selectedIds = partyIds) => {
+      /**
+       * Whether a guest has no slot left today: the passes Plans show, plus
+       * the day's bookings not yet in Plans, each counted for the guests it is
+       * for.
+       */
+      const guestIsFull = () => {
         const commits = activeCommits(Date.now(), date);
         const occupancy = slotOccupancy(allHeldToday, commits);
-        const ids = selectedIds.length ? selectedIds : [...occupancy.keys()];
         // Old commits cannot be attributed safely. Keep their conservative
         // capacity hold until Plans or the bounded commit TTL resolves them.
         const legacy = commits.filter(
@@ -1065,16 +1078,37 @@ export default function AutopilotProvider({
             !c.guestIds?.length &&
             !allHeldToday.some(b => b.facilityId === c.facilityId)
         ).length;
-        const full = (id: string) =>
-          (occupancy.get(id) ?? 0) + legacy >= MAX_HELD_MP;
-        return (
-          ids.length > 0 &&
-          (settingsRef.current.requireWholeParty
-            ? ids.some(full)
-            : ids.every(full))
-        );
+        return (id: string) => (occupancy.get(id) ?? 0) + legacy >= MAX_HELD_MP;
       };
-      let partyIsFull = slotsAreFull();
+      /**
+       * How many of a group have no slot left: none, some, or all of them.
+       *
+       * The one measure behind both the choice between booking and swapping
+       * and the swap's own check. They used to use different rules -- with
+       * "whole party only" the choice swapped as soon as anyone was full while
+       * the swap waited for everyone -- and a party holding uneven passes (a
+       * child too short for one ride) then never swapped at all.
+       */
+      const groupFullness = (
+        ids: readonly string[]
+      ): 'none' | 'some' | 'all' => {
+        if (!ids.length) return 'none';
+        const full = guestIsFull();
+        const count = ids.filter(full).length;
+        return count === 0 ? 'none' : count === ids.length ? 'all' : 'some';
+      };
+      /**
+       * Whether a group's fullness rules out booking it without a swap.
+       *
+       * Everyone full leaves nothing to book. Some full does too when the
+       * whole party must ride together; otherwise the guests with a slot may
+       * be booked on their own, which is what "whole party only" being off
+       * allows.
+       */
+      const cannotBook = (fullness: 'none' | 'some' | 'all') =>
+        fullness === 'all' ||
+        (fullness === 'some' && settingsRef.current.requireWholeParty);
+      let partyFullness = groupFullness(partyIds);
 
       /**
        * Whether a return time lands on top of something already planned.
@@ -1354,12 +1388,22 @@ export default function AutopilotProvider({
           continue;
         }
         const existing = heldForParty;
+        // For a fresh action this is provisional: eligibility, below, says who
+        // can actually be booked, and the choice is made again on that group.
+        // The saved party is enough to rule things out early, which saves an
+        // eligibility round trip at a drop.
         let kind: ActionKind = existing
           ? 'modify'
-          : partyIsFull && wantsSwap
+          : partyFullness !== 'none' && wantsSwap
             ? 'swap'
             : 'book';
-        if (!existing && partyIds.length > 0 && partyIsFull && !wantsSwap) {
+        const provisionalKind = kind;
+        if (
+          !existing &&
+          partyIds.length > 0 &&
+          !wantsSwap &&
+          cannotBook(partyFullness)
+        ) {
           bumpSkip('slots-full', experience.name);
           continue;
         }
@@ -1476,6 +1520,9 @@ export default function AutopilotProvider({
         // fetch is not also reported against a `book` that never went out.
         let eligibilityFailed = false;
         let operation: MutationOperation | undefined;
+        // Set once the action is chosen: whether it changes a reservation
+        // that exists, which is what an unresolved change is held for.
+        let changesExistingReservation = false;
         let acting:
           | {
               key: string;
@@ -1487,32 +1534,50 @@ export default function AutopilotProvider({
         let pageOnlyProtection = false;
         try {
           const eligible = await guestsFor(experience.id, date);
-          // With “all eligible guests”, Plans cannot name people holding zero
-          // passes. Discover the actual group before choosing book versus swap.
-          if (!existing && !partyIds.length) {
-            const ids = [...eligible.eligible, ...eligible.ineligible]
-              .filter(g => g.ineligibleReason !== 'NOT_IN_PARTY')
-              .map(g => g.id);
-            const full = slotsAreFull(ids);
-            kind = full && wantsSwap ? 'swap' : 'book';
-            const blocked = attemptBlocker();
-            if (blocked || (full && !wantsSwap)) {
-              bumpSkip(blocked ?? 'slots-full', experience.name);
+          if (!existing) {
+            // The group that would actually be booked: the eligible guests,
+            // narrowed to the saved party. Guests who cannot be booked anyway
+            // -- a linked guest with no ticket today, a member without a Multi
+            // Pass -- get no say in whether it is full. Counting them made a
+            // full party look free, so the swap it needed was never tried; and
+            // Plans alone cannot name a guest who holds nothing yet.
+            const group = (
+              partyIds.length
+                ? eligible.eligible.filter(g => partyIds.includes(g.id))
+                : eligible.eligible
+            ).map(g => g.id);
+            const fullness = groupFullness(group);
+            if (!wantsSwap && cannotBook(fullness)) {
+              bumpSkip('slots-full', experience.name);
               continue;
             }
-            if (kind !== 'swap' && clashes(hit.returnTime, undefined)) {
+            const decided: ActionKind =
+              fullness !== 'none' && wantsSwap ? 'swap' : 'book';
+            // The blocker was asked about the provisional choice, or not at
+            // all without a saved party. Ask again about the one being made.
+            if (decided !== provisionalKind || !partyIds.length) {
+              kind = decided;
+              const blocked = attemptBlocker();
+              if (blocked) {
+                bumpSkip(blocked, experience.name);
+                continue;
+              }
+            }
+            // Likewise the overlap check, which a swap skips before its offer.
+            if (
+              kind !== 'swap' &&
+              (provisionalKind === 'swap' || !partyIds.length) &&
+              clashes(hit.returnTime, undefined)
+            ) {
               bumpSkip('overlaps-plans', experience.name);
               continue;
             }
           }
-          const occupancy = slotOccupancy(
-            allHeldToday,
-            activeCommits(Date.now(), date)
-          );
+          const full = guestIsFull();
           const excluded = eligible.eligible.filter(
             g =>
               (partyIds.length > 0 && !partyIds.includes(g.id)) ||
-              (kind === 'book' && (occupancy.get(g.id) ?? 0) >= MAX_HELD_MP)
+              (kind === 'book' && full(g.id))
           );
           const guests: Guests = {
             eligible: eligible.eligible.filter(g => !excluded.includes(g)),
@@ -1597,7 +1662,8 @@ export default function AutopilotProvider({
                     experience,
                     allHeldToday,
                     ledgerRef.current,
-                    guests.eligible.map(g => g.id)
+                    guests.eligible.map(g => g.id),
+                    guestIsFull()
                   )
                 : kind === 'modify'
                   ? shouldModify(
@@ -1625,24 +1691,6 @@ export default function AutopilotProvider({
             continue;
           }
 
-          // Re-checked against the offer's own party, whichever action this
-          // is. The guards above ran on the eligibility prediction, and Disney
-          // can return an offer covering fewer guests than that -- so "whole
-          // party only" could commit the split party it exists to prevent. It
-          // used to be passed to booking alone, while the setting's own
-          // wording promises autopilot "will not book, move, or swap unless
-          // everyone in your party is eligible". Read at call time, so
-          // switching the setting on while an offer is in flight counts.
-          const partyIsAcceptable = (offerGuests: Guests) =>
-            offerGuests.eligible.every(g =>
-              guests.eligible.some(requested => requested.id === g.id)
-            ) &&
-            (!settingsRef.current.requireWholeParty ||
-              wholePartyEligible(
-                offerGuests,
-                partyIds.length ? partyIds : guests.eligible.map(g => g.id)
-              ));
-
           // Choose a swap victim before leasing. `chooseSwapVictim` is pure and
           // the helper receives the same held array in this turn, so both
           // decisions are identical; leasing every held pass made unrelated
@@ -1657,6 +1705,34 @@ export default function AutopilotProvider({
                 )
               : undefined;
           const changing = kind === 'swap' ? victim : existing;
+          // Only a change to a reservation that exists is held as an
+          // unresolved change. A fresh booking whose answer was lost is the
+          // ledger's doubt-hold, which keeps it from being booked again and
+          // which plans settle; holding it here as well froze the attraction
+          // for the day, so a booking that had landed could not be moved.
+          changesExistingReservation = !!changing;
+
+          // Re-checked against the offer's own party, whichever action this
+          // is. The guards above ran on the eligibility prediction, and Disney
+          // can return an offer covering fewer guests than that -- so "whole
+          // party only" could commit the split party it exists to prevent. It
+          // used to be passed to booking alone, while the setting's own
+          // wording promises autopilot "will not book, move, or swap unless
+          // everyone in your party is eligible". Read at call time, so
+          // switching the setting on while an offer is in flight counts.
+          const partyIsAcceptable = (offerGuests: Guests) =>
+            offerGuests.eligible.every(
+              g =>
+                guests.eligible.some(requested => requested.id === g.id) ||
+                // A move or a swap may name the guests already on the
+                // reservation it changes, who were not asked for again.
+                !!changing?.guests.some(held => held.id === g.id)
+            ) &&
+            (!settingsRef.current.requireWholeParty ||
+              wholePartyEligible(
+                offerGuests,
+                partyIds.length ? partyIds : guests.eligible.map(g => g.id)
+              ));
           // Every mutation needs an exclusive dispatch lane. Without it, the
           // two providers routinely mounted in one app can both pass the
           // shared-ledger check, generate offers, and publish the same action
@@ -1681,7 +1757,7 @@ export default function AutopilotProvider({
             abandonAt: tickStartedAt + MAX_MUTATION_MS,
             onAbandon: async abandoned => {
               const lease = acting;
-              if (lease && abandoned.dispatched) {
+              if (lease && changesExistingReservation && abandoned.dispatched) {
                 try {
                   const protection = await quarantine(
                     lease.key,
@@ -1822,6 +1898,7 @@ export default function AutopilotProvider({
             // experience and the one being given up, so the old reservation is
             // released only if the new one is secured.
             outcome = await attemptAutoSwap(target, experience, allHeldToday, {
+              isFull: guestIsFull(),
               createSwapOffer: (exp, g, victim) =>
                 ll.offer(exp, g, { booking: victim }),
               book: (offer, control) => ll.book(offer, undefined, control),
@@ -1924,16 +2001,27 @@ export default function AutopilotProvider({
             // Dispatched and not provably refused is the definition the
             // quarantine already used; the screen was the only place still
             // calling it a failure.
+            //
+            // A 403 or a 429 is Disney refusing the request at the door, so
+            // nothing changed. `rejected` stays false for those on purpose --
+            // it paces the retry -- which is why it cannot be the whole test
+            // here: counting them as unknown froze the attraction after every
+            // refusal at a drop.
+            const refusedAtTheDoor =
+              outcome?.status === 'failed' &&
+              (outcome.httpStatus === REFUSED_STATUS ||
+                outcome.httpStatus === THROTTLED_STATUS);
             const unknown =
               current.dispatched &&
               outcome?.status === 'failed' &&
-              !outcome.rejected;
+              !outcome.rejected &&
+              !refusedAtTheDoor;
             if (unknown && outcome?.status === 'failed') {
               outcome = { ...outcome, unknown: true };
             }
             if (lease) {
               try {
-                if (unknown) {
+                if (unknown && changesExistingReservation) {
                   const protection = await quarantine(
                     lease.key,
                     {
@@ -1950,7 +2038,7 @@ export default function AutopilotProvider({
                       error: `${outcome.error}; unresolved-change protection is available only while this page remains open`,
                     };
                   }
-                } else if (current.dispatched) {
+                } else if (current.dispatched && changesExistingReservation) {
                   pageOnlyProtection = false;
                   // Success and a definite rejection both answer this exact
                   // request, including when they arrive after abandonment.
@@ -2123,7 +2211,7 @@ export default function AutopilotProvider({
           // A successful fresh booking occupies a slot immediately, even when
           // the confirmation read below still returns its pre-booking snapshot.
           // The short-lived commit record is the bridge until Plans catches up.
-          partyIsFull = slotsAreFull();
+          partyFullness = groupFullness(partyIds);
           // Any change shifts eligibility across every experience at once via
           // party, tier and overlap limits, so the whole cache is invalid.
           cacheRef.current.clear();
@@ -2153,7 +2241,7 @@ export default function AutopilotProvider({
             // it -- see the `let currentPlans` above.
             currentPlans = await pollPlans();
             allHeldToday = heldMPToday(currentPlans, date);
-            partyIsFull = slotsAreFull();
+            partyFullness = groupFullness(partyIds);
           } catch (error) {
             console.error(error);
           }

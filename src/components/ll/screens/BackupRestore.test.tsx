@@ -4,7 +4,9 @@ import {
   BACKUP_FORMAT,
   BACKUP_SCHEMA,
   LAST_BACKUP_KEY,
+  getRestoreRecovery,
   lastBackupAt,
+  recoverOriginalPlan,
 } from '@/autopilot/backup';
 import { markRunning } from '@/autopilot/running';
 import { WATCHLIST_KEY, loadWatchList } from '@/autopilot/watchlist';
@@ -14,6 +16,7 @@ import {
   TODAY,
   TOMORROW,
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -297,5 +300,187 @@ describe('BackupRestore, restoring', () => {
     expect(localStorage.getItem(PARTY_IDS_KEY)).toBe(
       JSON.stringify(['g1', 'g2', 'g3'])
     );
+  });
+
+  // A restore that fails and then cannot put the original plan back either.
+  // Storage fills as the restore reaches the party and stays full, so the
+  // rollback cannot rewrite the watch list the restore had already replaced.
+  describe('when the original plan cannot be put back', () => {
+    const noticeName = 'The original plan isn’t fully back';
+    const retryName = 'Retry recovering original plan';
+    let full: boolean;
+    let fillsAtParty: boolean;
+    let originalWatchList: string | null;
+
+    beforeEach(() => {
+      full = false;
+      fillsAtParty = true;
+      originalWatchList = localStorage.getItem(WATCHLIST_KEY);
+      const setItem = Storage.prototype.setItem;
+      jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+        this: Storage,
+        key: string,
+        value: string
+      ) {
+        if (fillsAtParty && key === PARTY_IDS_KEY) full = true;
+        if (full) {
+          throw new DOMException(
+            'The quota has been exceeded.',
+            'QuotaExceededError'
+          );
+        }
+        setItem.call(this, key, value);
+      });
+    });
+
+    const freeSpace = () => {
+      full = false;
+      fillsAtParty = false;
+    };
+
+    // The pending recovery is module state, and would refuse every later
+    // restore in this file.
+    afterEach(() => {
+      freeSpace();
+      if (getRestoreRecovery()) recoverOriginalPlan();
+    });
+
+    async function failRestore(reload = jest.fn()) {
+      render(<BackupRestore reload={reload} />);
+      pick(
+        backupFile({
+          [suffix(WATCHLIST_KEY)]: [{ experienceId: 'z' }],
+          [suffix(PARTY_IDS_KEY)]: ['g9'],
+        })
+      );
+      fireEvent.click(await replaceButton());
+      return screen.getByRole('alert', { name: noticeName });
+    }
+
+    it('says once what happened, and what recovering will replace', async () => {
+      const notice = await failRestore();
+      expect(localStorage.getItem(WATCHLIST_KEY)).toBeNull();
+      // One notice, and its message once: it used to show twice.
+      expect(screen.getAllByRole('alert')).toEqual([notice]);
+      expect(screen.getAllByText(/recovery is incomplete/)).toHaveLength(1);
+      expect(
+        within(notice).getByText(
+          /back exactly as they were before the restore, replacing any changes made since/
+        )
+      ).toBeInTheDocument();
+    });
+
+    it('offers no second restore while the plan is out, even after leaving', async () => {
+      await failRestore();
+      expect(await replaceButton()).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(
+        screen.getByRole('button', { name: 'Choose a backup file' })
+      ).toBeDisabled();
+
+      cleanup();
+      render(<BackupRestore />);
+      expect(
+        screen.getByRole('alert', { name: noticeName })
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Choose a backup file' })
+      ).toBeDisabled();
+    });
+
+    it('exports the original plan from inside the tap, and says so', async () => {
+      const share = installShare();
+      const notice = await failRestore();
+      await act(async () => {
+        within(notice)
+          .getByRole('button', { name: 'Export original plan' })
+          .click();
+        // Before anything is awaited, as iOS requires of a share sheet.
+        expect(share).toHaveBeenCalledTimes(1);
+      });
+      expect(within(notice).getByRole('status')).toHaveTextContent(
+        'Original plan exported.'
+      );
+      const text = await fileText(share.mock.calls[0]![0].files![0]!);
+      expect(JSON.parse(text).originalStorage[suffix(WATCHLIST_KEY)]).toBe(
+        originalWatchList
+      );
+      expect(text).not.toContain(TOKEN);
+    });
+
+    it('says so when the export fails, and nothing when the sheet is closed', async () => {
+      let refusal = new DOMException('Not allowed', 'NotAllowedError');
+      installShare(async () => {
+        throw refusal;
+      });
+      const notice = await failRestore();
+      const exportButton = within(notice).getByRole('button', {
+        name: 'Export original plan',
+      });
+      await act(async () => {
+        exportButton.click();
+      });
+      expect(within(notice).getByRole('status')).toHaveTextContent(
+        "Couldn't export the original plan: Not allowed"
+      );
+
+      refusal = new DOMException('Share canceled', 'AbortError');
+      await act(async () => {
+        exportButton.click();
+      });
+      expect(within(notice).getByRole('status')).toHaveTextContent(
+        "Couldn't export the original plan: Not allowed"
+      );
+    });
+
+    it('says so each time a retry fails again', async () => {
+      const notice = await failRestore();
+      const retry = within(notice).getByRole('button', { name: retryName });
+      fireEvent.click(retry);
+      expect(within(notice).getByRole('status')).toHaveTextContent(
+        'Still not recovered after 1 retry'
+      );
+      fireEvent.click(retry);
+      expect(within(notice).getByRole('status')).toHaveTextContent(
+        'Still not recovered after 2 retries'
+      );
+      expect(localStorage.getItem(WATCHLIST_KEY)).toBeNull();
+    });
+
+    it('says why a retry waits for the engines to stop', async () => {
+      const notice = await failRestore();
+      let release = () => {};
+      act(() => {
+        release = markRunning();
+      });
+      try {
+        fireEvent.click(
+          within(notice).getByRole('button', { name: retryName })
+        );
+        expect(within(notice).getByRole('status')).toHaveTextContent(
+          "Couldn't retry: Turn off Autopilot, and stop any Time Search, first."
+        );
+      } finally {
+        act(() => release());
+      }
+    });
+
+    it('puts the original plan back, then holds the screen until a reload', async () => {
+      const reload = jest.fn();
+      const notice = await failRestore(reload);
+      freeSpace();
+      fireEvent.click(within(notice).getByRole('button', { name: retryName }));
+      const dialog = screen.getByRole('alertdialog', {
+        name: 'Original plan recovered',
+      });
+      expect(localStorage.getItem(WATCHLIST_KEY)).toBe(originalWatchList);
+      expect(getRestoreRecovery()).toBeUndefined();
+      expect(notice).not.toBeInTheDocument();
+      expect(reload).not.toHaveBeenCalled();
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: 'Reload now' })
+      );
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
   });
 });

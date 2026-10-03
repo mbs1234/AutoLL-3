@@ -170,7 +170,16 @@ export function shouldSwap(
   ledger: Pick<AutoBookLedger, 'hasAttempted'>,
   guestIds: readonly string[] = [
     ...new Set(held.flatMap(b => b.guests.map(g => g.id))),
-  ]
+  ],
+  /**
+   * Whether a guest has no slot left. The caller's own measure, so the swap
+   * agrees with the choice that sent it here, bookings not yet in Plans
+   * included; held passes alone when omitted.
+   */
+  isFull: (id: string) => boolean = (() => {
+    const occupancy = slotOccupancy(held);
+    return (id: string) => (occupancy.get(id) ?? 0) >= MAX_HELD_MP;
+  })()
 ): { ok: true; victim: LLMP } | { ok: false; reason: SwapSkipReason } {
   if (!target.autoSwap) return { ok: false, reason: 'not-enabled' };
   // Already holding it makes this a move, not a swap; that path handles it.
@@ -183,11 +192,12 @@ export function shouldSwap(
   ) {
     return { ok: false, reason: 'already-held' };
   }
-  const occupancy = slotOccupancy(held);
-  if (
-    !guestIds.length ||
-    guestIds.some(id => (occupancy.get(id) ?? 0) < MAX_HELD_MP)
-  ) {
+  // Someone in the group needs the slot a swap frees. Waiting until everyone
+  // was full left a party with uneven passes -- a child too short for one
+  // ride -- never swapping, while the caller had chosen to swap because the
+  // adult was full. The victim must still cover the whole group (below), so
+  // everyone moves together onto the new ride.
+  if (!guestIds.length || !guestIds.some(isFull)) {
     return { ok: false, reason: 'not-full' };
   }
   if (ledger.hasAttempted(target.experienceId, 'swap')) {
@@ -226,6 +236,8 @@ export interface AutoSwapDeps {
    * Optional: callers that have nothing to re-check may omit it.
    */
   stillWanted?: (returnTime: ParkTime) => boolean;
+  /** Whether a guest has no slot left; see `shouldSwap`. */
+  isFull?: (id: string) => boolean;
   book: (offer: Offer<LLMP>, control?: RequestControl) => Promise<LLMP>;
   /** Build transport control after every offer guard has passed. */
   requestControl?: (change: {
@@ -286,19 +298,22 @@ export async function attemptAutoSwap(
     partyIsAcceptable,
     onCommitting,
     requestControl,
+    isFull,
   }: AutoSwapDeps
 ): Promise<SwapOutcome> {
+  // First, so a group with nobody eligible says so rather than "not full".
+  if (guests.eligible.length === 0) {
+    return { status: 'skipped', reason: 'no-eligible-guests' };
+  }
   const allowed = shouldSwap(
     target,
     incoming,
     held,
     ledger,
-    guests.eligible.map(g => g.id)
+    guests.eligible.map(g => g.id),
+    isFull
   );
   if (!allowed.ok) return { status: 'skipped', reason: allowed.reason };
-  if (guests.eligible.length === 0) {
-    return { status: 'skipped', reason: 'no-eligible-guests' };
-  }
   const { victim } = allowed;
 
   try {

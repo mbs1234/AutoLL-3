@@ -3,15 +3,18 @@ import { RequestError } from '@/api/client';
 import PlansContext from '@/contexts/PlansContext';
 import { ParkTime } from '@/datetime';
 import { ping } from '@/ping';
-import { TODAY, act, click, loading, nav, see } from '@/testing';
+import { TODAY, act, click, loading, nav, see, setTime } from '@/testing';
 
 import BookNewReturnTime from './BookNewReturnTime';
 import BookingDetails from './BookingDetails';
 import Home from './Home';
 import SelectReturnTime from './SelectReturnTime';
 
+// The fixtures' park day. Protection for a day already past is pruned, so the
+// real date would clear an unresolved change the moment it was raised.
+setTime('09:00');
+
 jest.mock('@/ping');
-jest.useFakeTimers();
 const refreshPlans = jest.fn();
 
 async function renderComponent() {

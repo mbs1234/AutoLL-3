@@ -57,6 +57,16 @@ export const LEASE_TTL_MS = 120_000;
  */
 export const RENEW_INTERVAL_MS = LEASE_TTL_MS / 3;
 
+/**
+ * How long after a `book` or `cancel` request a plans read must have *started*
+ * before an absent result counts as an answer.
+ *
+ * Long enough for the itinerary to catch up with a change Disney accepted,
+ * short enough that a lost response at a drop does not cost the attraction
+ * for the morning. A read that already shows the result settles at once.
+ */
+export const SETTLE_AFTER_MS = 30_000;
+
 /** Why a holder stopped being able to renew. */
 export type LeaseLost =
   /** Somebody quarantined the reservation, or took the lease over. */
@@ -95,6 +105,16 @@ export type DoubtKind = 'book' | 'modify' | 'swap' | 'cancel';
  * response was lost. A doubt now clears only on the exact state requested, a
  * definitive late response, or an explicit confirmation from the person who
  * checked Disney's Plans.
+ *
+ * Two kinds are the deliberate exception, because Disney itself refuses the
+ * repeat that the rule above exists to prevent. A booking that is resent when
+ * the first one did land is refused (a guest holds each attraction once a
+ * day), and a cancellation that is resent is refused as already done. So for
+ * `book` and `cancel` a plans read started long enough after the request
+ * settles the doubt either way (`SETTLE_AFTER_MS`); what is left uncertain
+ * costs nothing more than Disney's refusal. Holding them until a person
+ * cleared them froze the attraction for the rest of the day, often after the
+ * booking had in fact landed.
  */
 export interface Doubt {
   /** Stable identity of the mutation that raised this question. */
@@ -146,6 +166,15 @@ export interface Doubt {
    * legacy doubts require a person to resolve them.
    */
   reservationIds?: string[];
+  /**
+   * For a booking, the guests it was for.
+   *
+   * A new booking has no reservation identity until Disney answers, which is
+   * exactly the answer that was lost. The guests are what plans can be asked
+   * about instead: any of them holding this attraction on this day means the
+   * booking landed, since a guest holds each attraction once a day.
+   */
+  guestIds?: string[];
   /**
    * Every lease key this mutation makes unsafe.
    *
@@ -384,6 +413,7 @@ function parseDoubts(primaryKey: string, value: unknown): Doubt[] {
     const doubt = entry as Partial<Doubt>;
     if (typeof doubt?.at !== 'number') continue;
     const ids = reservationIds(doubt.reservationIds);
+    const guestIds = reservationIds(doubt.guestIds);
     const kind =
       doubt.kind === 'modify' ||
       doubt.kind === 'swap' ||
@@ -415,6 +445,7 @@ function parseDoubts(primaryKey: string, value: unknown): Doubt[] {
       ...(typeof doubt.to === 'string' ? { to: doubt.to } : {}),
       ...(gaining !== undefined ? { gaining } : {}),
       ...(ids.length ? { reservationIds: ids } : {}),
+      ...(guestIds.length ? { guestIds } : {}),
       ...(blockingKeys.length ? { blockingKeys } : {}),
     });
   }
@@ -478,12 +509,14 @@ export async function quarantine(
     to?: string;
     gaining?: string;
     reservationIds?: string[];
+    guestIds?: string[];
     blockingKeys?: readonly string[];
   } = {},
   now = Date.now()
 ): Promise<QuarantineResult> {
   const id = was.id ?? mutationId('doubt');
   const ids = reservationIds(was.reservationIds);
+  const guestIds = reservationIds(was.guestIds);
   const blockingKeys = canonicalKeys([key, ...(was.blockingKeys ?? [])]);
   const raised: Doubt = {
     id,
@@ -493,6 +526,7 @@ export async function quarantine(
     ...(was.to ? { to: was.to } : {}),
     ...(was.gaining ? { gaining: was.gaining } : {}),
     ...(ids.length ? { reservationIds: ids } : {}),
+    ...(guestIds.length ? { guestIds } : {}),
     blockingKeys,
   };
   let persisted = false;
@@ -617,21 +651,65 @@ export function quarantinedAt(key: string): number | undefined {
   return times.length ? Math.min(...times) : undefined;
 }
 
+/** Every Lightning Lane one plans read holds for an attraction on a day. */
+export interface PlannedReservation {
+  /** Its return time. */
+  time: string;
+  /** Every booking/entitlement identity that can name it. */
+  reservationIds: string[];
+  /** The guests on it. */
+  guestIds: string[];
+}
+
+type Seen = (
+  key: string,
+  reservationIds: readonly string[],
+  requestedTime: string
+) => PlanEvidence | undefined;
+
+type Inventory = (key: string) => readonly PlannedReservation[];
+
 /**
- * Whether one plans read proves the change this doubt is about actually landed.
+ * What one plans read says about the change a doubt is about.
  *
- * Deliberately narrow. Only the exact requested state counts; everything else,
- * including absence and a different time, leaves the doubt for a person.
+ * Deliberately narrow for a move or a swap: only the exact requested state
+ * counts, and everything else, including absence and a different time, leaves
+ * the doubt for a person. A booking and a cancellation are settled either way,
+ * for the reason the `Doubt` note gives; `polledAt` is when the read started.
  */
-function landed(
+function verdict(
   key: string,
   doubt: Doubt,
-  seen: (
-    key: string,
-    reservationIds: readonly string[],
-    requestedTime: string
-  ) => PlanEvidence | undefined
-): boolean {
+  seen: Seen,
+  polledAt: number,
+  inventory?: Inventory
+): 'landed' | 'not-landed' | undefined {
+  const late = polledAt >= doubt.at + SETTLE_AFTER_MS;
+  if (doubt.kind === 'book') {
+    const guests = doubt.guestIds;
+    if (!guests?.length || !inventory) return undefined;
+    // A guest holds each attraction once a day, so any of them holding this
+    // one now is the booking having landed.
+    const held = inventory(key).some(reservation =>
+      reservation.guestIds.some(id => guests.includes(id))
+    );
+    if (held) return 'landed';
+    return late ? 'not-landed' : undefined;
+  }
+  if (doubt.kind === 'cancel') {
+    const cancelled = doubt.reservationIds;
+    if (!cancelled?.length || !inventory) return undefined;
+    const present = inventory(key).some(reservation =>
+      reservation.reservationIds.some(id => cancelled.includes(id))
+    );
+    if (!present) return 'landed';
+    return late ? 'not-landed' : undefined;
+  }
+  return landed(key, doubt, seen) ? 'landed' : undefined;
+}
+
+/** Whether one plans read proves that a move or a swap actually landed. */
+function landed(key: string, doubt: Doubt, seen: Seen): boolean {
   const expected = doubt.reservationIds;
   // A legacy record names a ride and a time, not a reservation. That is not
   // enough to distinguish split-party bookings, so it needs manual review.
@@ -665,8 +743,10 @@ function landed(
  * Offer one plans read as evidence about every reservation in doubt.
  *
  * `seen` reports the active Lightning Lane that read found for a key, or
- * undefined. Positive evidence settles at once. Absence, elapsed time and
- * contrary reads never do.
+ * undefined; `inventory` lists every Lightning Lane it holds for a key. For a
+ * move or a swap, positive evidence settles at once, and absence, elapsed time
+ * and contrary reads never do. A booking or a cancellation settles either way
+ * once the read is late enough (see `verdict`).
  *
  * `polledAt` is when the read *started*, which is the only honest measure of
  * what it can speak about, and it is the only clock this function has. A
@@ -675,18 +755,18 @@ function landed(
  * of a photograph taken before the event.
  */
 export async function reconcile(
-  seen: (
-    key: string,
-    reservationIds: readonly string[],
-    requestedTime: string
-  ) => PlanEvidence | undefined,
-  polledAt = Date.now()
+  seen: Seen,
+  polledAt = Date.now(),
+  inventory?: Inventory
 ): Promise<void> {
+  const settles = (key: string, doubt: Doubt) =>
+    polledAt > doubt.at &&
+    verdict(key, doubt, seen, polledAt, inventory) !== undefined;
   let volatileChanged = false;
   const nextVolatile: Quarantine = {};
   for (const [key, doubts] of Object.entries(volatileQuarantine)) {
     const kept = doubts.filter(doubt => {
-      const resolved = polledAt > doubt.at && landed(key, doubt, seen);
+      const resolved = settles(key, doubt);
       volatileChanged ||= resolved;
       return !resolved;
     });
@@ -703,9 +783,10 @@ export async function reconcile(
         const kept: Doubt[] = [];
         for (const doubt of doubts) {
           // A response already in flight when the mutation was dispatched
-          // cannot speak about it. After that, only the exact requested state
-          // clears; absence and elapsed time are deliberately not proof.
-          if (polledAt > doubt.at && landed(key, doubt, seen)) changed = true;
+          // cannot speak about it. After that, a move or a swap clears only on
+          // the exact requested state; a booking or a cancellation also on a
+          // late enough read that shows it did not happen.
+          if (settles(key, doubt)) changed = true;
           else kept.push(doubt);
         }
         if (kept.length) next[key] = kept;

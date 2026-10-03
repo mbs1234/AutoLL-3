@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore } from 'react';
+import { useId, useRef, useState, useSyncExternalStore } from 'react';
 
 import { APP_NAME } from '@/appIdentity';
 import {
@@ -53,7 +53,22 @@ export default function BackupRestore({
   const [picked, setPicked] = useState<{ name: string; backup: Backup }>();
   const [problem, setProblem] = useState<string>();
   const [restored, setRestored] = useState(false);
+  // A failed restore that could not put the original plan back either. Module
+  // state in `backup.ts`, so it is still here after leaving this screen.
   const [recovery, setRecovery] = useState(getRestoreRecovery);
+  // What the last tap in the recovery notice did. Without it an export said
+  // nothing, and a retry that failed again left the screen exactly as it was,
+  // as though the tap had not registered.
+  const [recoveryNote, setRecoveryNote] = useState<{
+    text: string;
+    error?: boolean;
+  }>();
+  const [failedRetries, setFailedRetries] = useState(0);
+  const [recovered, setRecovered] = useState(false);
+  const recoveryTitle = useId();
+  // No second restore while the first one's original plan is still out: it
+  // would be refused anyway, and the button said otherwise.
+  const blocked = running || !!recovery;
 
   // Deliberately not async, and nothing before `shareBackup`. `Button` calls
   // this synchronously inside the tap (it awaits only when given `back`), so the
@@ -127,11 +142,65 @@ export default function BackupRestore({
       restoreBackup(picked.backup);
       setRestored(true);
     } catch (error) {
-      if (error instanceof RestoreRecoveryError) setRecovery(error);
+      if (error instanceof RestoreRecoveryError) {
+        // The recovery notice says what happened and what to do next. Saying
+        // it here as well put the same message on the screen twice.
+        setProblem(undefined);
+        setRecovery(error);
+        return;
+      }
       setProblem(
-        `Couldn't restore: ${message(error)}${error instanceof RestoreRecoveryError ? '' : " This phone's plan is as it was."}`
+        `Couldn't restore: ${message(error)} This phone's plan is as it was.`
       );
     }
+  };
+
+  // Inside the tap, like "Back up now": the share sheet opens only from one.
+  const exportOriginal = () => {
+    if (!recovery) return;
+    shareBackup(recovery.backup).then(
+      outcome => {
+        // Closing the sheet exports nothing, and changes nothing here either.
+        if (outcome === 'cancelled') return;
+        setRecoveryNote({
+          text:
+            outcome === 'shared'
+              ? 'Original plan exported.'
+              : 'Original plan saved to your downloads.',
+        });
+      },
+      error => {
+        setRecoveryNote({
+          text: `Couldn't export the original plan: ${message(error)}`,
+          error: true,
+        });
+      }
+    );
+  };
+
+  const retryRecovery = () => {
+    try {
+      recoverOriginalPlan();
+    } catch (error) {
+      if (error instanceof RestoreRecoveryError) {
+        // Counted, so that each failed retry reads differently from the last.
+        const tries = failedRetries + 1;
+        setFailedRetries(tries);
+        setRecoveryNote({
+          text: `Still not recovered after ${tries} ${tries === 1 ? 'retry' : 'retries'}: storage refused part of the plan again.`,
+          error: true,
+        });
+      } else {
+        setRecoveryNote({
+          text: `Couldn't retry: ${message(error)}`,
+          error: true,
+        });
+      }
+      return;
+    }
+    setRecovery(undefined);
+    setRecoveryNote(undefined);
+    setRecovered(true);
   };
 
   const now = new Date();
@@ -196,7 +265,7 @@ export default function BackupRestore({
             {describeSummary(summarize(picked.backup.data))}
           </p>
           <div className="mt-3 flex gap-2">
-            <Button className="flex-1" onClick={restore} disabled={running}>
+            <Button className="flex-1" onClick={restore} disabled={blocked}>
               Replace this phone’s plan
             </Button>
             <Button
@@ -213,7 +282,7 @@ export default function BackupRestore({
           type="full"
           className="mt-3"
           onClick={choose}
-          disabled={running}
+          disabled={blocked}
         >
           Choose a backup file
         </Button>
@@ -224,60 +293,97 @@ export default function BackupRestore({
         </p>
       )}
       {recovery && (
-        <div role="alert" className="mt-3 text-red-700">
-          <p>{recovery.message}</p>
-          <Button
-            onClick={() => {
-              void shareBackup(recovery.backup).catch(error =>
-                setProblem(message(error))
-              );
-            }}
-          >
-            Export original plan
-          </Button>
-          <Button
-            onClick={() => {
-              try {
-                recoverOriginalPlan();
-                setRecovery(undefined);
-                setProblem('Original plan recovered. Reload before using it.');
-              } catch (error) {
-                setProblem(message(error));
-              }
-            }}
-          >
-            Retry recovering original plan
-          </Button>
-        </div>
+        <section
+          role="alert"
+          aria-labelledby={recoveryTitle}
+          className="mt-3 rounded-sm bg-red-100 p-2 text-sm text-red-900"
+        >
+          <h3 id={recoveryTitle} className="font-semibold">
+            The original plan isn’t fully back
+          </h3>
+          <p className="mt-1">
+            The restore failed, and this phone’s plan could only partly be put
+            back. Keep this page open: until the plan is recovered, this page
+            holds its only complete copy, so export it first.
+          </p>
+          <p className="mt-1">
+            Recovering puts the plan, and the drops seen, back exactly as they
+            were before the restore, replacing any changes made since.
+          </p>
+          <p className="mt-1 text-xs">{recovery.message}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button type="small" onClick={exportOriginal}>
+              Export original plan
+            </Button>
+            <Button type="small" onClick={retryRecovery}>
+              Retry recovering original plan
+            </Button>
+          </div>
+          {recoveryNote && (
+            <p
+              role="status"
+              className={`mt-2 ${recoveryNote.error ? 'font-semibold' : ''}`}
+            >
+              {recoveryNote.text}
+            </p>
+          )}
+        </section>
       )}
 
       {restored && (
-        <Overlay
-          color="bg-white"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="restored-title"
-        >
-          <div className="max-w-sm text-center">
-            <h2 id="restored-title" className="text-xl font-semibold">
-              Restored
-            </h2>
-            <p className="mt-2">
-              This phone now has the backup’s plan and party, and every drop
-              either of them had seen. Reload the page to use them: the screens
-              behind this one still show the old plan.
-            </p>
-            <p className="mt-2 text-sm text-gray-600">
-              If you open {APP_NAME} from a bookmark, tap it again once the page
-              has reloaded.
-            </p>
-            <Button type="full" className="mt-4" onClick={reload}>
-              Reload now
-            </Button>
-          </div>
-        </Overlay>
+        <ReloadPrompt title="Restored" reload={reload}>
+          This phone now has the backup’s plan and party, and every drop either
+          of them had seen. Reload the page to use them: the screens behind this
+          one still show the old plan.
+        </ReloadPrompt>
+      )}
+      {recovered && (
+        <ReloadPrompt title="Original plan recovered" reload={reload}>
+          This phone has its plan back as it was before the restore. Reload the
+          page to use it: the screens behind this one may still show the failed
+          restore.
+        </ReloadPrompt>
       )}
     </Screen>
+  );
+}
+
+/**
+ * Holds the screen until a reload, after anything that rewrote the plan under
+ * screens already open: each still holds the plan it loaded, and would write
+ * it back over the new one.
+ */
+function ReloadPrompt({
+  title,
+  reload,
+  children,
+}: {
+  title: string;
+  reload: () => void;
+  children: React.ReactNode;
+}) {
+  const titleId = useId();
+  return (
+    <Overlay
+      color="bg-white"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+    >
+      <div className="max-w-sm text-center">
+        <h2 id={titleId} className="text-xl font-semibold">
+          {title}
+        </h2>
+        <p className="mt-2">{children}</p>
+        <p className="mt-2 text-sm text-gray-600">
+          If you open {APP_NAME} from a bookmark, tap it again once the page has
+          reloaded.
+        </p>
+        <Button type="full" className="mt-4" onClick={reload}>
+          Reload now
+        </Button>
+      </div>
+    </Overlay>
   );
 }
 

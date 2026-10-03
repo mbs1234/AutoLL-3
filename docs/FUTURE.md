@@ -6,7 +6,8 @@ was cleared (§1), and again on 2026-09-15, when every decision in §4 was
 answered and a Time Search was given precedence over the engine — decided and
 built the same day, so it is not listed below. Revised again on 2026-09-23, when
 the ordering moved to `ROADMAP.md`'s calendar and five items were added
-(§2.8–§2.11 and §3.13), and a sixth the same day (§2.12).
+(§2.8–§2.11 and §3.13), and a sixth the same day (§2.12). §1 and §6 gained what
+making 1.8.4 turned up, on 2026-10-03.
 
 This is the standing list of what is not done: the items still open from
 `PLAN.md` and `UX-PLAN.md`, the
@@ -76,6 +77,21 @@ watching for days.
 
 Each landed with a test, and each of those tests was checked against a reverted
 fix to prove it fails without it.
+
+**Two small ones, found while making 1.8.4 (2026-10-03).** Neither can lose a
+reservation.
+
+- **Change after removing guests asks for them again.** A pass's details screen
+  keeps the pass as it first loaded, so after **Cancel** removes some guests,
+  **Change** on the same screen asks Disney to move it for everyone it had.
+  Going back to Plans first avoids it. `BookingDetails.tsx` hands
+  `ChangeBookingTime` the original `booking` rather than one with the remaining
+  guests. _Small._
+- **A DAS selection and a Lightning Lane share a protection key.** Both lock the
+  attraction and day (`leaseKey` in `manualMutation.ts`), so while either is
+  being changed, or is protected after a lost answer, the other is paused too,
+  by hand and by Autopilot. It errs towards refusing. _Small_, but every place
+  that builds the key has to change at once.
 
 
 ## 2. The screens
@@ -575,6 +591,15 @@ attraction-name rule. These remain open, all in the mechanism added that week:
 
 None is a known defect. They are places where a future change would break
 something silently, which in this subsystem is the shape that has cost the most.
+
+**The harness misses three things, as of 2026-10-03.** Its fake LL client never
+runs the booking-response reader in `wdw.ts`, so a harness run cannot catch a
+reader that refuses a real answer. Its first screen is a wrapper around Home
+rather than Home itself, so after a hand Change succeeds there, going back to
+Home fails ("No previous Tabbed screen"), which it does not on the phone. And
+the fake offers a move at the time already held, so the Live engine scenario
+never shows the Haunted Mansion move its description promises. Separately,
+`client.ts` still catches a dispatch error that `fetchJson` never throws.
 
 **One thing that pass established, worth keeping:** jsdom does no hit-testing,
 so a test that "clicks through" an overlay passes with the overlay bug present.

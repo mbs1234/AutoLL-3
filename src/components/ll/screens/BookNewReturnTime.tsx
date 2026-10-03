@@ -15,6 +15,7 @@ import RebookingContext from '@/contexts/RebookingContext';
 import ResortContext from '@/contexts/ResortContext';
 import useDataLoader from '@/hooks/useDataLoader';
 import useManualMutation from '@/hooks/useManualMutation';
+import { useUnanswered } from '@/hooks/useMutationDoubts';
 import { ping } from '@/ping';
 
 import BookingDate from '../BookingDate';
@@ -40,7 +41,7 @@ export default function BookNewReturnTime({
   const { loadData, loaderElem } = useDataLoader();
   const { refreshPlans } = use(PlansContext);
   const [offer, setOffer] = useState(initialOffer);
-  const [unanswered, setUnanswered] = useState(false);
+  const [unanswered, setUnanswered] = useUnanswered(bookingMutation(offer));
   const { booking } = offer;
   const mutate = useManualMutation();
 

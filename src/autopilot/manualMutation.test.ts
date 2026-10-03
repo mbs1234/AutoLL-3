@@ -202,3 +202,59 @@ test('failed durable quarantine still blocks this page and reports its limits', 
     false
   );
 });
+
+describe('1.8.4: what a refusal says, and what a doubt can be settled by', () => {
+  test('a lease someone else holds is "busy", with nothing to resolve', async () => {
+    const mutation = bookingMutation(modOffer);
+    await acquire(mutation.keys, 'autopilot');
+    const send = jest.fn();
+    await expect(runManualMutation(mutation, send)).rejects.toThrow(
+      /another AutoLL action is changing this reservation/
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  test('an unresolved change says so, and points to resolving it', async () => {
+    const mutation = bookingMutation(modOffer);
+    await expect(
+      runManualMutation(mutation, control =>
+        dispatch(control, async () => {
+          throw new RequestError({ ok: false, status: 0, data: {} });
+        })
+      )
+    ).rejects.toBeInstanceOf(UnknownMutationOutcome);
+    await expect(runManualMutation(mutation, jest.fn())).rejects.toThrow(
+      /has an unresolved change/
+    );
+  });
+
+  test('a lease that cannot be written says so instead of "unknown error"', async () => {
+    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    const send = jest.fn();
+    const result = runManualMutation(bookingMutation(modOffer), send);
+    await expect(result).rejects.toBeInstanceOf(RequestNotSent);
+    await expect(result).rejects.toThrow(/storage for AutoLL is full/);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  test('a new booking is settled by its guests', () => {
+    expect(bookingMutation(offer).evidence).toMatchObject({
+      kind: 'book',
+      guestIds: offer.guests.eligible.map(g => g.id),
+    });
+  });
+
+  test('removing some guests names only their passes', () => {
+    const [first] = booking.guests;
+    expect(cancellationMutation(booking, [first!]).evidence).toMatchObject({
+      kind: 'cancel',
+      reservationIds: [first!.entitlementId],
+    });
+    expect(cancellationMutation(booking).evidence.reservationIds).toEqual([
+      booking.id,
+      ...booking.guests.map(g => g.entitlementId),
+    ]);
+  });
+});

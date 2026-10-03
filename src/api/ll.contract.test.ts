@@ -280,6 +280,15 @@ describe('WDW Lightning Lane request contracts', () => {
     expect(booked.id).toBe('entitlement-1');
     expect(`${booked.start.time}`).toBe('10:00:00');
     expect(`${booked.end.time}`).toBe('11:00:00');
+    // Whom Disney booked, and no one else: the guest without order details
+    // was on the offer but never sent.
+    expect(booked.guests).toEqual([
+      expect.objectContaining({
+        id: guest.id,
+        name: guest.name,
+        entitlementId: 'entitlement-1',
+      }),
+    ]);
     expect(request).toHaveBeenCalledWith({
       path: '/ea-vas/planning/api/v1/experiences/entitlements/book',
       data: {
@@ -300,5 +309,76 @@ describe('WDW Lightning Lane request contracts', () => {
       sensorData: true,
       control,
     });
+  });
+
+  // The `/mod` commit that every Auto-move and swap ends in, for part of the
+  // party. Only the chosen guest's entitlement goes, and the answer is read by
+  // whom Disney says it moved, however many its party names.
+  it('commits a Modify for part of the party, and reads back only that part', async () => {
+    const { client, request } = makeClient();
+    const other: Guest = {
+      ...guest,
+      id: 'guest-2',
+      name: 'Guest Two',
+      primary: false,
+    };
+    const booking = {
+      ...held(),
+      guests: [
+        { ...guest, entitlementId: 'ent-1' },
+        { ...other, entitlementId: 'ent-2' },
+      ],
+    };
+    request.mockResolvedValue({
+      data: {
+        booking: {
+          experienceId: experience.id,
+          startDateTime: `${DATE}T10:00:00`,
+          endDateTime: `${DATE}T11:00:00`,
+          guests: [{ guestId: guest.id, entitlementId: 'ent-1-moved' }],
+        },
+        party: {
+          guests: [apiGuest(), apiGuest({ id: other.id, lastName: 'Two' })],
+          ineligibleGuests: [],
+        },
+      },
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const control = {
+      signal: new AbortController().signal,
+      start: async <T>(send: () => Promise<T>) => send(),
+      onDispatch: jest.fn(),
+    };
+
+    const moved = await client.book(
+      {
+        ...offer(),
+        offerSetId: 'set-2',
+        guests: { eligible: [guest, other], ineligible: [] },
+        booking,
+      },
+      [guest],
+      control
+    );
+    warn.mockRestore();
+    expect(request).toHaveBeenCalledWith({
+      path: '/ea-vas/planning/api/v1/experiences/mod/entitlements/book',
+      data: {
+        offerSetId: 'set-2',
+        eligibleGuestsEntitlements: [
+          { guestId: guest.id, entitlementId: 'ent-1', ...guest.orderDetails },
+        ],
+      },
+      sensorData: true,
+      control,
+    });
+    expect(moved.id).toBe('ent-1-moved');
+    expect(moved.guests).toEqual([
+      expect.objectContaining({
+        id: guest.id,
+        name: guest.name,
+        entitlementId: 'ent-1-moved',
+      }),
+    ]);
   });
 });
