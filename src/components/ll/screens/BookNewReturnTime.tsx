@@ -2,6 +2,7 @@ import { use, useEffect, useState } from 'react';
 
 import { LLMP, Offer } from '@/api/ll';
 import { outcomeIsUnknown } from '@/autopilot/autobook';
+import { bookingMutation } from '@/autopilot/manualMutation';
 import Button from '@/components/Button';
 import FloatingButton from '@/components/FloatingButton';
 import GuestList from '@/components/GuestList';
@@ -13,9 +14,11 @@ import PlansContext from '@/contexts/PlansContext';
 import RebookingContext from '@/contexts/RebookingContext';
 import ResortContext from '@/contexts/ResortContext';
 import useDataLoader from '@/hooks/useDataLoader';
+import useManualMutation from '@/hooks/useManualMutation';
 import { ping } from '@/ping';
 
 import BookingDate from '../BookingDate';
+import MutationProtection from '../MutationProtection';
 import OverlappingPlans from '../OverlappingPlans';
 import RebookingHeader from '../RebookingHeader';
 import ReturnTime from '../ReturnTime';
@@ -39,6 +42,7 @@ export default function BookNewReturnTime({
   const [offer, setOffer] = useState(initialOffer);
   const [unanswered, setUnanswered] = useState(false);
   const { booking } = offer;
+  const mutate = useManualMutation();
 
   useEffect(() => {
     const begin = rebooking.begin;
@@ -50,7 +54,9 @@ export default function BookNewReturnTime({
     loadData(async () => {
       let booking: LLMP;
       try {
-        booking = await ll.book(offer);
+        booking = await mutate(bookingMutation(offer), control =>
+          ll.book(offer, undefined, control)
+        );
       } catch (error) {
         // No answer is not a failure: the move may have happened. Stop
         // offering the same tap, and send the person to Plans.
@@ -97,6 +103,7 @@ export default function BookNewReturnTime({
       <OverlappingPlans offer={offer} />
       <h3>Your Party</h3>
       <GuestList guests={offer.guests.eligible} />
+      <MutationProtection mutation={bookingMutation(offer)} />
       {loaderElem}
       {unanswered ? (
         <UnansweredNotice action="change" />

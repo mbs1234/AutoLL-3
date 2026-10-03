@@ -11,7 +11,13 @@ import { Guests } from '@/api/ll';
  * to prevent: a Lightning Lane for two of five is often worse than none, since
  * it splits the group and spends the slot.
  */
-export function wholePartyEligible(guests: Guests): boolean {
+export function wholePartyEligible(
+  guests: Guests,
+  selectedIds: readonly string[] = []
+): boolean {
   if (guests.eligible.length === 0) return false;
+  if (selectedIds.length) {
+    return selectedIds.every(id => guests.eligible.some(g => g.id === id));
+  }
   return guests.ineligible.every(g => g.ineligibleReason === 'NOT_IN_PARTY');
 }

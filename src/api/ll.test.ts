@@ -1,4 +1,9 @@
-import { expectFetch, respond, response } from '@/__fixtures__/client';
+import {
+  expectFetch,
+  respond,
+  response,
+  testMutationControl,
+} from '@/__fixtures__/client';
 import {
   booking,
   bookings,
@@ -757,19 +762,22 @@ describe('LLClientWDW', () => {
 
     it('throws RequestError on failure', async () => {
       respond(response({}, 410));
-      await expect(client.book(offer)).rejects.toThrow(RequestError);
+      await expect(
+        client.book(offer, undefined, testMutationControl())
+      ).rejects.toThrow(RequestError);
     });
   });
 
   describe('cancelBooking()', () => {
     it('cancels booking', async () => {
       respond(response({}));
-      await client.cancelBooking(booking.guests);
+      const control = testMutationControl();
+      await client.cancelBooking(booking.guests, control);
       expectFetch(
         `/ea-vas/api/v1/entitlements/${booking.guests
           .map(g => g.entitlementId)
           .join(',')}`,
-        { method: 'DELETE' }
+        { method: 'DELETE', signal: control.signal }
       );
     });
   });

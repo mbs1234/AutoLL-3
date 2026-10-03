@@ -3,6 +3,10 @@ import { use, useCallback, useEffect, useState } from 'react';
 import { isLLMP } from '@/api/itinerary';
 import { Guest, LLMP, Offer, OfferError, OfferExperience } from '@/api/ll';
 import { outcomeIsUnknown } from '@/autopilot/autobook';
+import {
+  bookingMutation,
+  cancellationMutation,
+} from '@/autopilot/manualMutation';
 import FloatingButton from '@/components/FloatingButton';
 import LandLine from '@/components/LandLine';
 import Screen from '@/components/Screen';
@@ -18,11 +22,13 @@ import RebookingContext from '@/contexts/RebookingContext';
 import ResortContext from '@/contexts/ResortContext';
 import { parkDate, upcomingTimes } from '@/datetime';
 import useDataLoader from '@/hooks/useDataLoader';
+import useManualMutation from '@/hooks/useManualMutation';
 import useScreenState from '@/hooks/useScreenState';
 import { ping } from '@/ping';
 
 import BookingDate from '../BookingDate';
 import ExistingBookings from '../ExistingBookings';
+import MutationProtection from '../MutationProtection';
 import RebookingHeader from '../RebookingHeader';
 import UnansweredNotice from '../UnansweredNotice';
 import YourDayButton from '../YourDayButton';
@@ -51,6 +57,7 @@ export default function BookExperience({
   const [offer, setOffer] = useState<Offer | null | undefined>();
   const { loadData, loaderElem } = useDataLoader();
   const [unanswered, setUnanswered] = useState(false);
+  const mutate = useManualMutation();
 
   useEffect(() => {
     if (!isActiveScreen) return;
@@ -68,7 +75,9 @@ export default function BookExperience({
     loadData(async flash => {
       let booking: LLMP;
       try {
-        booking = await ll.book(offer, party.selected);
+        booking = await mutate(bookingMutation(offer), control =>
+          ll.book(offer, party.selected, control)
+        );
       } catch (error: any) {
         const status = error?.response?.status;
         if (status === 410) {
@@ -91,7 +100,9 @@ export default function BookExperience({
       let warning: string | undefined;
       if (guestsToCancel.length > 0) {
         try {
-          await ll.cancelBooking(guestsToCancel);
+          await mutate(cancellationMutation(booking), control =>
+            ll.cancelBooking(guestsToCancel, control)
+          );
           booking.guests = booking.guests.filter(g => selectedIds.has(g.id));
         } catch (error) {
           // The booking went through, for everyone on the offer. Staying on
@@ -313,6 +324,7 @@ export default function BookExperience({
           ) : (
             <>
               <OfferDetails offer={offer} onOfferChange={setOffer} />
+              <MutationProtection mutation={bookingMutation(offer)} />
               {unanswered ? (
                 <UnansweredNotice
                   action={rebooking.current ? 'change' : 'booking'}

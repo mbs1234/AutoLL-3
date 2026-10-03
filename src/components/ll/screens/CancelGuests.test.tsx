@@ -15,6 +15,7 @@ function renderComponent() {
 
 describe('CancelGuests', () => {
   beforeEach(() => {
+    localStorage.clear();
     onCancel.mockClear();
     nav.goBack.mockClear();
   });
@@ -23,8 +24,11 @@ describe('CancelGuests', () => {
     renderComponent();
     click('Select All');
     click('Cancel Reservation');
-    expect(ll.cancelBooking).toHaveBeenLastCalledWith(guests);
     await loading();
+    expect(ll.cancelBooking).toHaveBeenLastCalledWith(
+      guests,
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
@@ -33,8 +37,11 @@ describe('CancelGuests', () => {
     click(mickey.name);
     click(pluto.name);
     click('Cancel Guests');
-    expect(ll.cancelBooking).toHaveBeenLastCalledWith([guests[0], guests[2]]);
     await loading();
+    expect(ll.cancelBooking).toHaveBeenLastCalledWith(
+      [guests[0], guests[2]],
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
@@ -46,7 +53,9 @@ describe('CancelGuests', () => {
     click('Select All');
     click('Cancel Reservation');
     await loading();
-    see('Network request failed (no response)');
+    see(
+      'Disney did not return a definite result. Check Plans and resolve the protected change before trying again.'
+    );
   });
 
   // It used to go back and redraw the party without those guests whatever

@@ -1,4 +1,5 @@
 import { authStore } from '@/api/auth';
+import type { RequestControl } from '@/api/client';
 import { fetchJson } from '@/fetch';
 
 jest.mock('@/fetch');
@@ -16,6 +17,14 @@ export function respond(...responses: ReturnType<typeof response>[]) {
   for (const res of responses) {
     jest.mocked(fetchJson).mockResolvedValueOnce(res);
   }
+}
+
+export function testMutationControl(): RequestControl {
+  return {
+    signal: new AbortController().signal,
+    start: async send => send(),
+    onDispatch: jest.fn(),
+  };
 }
 
 export function expectFetch(

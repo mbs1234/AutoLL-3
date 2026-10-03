@@ -45,6 +45,7 @@ import {
   chooseSwapVictim,
   heldMPToday,
   shouldSwap,
+  slotOccupancy,
 } from '@/autopilot/autoswap';
 import { addLogEntry, describeFailure } from '@/autopilot/bookinglog';
 import {
@@ -64,7 +65,11 @@ import {
   resolveDoubt,
   startWhileHeld,
 } from '@/autopilot/lease';
-import { MAX_MUTATION_MS, MutationOperation } from '@/autopilot/mutation';
+import {
+  MAX_MUTATION_MS,
+  MutationOperation,
+  mutationControl,
+} from '@/autopilot/mutation';
 import type { MutationEvidence } from '@/autopilot/mutation';
 import {
   Coverage,
@@ -166,7 +171,11 @@ import {
   modifyDate,
   parkDate,
 } from '@/datetime';
-import { loadSavedPartyIds } from '@/savedParty';
+import {
+  loadSavedPartyIds,
+  savedPartyScope,
+  subscribeSavedParty,
+} from '@/savedParty';
 import { NOTIFICATION_TAG_NAMESPACE } from '@/storageNamespace';
 import { now as syncedNow } from '@/timesync';
 
@@ -376,6 +385,14 @@ export default function AutopilotProvider({
   const parkDayRef = useRef(parkDate());
 
   const cacheRef = useRef(new GuestCache());
+  useEffect(
+    () =>
+      subscribeSavedParty(() => {
+        cacheRef.current.clear();
+        ll.setPartyIds(loadSavedPartyIds());
+      }),
+    [ll]
+  );
   // What the party held as of the last plans poll. Undefined until the first
   // poll of a run establishes the baseline rather than firing on it.
   const entitlementsRef = useRef<ReadonlySet<string> | undefined>(undefined);
@@ -637,10 +654,15 @@ export default function AutopilotProvider({
    */
   const guestsFor = useCallback(
     async (experienceId: string, date: string): Promise<Guests> => {
-      const cached = cacheRef.current.get(experienceId, date, clock());
+      const scope = savedPartyScope();
+      const cached = cacheRef.current.get(experienceId, date, clock(), scope);
       if (cached) return cached;
+      ll.setPartyIds(loadSavedPartyIds());
       const fetched = await ll.guests({ id: experienceId }, date);
-      cacheRef.current.set(experienceId, date, fetched, clock().ms);
+      if (scope !== savedPartyScope()) {
+        throw new RequestNotSent('Party changed during eligibility');
+      }
+      cacheRef.current.set(experienceId, date, fetched, clock().ms, scope);
       return fetched;
     },
     [ll, clock]
@@ -714,6 +736,8 @@ export default function AutopilotProvider({
       // late action therefore gets less time, not a fresh window that can run
       // beyond the tick which authorised it.
       const tickStartedAt = Date.now();
+      const partyScope = savedPartyScope();
+      const partyIds = loadSavedPartyIds();
       // A refusal since this run started, from any routine, ends it. The
       // poller's `stopEpoch` normally gets there first; this covers a check it
       // had already begun.
@@ -864,6 +888,7 @@ export default function AutopilotProvider({
        */
       const stale = () =>
         cancelled() ||
+        savedPartyScope() !== partyScope ||
         bookingDateRef.current !== date ||
         parkIdRef.current !== park.id;
 
@@ -989,7 +1014,6 @@ export default function AutopilotProvider({
       // party says whose to move, and `'several'` means it does not. Truthy,
       // so the book-then-move and tier-hold checks read it as held. See
       // `findPartyLL`.
-      const partyIds = loadSavedPartyIds();
       const heldToday = (experienceId: string) =>
         findPartyLL(currentPlans, experienceId, date, partyIds);
       /**
@@ -1029,19 +1053,26 @@ export default function AutopilotProvider({
           id => expected.includes(id)
         );
       };
-      const slotsAreFull = () => {
-        const heldFacilities = new Set(
-          allHeldToday.map(booking => booking.facilityId)
+      const slotsAreFull = (selectedIds = partyIds) => {
+        const commits = activeCommits(Date.now(), date);
+        const occupancy = slotOccupancy(allHeldToday, commits);
+        const ids = selectedIds.length ? selectedIds : [...occupancy.keys()];
+        // Old commits cannot be attributed safely. Keep their conservative
+        // capacity hold until Plans or the bounded commit TTL resolves them.
+        const legacy = commits.filter(
+          c =>
+            c.kind === 'book' &&
+            !c.guestIds?.length &&
+            !allHeldToday.some(b => b.facilityId === c.facilityId)
+        ).length;
+        const full = (id: string) =>
+          (occupancy.get(id) ?? 0) + legacy >= MAX_HELD_MP;
+        return (
+          ids.length > 0 &&
+          (settingsRef.current.requireWholeParty
+            ? ids.some(full)
+            : ids.every(full))
         );
-        const pendingBookings = new Set(
-          activeCommits(Date.now(), date)
-            .filter(
-              commit =>
-                commit.kind === 'book' && !heldFacilities.has(commit.facilityId)
-            )
-            .map(commit => commit.facilityId)
-        );
-        return allHeldToday.length + pendingBookings.size >= MAX_HELD_MP;
       };
       let partyIsFull = slotsAreFull();
 
@@ -1323,12 +1354,12 @@ export default function AutopilotProvider({
           continue;
         }
         const existing = heldForParty;
-        const kind = existing
+        let kind: ActionKind = existing
           ? 'modify'
           : partyIsFull && wantsSwap
             ? 'swap'
             : 'book';
-        if (!existing && partyIsFull && !wantsSwap) {
+        if (!existing && partyIds.length > 0 && partyIsFull && !wantsSwap) {
           bumpSkip('slots-full', experience.name);
           continue;
         }
@@ -1403,7 +1434,8 @@ export default function AutopilotProvider({
             ledgerRef.current.releaseAttempt(experience.id, kind);
             return undefined;
           });
-        const blockedBy = attemptBlocker();
+        const blockedBy =
+          partyIds.length || existing ? attemptBlocker() : undefined;
         if (blockedBy) {
           bumpSkip(blockedBy, experience.name);
           continue;
@@ -1424,7 +1456,11 @@ export default function AutopilotProvider({
         // `attemptAutoSwap`, so the pre-offer check cannot exclude it and would
         // refuse every swap into the slot the victim occupies. The post-offer
         // check knows the victim and does the work.
-        if (kind !== 'swap' && clashes(hit.returnTime, undefined, existing)) {
+        if (
+          (partyIds.length || existing) &&
+          kind !== 'swap' &&
+          clashes(hit.returnTime, undefined, existing)
+        ) {
           bumpSkip('overlaps-plans', experience.name);
           continue;
         }
@@ -1448,10 +1484,49 @@ export default function AutopilotProvider({
               stopRenewal: () => void;
             }
           | undefined;
-        let changesExistingReservation = false;
         let pageOnlyProtection = false;
         try {
-          const guests = await guestsFor(experience.id, date);
+          const eligible = await guestsFor(experience.id, date);
+          // With “all eligible guests”, Plans cannot name people holding zero
+          // passes. Discover the actual group before choosing book versus swap.
+          if (!existing && !partyIds.length) {
+            const ids = [...eligible.eligible, ...eligible.ineligible]
+              .filter(g => g.ineligibleReason !== 'NOT_IN_PARTY')
+              .map(g => g.id);
+            const full = slotsAreFull(ids);
+            kind = full && wantsSwap ? 'swap' : 'book';
+            const blocked = attemptBlocker();
+            if (blocked || (full && !wantsSwap)) {
+              bumpSkip(blocked ?? 'slots-full', experience.name);
+              continue;
+            }
+            if (kind !== 'swap' && clashes(hit.returnTime, undefined)) {
+              bumpSkip('overlaps-plans', experience.name);
+              continue;
+            }
+          }
+          const occupancy = slotOccupancy(
+            allHeldToday,
+            activeCommits(Date.now(), date)
+          );
+          const excluded = eligible.eligible.filter(
+            g =>
+              (partyIds.length > 0 && !partyIds.includes(g.id)) ||
+              (kind === 'book' && (occupancy.get(g.id) ?? 0) >= MAX_HELD_MP)
+          );
+          const guests: Guests = {
+            eligible: eligible.eligible.filter(g => !excluded.includes(g)),
+            ineligible: [
+              ...eligible.ineligible,
+              ...excluded.map(g => ({
+                ...g,
+                ineligibleReason:
+                  partyIds.length && !partyIds.includes(g.id)
+                    ? ('NOT_IN_PARTY' as const)
+                    : ('EXPERIENCE_LIMIT_REACHED' as const),
+              })),
+            ],
+          };
 
           // Asked again, because eligibility is a round trip and the check
           // above is only as fresh as the moment it ran. Stopping autopilot,
@@ -1468,7 +1543,7 @@ export default function AutopilotProvider({
           // in bg1 or Disney's app books for whoever is eligible.
           if (
             settingsRef.current.requireWholeParty &&
-            !wholePartyEligible(guests)
+            !wholePartyEligible(guests, partyIds)
           ) {
             bumpSkip('partial-party', experience.name);
             continue;
@@ -1488,7 +1563,7 @@ export default function AutopilotProvider({
             !settingsRef.current.dryRun &&
             !(
               settingsRef.current.requireWholeParty &&
-              !wholePartyEligible(guests)
+              !wholePartyEligible(guests, partyIds)
             );
 
           // A fresh booking or a swap can both spend the party's Tier 1 slot on
@@ -1521,7 +1596,8 @@ export default function AutopilotProvider({
                     target,
                     experience,
                     allHeldToday,
-                    ledgerRef.current
+                    ledgerRef.current,
+                    guests.eligible.map(g => g.id)
                   )
                 : kind === 'modify'
                   ? shouldModify(
@@ -1558,8 +1634,14 @@ export default function AutopilotProvider({
           // everyone in your party is eligible". Read at call time, so
           // switching the setting on while an offer is in flight counts.
           const partyIsAcceptable = (offerGuests: Guests) =>
-            !settingsRef.current.requireWholeParty ||
-            wholePartyEligible(offerGuests);
+            offerGuests.eligible.every(g =>
+              guests.eligible.some(requested => requested.id === g.id)
+            ) &&
+            (!settingsRef.current.requireWholeParty ||
+              wholePartyEligible(
+                offerGuests,
+                partyIds.length ? partyIds : guests.eligible.map(g => g.id)
+              ));
 
           // Choose a swap victim before leasing. `chooseSwapVictim` is pure and
           // the helper receives the same held array in this turn, so both
@@ -1568,10 +1650,13 @@ export default function AutopilotProvider({
           // atomic.
           const victim =
             kind === 'swap'
-              ? chooseSwapVictim(allHeldToday, experience)
+              ? chooseSwapVictim(
+                  allHeldToday,
+                  experience,
+                  guests.eligible.map(g => g.id)
+                )
               : undefined;
           const changing = kind === 'swap' ? victim : existing;
-          changesExistingReservation = !!changing;
           // Every mutation needs an exclusive dispatch lane. Without it, the
           // two providers routinely mounted in one app can both pass the
           // shared-ledger check, generate offers, and publish the same action
@@ -1596,7 +1681,7 @@ export default function AutopilotProvider({
             abandonAt: tickStartedAt + MAX_MUTATION_MS,
             onAbandon: async abandoned => {
               const lease = acting;
-              if (lease && changesExistingReservation && abandoned.dispatched) {
+              if (lease && abandoned.dispatched) {
                 try {
                   const protection = await quarantine(
                     lease.key,
@@ -1694,15 +1779,13 @@ export default function AutopilotProvider({
             evidence?: Omit<MutationEvidence, 'reservationIds'>
           ): RequestControl => {
             const current = operation!;
-            const dispatchEvidence =
-              evidence && changingReservationIds
-                ? { ...evidence, reservationIds: changingReservationIds }
-                : undefined;
-            return {
-              signal: current.signal,
-              start: async send => {
-                const authorize = () =>
-                  stillAuthorized(kind, offerTime) && !current.signal.aborted;
+            const dispatchEvidence = evidence
+              ? { ...evidence, reservationIds: changingReservationIds ?? [] }
+              : undefined;
+            return mutationControl(current, {
+              evidence: dispatchEvidence,
+              authorize: () => stillAuthorized(kind, offerTime),
+              start: async (authorize, send) => {
                 if (!acting) {
                   if (!authorize()) {
                     throw new RequestNotSent(
@@ -1724,14 +1807,7 @@ export default function AutopilotProvider({
                 }
                 return begun.value;
               },
-              onDispatch: () => {
-                if (!current.markDispatched(dispatchEvidence)) {
-                  throw new RequestNotSent(
-                    'Action was abandoned before the request could be sent'
-                  );
-                }
-              },
-            };
+            });
           };
 
           if (!acting) {
@@ -1800,7 +1876,11 @@ export default function AutopilotProvider({
               ledger: datedLedger,
               clashes,
               partyIsAcceptable,
-              requestControl: offerTime => requestControl(offerTime),
+              requestControl: offerTime =>
+                requestControl(offerTime, {
+                  kind: 'book',
+                  to: String(offerTime),
+                }),
               // Last gate before the entitlement is spent: generating the
               // offer is another round trip, and every guard above it ran
               // before that.
@@ -1840,7 +1920,7 @@ export default function AutopilotProvider({
               console.error(error);
             }
             // Computed before the quarantine branch because the log needs it
-            // too, including for a fresh booking that is not quarantined.
+            // too, including for a fresh booking.
             // Dispatched and not provably refused is the definition the
             // quarantine already used; the screen was the only place still
             // calling it a failure.
@@ -1853,7 +1933,7 @@ export default function AutopilotProvider({
             }
             if (lease) {
               try {
-                if (unknown && changesExistingReservation) {
+                if (unknown) {
                   const protection = await quarantine(
                     lease.key,
                     {
@@ -1870,7 +1950,7 @@ export default function AutopilotProvider({
                       error: `${outcome.error}; unresolved-change protection is available only while this page remains open`,
                     };
                   }
-                } else if (current.dispatched && changesExistingReservation) {
+                } else if (current.dispatched) {
                   pageOnlyProtection = false;
                   // Success and a definite rejection both answer this exact
                   // request, including when they arrive after abandonment.
@@ -2038,6 +2118,7 @@ export default function AutopilotProvider({
                 ...outcome.booking.guests.map(guest => guest.entitlementId),
               ]),
             ],
+            guestIds: outcome.booking.guests.map(guest => guest.id),
           });
           // A successful fresh booking occupies a slot immediately, even when
           // the confirmation read below still returns its pre-booking snapshot.
@@ -2095,6 +2176,7 @@ export default function AutopilotProvider({
         .map(t => ({ id: t.experienceId }));
       if (toWarm.length > 0) {
         await prewarmGuests(toWarm, date, {
+          partyScope: savedPartyScope,
           fetchGuests: (experience, date) => ll.guests(experience, date),
           cache: cacheRef.current,
           now: clock,

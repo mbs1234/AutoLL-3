@@ -74,7 +74,7 @@ interface Lease {
 type Leases = Record<string, Lease>;
 
 /** Which action left the reservation in doubt, because the evidence differs. */
-export type DoubtKind = 'modify' | 'swap';
+export type DoubtKind = 'book' | 'modify' | 'swap' | 'cancel';
 
 /**
  * Reservations whose last change may or may not have applied.
@@ -385,7 +385,12 @@ function parseDoubts(primaryKey: string, value: unknown): Doubt[] {
     if (typeof doubt?.at !== 'number') continue;
     const ids = reservationIds(doubt.reservationIds);
     const kind =
-      doubt.kind === 'modify' || doubt.kind === 'swap' ? doubt.kind : undefined;
+      doubt.kind === 'modify' ||
+      doubt.kind === 'swap' ||
+      doubt.kind === 'book' ||
+      doubt.kind === 'cancel'
+        ? doubt.kind
+        : undefined;
     const gaining =
       typeof doubt.gaining === 'string' ? doubt.gaining : undefined;
     let blockingKeys = canonicalKeys(

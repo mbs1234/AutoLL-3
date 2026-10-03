@@ -1,4 +1,5 @@
-import type { ActionKind } from './autobook';
+import { type RequestControl, RequestNotSent } from '@/api/client';
+
 import { RENEW_INTERVAL_MS } from './lease';
 import type { DoubtKind } from './lease';
 import { TICK_DEADLINE_MS } from './schedule';
@@ -23,7 +24,7 @@ export type MutationAbandonReason =
 
 interface MutationOptions {
   id: string;
-  kind: ActionKind;
+  kind: DoubtKind;
   /** Absolute wall-clock deadline, derived from the tick or commit start. */
   abandonAt: number;
   onAbandon?: (
@@ -43,7 +44,7 @@ interface MutationOptions {
  */
 export class MutationOperation {
   readonly id: string;
-  readonly kind: ActionKind;
+  readonly kind: DoubtKind;
   readonly abandonAt: number;
   readonly controller = new AbortController();
   evidence?: MutationEvidence;
@@ -145,4 +146,33 @@ export class MutationOperation {
   async waitForAbandonment(): Promise<void> {
     await this.#abandonment;
   }
+}
+
+/** Shared final boundary for manual actions, Autopilot and Time Search. */
+export function mutationControl(
+  operation: MutationOperation,
+  options: {
+    evidence?: MutationEvidence;
+    authorize: () => boolean;
+    start?: <T>(authorize: () => boolean, send: () => Promise<T>) => Promise<T>;
+    onDispatch?: () => void;
+  }
+): RequestControl {
+  const authorize = () =>
+    !operation.abandoned && !operation.signal.aborted && options.authorize();
+  return {
+    signal: operation.signal,
+    start: async send => {
+      if (!authorize()) {
+        throw new RequestNotSent('Action no longer authorised before send');
+      }
+      return options.start ? options.start(authorize, send) : send();
+    },
+    onDispatch: () => {
+      if (!authorize() || !operation.markDispatched(options.evidence)) {
+        throw new RequestNotSent('Action stopped before send');
+      }
+      options.onDispatch?.();
+    },
+  };
 }

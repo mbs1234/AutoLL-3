@@ -135,6 +135,7 @@ describe('BookExperience', () => {
   const { maxPartySize } = ll.rules;
 
   beforeEach(() => {
+    localStorage.clear();
     jest.clearAllMocks();
     mockOffer(offer);
     itinerary.plans.mockResolvedValue([booking]);
@@ -159,7 +160,8 @@ describe('BookExperience', () => {
     expect(ll.guests).toHaveBeenCalledTimes(1);
     expect(ll.book).toHaveBeenCalledTimes(1);
     expect(ll.cancelBooking).toHaveBeenLastCalledWith(
-      booking.guests.filter(g => g.id === mickey.id)
+      booking.guests.filter(g => g.id === mickey.id),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
   });
 
@@ -323,7 +325,9 @@ describe('BookExperience', () => {
   it('stops offering Book when Disney does not answer', async () => {
     await renderComponent();
     await mockBook(0);
-    see('Network request failed (no response)');
+    see(
+      'Disney did not return a definite result. Check Plans and resolve the protected change before trying again.'
+    );
     see('Disney did not answer.');
     see('Open Plans');
     see.no('Book Lightning Lane');

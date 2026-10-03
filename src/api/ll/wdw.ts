@@ -1,6 +1,10 @@
 import { DateTime, ParkTime, parkDate } from '@/datetime';
 
-import { RequestControl } from '../client';
+import {
+  RequestControl,
+  UnknownMutationOutcome,
+  requireMutationControl,
+} from '../client';
 import {
   ApiGuest,
   Experience,
@@ -461,6 +465,7 @@ export class LLClientWDW extends LLClient {
     guestsToModify?: Pick<Guest, 'id'>[],
     control?: RequestControl
   ): Promise<LLMP> {
+    requireMutationControl(control);
     if (offer.booking) {
       return this.modify(offer as Offer<LLMP>, guestsToModify, control);
     }
@@ -514,8 +519,8 @@ export class LLClientWDW extends LLClient {
       control,
     });
     return this.createLLFromResponse(offer.experience, {
-      entitlementExperiences: [data.booking],
-      party: data.party,
+      entitlementExperiences: [data?.booking],
+      party: data?.party,
     });
   }
 
@@ -523,7 +528,50 @@ export class LLClientWDW extends LLClient {
     experience: OfferExperience,
     response: NewBookingResponse
   ): LLMP {
-    const booking = response.entitlementExperiences[0]!;
+    const booking = response?.entitlementExperiences?.[0];
+    const validDate = (value: unknown): value is string => {
+      if (
+        typeof value !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value) ||
+        !Number.isFinite(Date.parse(value))
+      ) {
+        return false;
+      }
+      const [year, month, day] = value.slice(0, 10).split('-').map(Number);
+      return (
+        new Date(Date.UTC(year!, month! - 1, day))
+          .toISOString()
+          .slice(0, 10) === value.slice(0, 10)
+      );
+    };
+    const nonempty = (value: unknown) =>
+      typeof value === 'string' && value.length > 0;
+    if (
+      !booking ||
+      !Array.isArray(response.entitlementExperiences) ||
+      response.entitlementExperiences.length !== 1 ||
+      booking.experienceId !== experience.id ||
+      !validDate(booking.startDateTime) ||
+      !validDate(booking.endDateTime) ||
+      Date.parse(booking.endDateTime) < Date.parse(booking.startDateTime) ||
+      !Array.isArray(booking.guests) ||
+      !booking.guests.length ||
+      !booking.guests.every(
+        g => g && nonempty(g.guestId) && nonempty(g.entitlementId)
+      ) ||
+      !Array.isArray(response.party?.guests) ||
+      !response.party.guests.length ||
+      !response.party.guests.every(
+        g => g && nonempty(g.id) && booking.guests.some(b => b.guestId === g.id)
+      ) ||
+      !booking.guests.every(g =>
+        response.party.guests.some(p => p.id === g.guestId)
+      )
+    ) {
+      throw new UnknownMutationOutcome(
+        'Disney returned an unreadable booking result. Check Plans before trying again.'
+      );
+    }
     const entIdsByGuestId = Object.fromEntries(
       booking.guests.map(g => [g.guestId, g.entitlementId])
     );

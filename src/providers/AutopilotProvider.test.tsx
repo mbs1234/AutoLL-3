@@ -429,13 +429,15 @@ function setupBooking({
       offeredIds.push(experience.id);
       offerOptions.push(options);
       if (offerDelay) await offerDelay;
-      void guests;
       const failure = offerErrors[offerCalls++];
       if (failure === 'no-response') throw new Error('Network request failed');
       if (failure !== undefined) {
         throw new RequestError({ ok: false, status: failure, data: {} });
       }
-      return offerAt(offerHour, offerMinute, offerItinerary);
+      return {
+        ...offerAt(offerHour, offerMinute, offerItinerary),
+        guests: { eligible: guests, ineligible: [] },
+      };
     }
   );
   let bookCalls = 0;
@@ -496,6 +498,7 @@ function setupBooking({
             {
               ll: {
                 nextBookTimes,
+                setPartyIds: jest.fn(),
                 guests,
                 offer,
                 book,
@@ -1190,6 +1193,7 @@ describe('AutopilotProvider when two people hold one attraction', () => {
     const { book, offerOptions } = setupBooking({
       offerHour: 11,
       plans: bothHeld(),
+      guestsResult: { eligible: [{ id: 'p2', name: 'p2' }], ineligible: [] },
     });
     await enable();
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
@@ -1215,6 +1219,7 @@ describe('AutopilotProvider when two people hold one attraction', () => {
     const { book, offerOptions } = setupBooking({
       offerHour: 11,
       plans: [heldBy('p1', 9, 10)],
+      guestsResult: { eligible: [{ id: 'p2', name: 'p2' }], ineligible: [] },
     });
     await enable();
     await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
@@ -4156,6 +4161,7 @@ describe('AutopilotProvider cross-instance overlaps', () => {
         date: TODAY,
         kind: 'book',
         reservationIds: ['ent-1'],
+        guestIds: ['g1'],
       },
     ]);
   });

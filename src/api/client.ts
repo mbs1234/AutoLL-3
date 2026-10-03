@@ -26,6 +26,11 @@ export class RequestNotSent extends Error {
   readonly name = 'RequestNotSent';
 }
 
+/** Transport ran, but its result cannot establish what Disney changed. */
+export class UnknownMutationOutcome extends Error {
+  readonly name = 'UnknownMutationOutcome';
+}
+
 /**
  * Control supplied only for a mutating request.
  *
@@ -43,6 +48,17 @@ export interface RequestControl {
    * Preparatory local writes belong before the lifecycle marks itself sent.
    */
   onDispatch?: () => void;
+}
+
+/** Booking-capable production adapters may not silently bypass coordination. */
+export function requireMutationControl(
+  control?: RequestControl
+): asserts control is RequestControl {
+  if (!control?.signal || !control.start || !control.onDispatch) {
+    throw new RequestNotSent(
+      'Reservation safety control is required before sending a change'
+    );
+  }
 }
 
 /** Await work that cannot itself be cancelled without letting it delay us. */
@@ -113,6 +129,7 @@ export abstract class ApiClient {
       };
     }
     const url = this.origin + request.path;
+    let dispatched = false;
     const send = () => {
       if (request.control?.signal?.aborted) {
         throw new RequestNotSent('Request cancelled before send');
@@ -124,6 +141,7 @@ export abstract class ApiClient {
       // finally became ready.
       this.rateLimit.enforce();
       request.control?.onDispatch?.();
+      dispatched = true;
       return fetchJson(url, {
         method: request.method,
         params: request.params,
@@ -137,9 +155,19 @@ export abstract class ApiClient {
         },
       });
     };
-    const res = request.control?.start
-      ? await request.control.start(send)
-      : await send();
+    let res;
+    try {
+      res = request.control?.start
+        ? await request.control.start(send)
+        : await send();
+    } catch (error) {
+      if (dispatched && request.control) {
+        throw new UnknownMutationOutcome(
+          'The request was sent but its response could not be read. Check Plans.'
+        );
+      }
+      throw error;
+    }
     if (request.sensorData && res.status === 403) {
       resetSensorData();
     } else if (res.status === 401 && !request.ignoreUnauth) {

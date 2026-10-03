@@ -382,6 +382,8 @@ export interface CommittedReturn {
   kind?: 'book' | 'modify' | 'swap';
   /** Booking/entitlement identities for distinguishing split-party records. */
   reservationIds?: string[];
+  /** People whose slots this success occupies; absent in legacy records. */
+  guestIds?: string[];
 }
 
 /**
@@ -466,6 +468,9 @@ export function saveCommit(entry: CommittedReturn): void {
       ...(entry.date ? { date: entry.date } : {}),
       ...(entry.kind ? { kind: entry.kind } : {}),
       ...(ids.length ? { reservationIds: ids } : {}),
+      ...(entry.guestIds
+        ? { guestIds: validReservationIds(entry.guestIds) }
+        : {}),
     },
   ]);
 }

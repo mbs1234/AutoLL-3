@@ -1,4 +1,8 @@
-import { RequestControl, RequestNotSent } from '@/api/client';
+import {
+  RequestControl,
+  RequestNotSent,
+  UnknownMutationOutcome,
+} from '@/api/client';
 import { LLMP } from '@/api/itinerary';
 import {
   Guest,
@@ -102,12 +106,13 @@ export function actionWasRejected(error: unknown): boolean {
  * them as ordinary failures, with the same button still live beneath.
  */
 export function outcomeIsUnknown(error: unknown): boolean {
+  if (error instanceof UnknownMutationOutcome) return true;
   if (error instanceof RequestNotSent) return false;
   if (error instanceof RateLimitExceeded) return false;
   const status = (error as { response?: { status?: number } })?.response
     ?.status;
-  // Only a request that left carries a response, even an empty one. With none
-  // at all the failure was this app's own, and is reported as the error it is.
+  // Parsing failures after transport carry UnknownMutationOutcome. Local
+  // preparation errors without that metadata still remain safe to retry.
   if (status === undefined) return false;
   return status === 0 || status >= 500;
 }
