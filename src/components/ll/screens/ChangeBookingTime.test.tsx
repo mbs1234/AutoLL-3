@@ -1,5 +1,5 @@
 import { booking, ll, modOffer, renderResort, times } from '@/__fixtures__/ll';
-import { click, loading, nav, see, waitFor } from '@/testing';
+import { click, loading, nav, see, settled, waitFor } from '@/testing';
 
 import BookNewReturnTime from './BookNewReturnTime';
 import ChangeBookingTime from './ChangeBookingTime';
@@ -27,5 +27,7 @@ describe('ChangeBookingTime', () => {
     await waitFor(() =>
       expect(goTo).toHaveBeenCalledWith(<BookNewReturnTime offer={newOffer} />)
     );
+    // The new time's load is still in its minimum time. See `settled`.
+    await settled();
   });
 });

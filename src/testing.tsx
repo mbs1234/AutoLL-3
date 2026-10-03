@@ -183,22 +183,26 @@ const LOAD_MIN_MS = 500;
  * Lets every load still in flight finish, for the end of a test whose last
  * step starts one that it does not wait for.
  *
- * A load still running when a test ends never finishes. The next test's
- * `setTime` installs a new fake clock, and the old clock's timers are dropped,
- * the load's minimum time among them. React 19 runs every async transition
- * that starts while another is pending in one shared scope, held in module
- * state that all the tests in a file share, and none of them finishes until
- * all have. So once one load is stuck, every later load in the file is stuck
- * with it: the next test's spinner never goes, and `loading` times out with
- * "Didn't show loading spinner".
+ * React 19 runs every async transition that starts while another is pending
+ * in one shared scope, held in module state that all the tests in a file
+ * share, and none of them finishes until all have. So a load left running
+ * holds every later load in the file pending until it finishes. Under fake
+ * timers it never does: the next test's `setTime` installs a new clock and
+ * drops the old one's timers, the load's minimum time among them, so the next
+ * test's spinner never goes and `loading` times out with "Didn't show loading
+ * spinner". Under real timers it only delays them.
  *
- * Advancing past the minimum first lets a load finish that is running but not
- * drawn; then it waits until no spinner and no refreshing bar is left.
+ * Under fake timers this first advances past the minimum, so that a load
+ * running but not drawn finishes too; advancing real timers would only warn.
+ * Then it waits until no spinner and no refreshing bar is left.
  */
 export async function settled() {
-  await act(async () => {
-    jest.advanceTimersByTime(LOAD_MIN_MS);
-  });
+  // How Testing Library tells modern fake timers apart.
+  if (Object.hasOwn(setTimeout, 'clock')) {
+    await act(async () => {
+      jest.advanceTimersByTime(LOAD_MIN_MS);
+    });
+  }
   await waitFor(
     () =>
       expect([

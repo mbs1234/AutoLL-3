@@ -11,7 +11,16 @@ import {
 } from '@/__fixtures__/das';
 import { ConflictsError } from '@/api/das';
 import PlansContext from '@/contexts/PlansContext';
-import { act, click, nav, screen, see, waitFor, within } from '@/testing';
+import {
+  act,
+  click,
+  nav,
+  screen,
+  see,
+  settled,
+  waitFor,
+  within,
+} from '@/testing';
 
 import BookingDetails from './BookingDetails';
 import DasExperienceList from './DasExperienceList';
@@ -98,5 +107,7 @@ describe('DasSelection', () => {
     expect(nav.goTo).toHaveBeenLastCalledWith(
       <BookingDetails booking={booking} isNew={true} />
     );
+    // The booking's load is still in its minimum time. See `settled`.
+    await settled();
   });
 });

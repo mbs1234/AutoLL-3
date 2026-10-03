@@ -15,7 +15,7 @@ import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
 import { ParkTime, modifyDate, parkDate } from '@/datetime';
 import { RateLimitExceeded } from '@/ratelimit';
-import { TODAY } from '@/testing';
+import { TODAY, settled } from '@/testing';
 
 import PlanCheck from './PlanCheck';
 
@@ -212,6 +212,8 @@ describe('PlanCheck', () => {
       TODAY,
       expect.objectContaining({ id: mk.id })
     );
+    // The check is still in its minimum load time. See `settled`.
+    await settled();
   });
 
   it('says all guests are eligible only when some guest is', async () => {
@@ -223,6 +225,7 @@ describe('PlanCheck', () => {
     });
     await tapCheck();
     await waitFor(() => expect(screen.getByText(/All 2 guests/)).toBeVisible());
+    await settled();
   });
 
   // A saved party absent from the response comes back stamped NOT_IN_PARTY,
@@ -242,6 +245,7 @@ describe('PlanCheck', () => {
       expect(screen.getByText(/No guests came back eligible/)).toBeVisible()
     );
     expect(screen.queryByText(/generally eligible/)).not.toBeInTheDocument();
+    await settled();
   });
 
   it('shows when an ineligible guest becomes eligible later', async () => {
@@ -260,6 +264,7 @@ describe('PlanCheck', () => {
     await waitFor(() =>
       expect(screen.getByText(/eligible from/)).toBeVisible()
     );
+    await settled();
   });
 
   // The limiter is shared with the poller and throws rather than throttling.
@@ -309,6 +314,7 @@ describe('PlanCheck', () => {
       });
       expect(screen.getByText('Refreshing…')).toBeVisible();
       await act(async () => release());
+      await settled();
     });
 
     it('will not fire a second request while one is in flight', async () => {
@@ -325,6 +331,7 @@ describe('PlanCheck', () => {
       });
       expect(pollExperiences).toHaveBeenCalledTimes(1);
       await act(async () => release());
+      await settled();
     });
 
     // The failure the provider's own toast would have swallowed out of sight.
