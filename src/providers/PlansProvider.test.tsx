@@ -5,7 +5,7 @@ import { leaseKey, quarantine, quarantinedAt } from '@/autopilot/lease';
 import ClientsContext, { Clients } from '@/contexts/ClientsContext';
 import PlansContext from '@/contexts/PlansContext';
 import { DateTime, ParkTime, parkDate } from '@/datetime';
-import { act, fireEvent, render, screen, waitFor } from '@/testing';
+import { act, fireEvent, render, screen, settled, waitFor } from '@/testing';
 
 import PlansProvider from './PlansProvider';
 
@@ -388,5 +388,7 @@ describe('PlansProvider refreshing', () => {
     ).toBeInTheDocument();
     expect(screen.queryByLabelText('Loading…')).not.toBeInTheDocument();
     expect(screen.getByTestId('plans')).toHaveTextContent('A pass');
+    // The refresh is still running. See `settled`.
+    await settled();
   });
 });

@@ -7,7 +7,7 @@ import BookingDateContext from '@/contexts/BookingDateContext';
 import ClientsContext, { Clients } from '@/contexts/ClientsContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import ParkContext from '@/contexts/ParkContext';
-import { TODAY } from '@/testing';
+import { TODAY, settled } from '@/testing';
 
 import ExperiencesProvider from './ExperiencesProvider';
 
@@ -240,5 +240,7 @@ describe('ExperiencesProvider refreshing', () => {
     // Another park starts empty, so its first load covers again.
     fireEvent.click(screen.getByRole('button', { name: 'Epcot' }));
     expect(await screen.findByLabelText('Loading…')).toBeInTheDocument();
+    // And it is still running. See `settled`.
+    await settled();
   });
 });
