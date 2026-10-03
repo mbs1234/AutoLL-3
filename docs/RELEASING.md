@@ -13,6 +13,14 @@ npm run harness      # the real screens against fake clients
 npm run build
 ```
 
+Development servers bind to loopback by default. For deliberate phone/LAN
+testing on a trusted network, use `npm run start:lan` or `npm run harness:lan`.
+The weekly Dependency audit workflow and dependency-changing pull requests
+report high/critical advisories in the complete lockfile, including dev tools.
+Rollup is temporarily pinned to patched 4.59.0: 4.64.0 spent more than three
+minutes in tree-shaking this application in the v1.8.3 rehearsal. Review this
+override with future toolchain updates; the full dependency audit still applies.
+
 [FORK.md](../FORK.md) explains why a plain upstream build does not run and how
 the deploy assembles one. [docs/PLAN.md](PLAN.md) is the booking-intelligence
 roadmap and the record of what was decided; [docs/UX-PLAN.md](UX-PLAN.md) is the
