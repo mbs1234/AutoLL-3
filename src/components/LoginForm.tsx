@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AuthData, AuthStatus } from '@/api/auth';
 import { Resort } from '@/api/resort';
@@ -35,26 +35,68 @@ class OneId {
   protected static client: OneIdClient | undefined;
   protected static clientId: string;
   protected static listeners: Partial<OneIdEventListeners> = {};
+  protected static initialization?: Promise<OneIdClient>;
+  protected static generation = 0;
+  protected static launchGeneration = 0;
+  protected static sdk?: Window['OneID'];
+  protected static controller?: AbortController;
+  protected static waiting = new Set<() => boolean>();
+
+  static release() {
+    // Let StrictMode's replacement mount share the same initialization.
+    void Promise.resolve().then(() => {
+      if ([...this.waiting].some(current => current())) return;
+      this.controller?.abort();
+      this.initialization = undefined;
+    });
+  }
 
   static async launchLogin(
     resortId: string,
     onLogin: (data: any) => void,
-    onClose: () => void
+    onClose: () => void,
+    current: () => boolean
   ) {
-    const client = await this.loadClient(resortId);
+    const launch = ++this.launchGeneration;
+    this.waiting.add(current);
+    let client: OneIdClient;
+    try {
+      client = await this.loadClient(resortId);
+    } finally {
+      this.waiting.delete(current);
+    }
+    if (!current() || launch !== this.launchGeneration) return;
     this.on('login', data => {
+      if (!current()) return;
       onLogin(data);
       this.deleteGuestData();
     });
     // Closing Disney's sheet is an intentional user action. Re-opening it in
     // a loop made the only escape route closing the whole bookmarklet.
-    this.on('close', onClose);
+    this.on('close', () => {
+      if (current()) onClose();
+    });
     client.launchLogin();
   }
 
-  protected static async loadClient(resortId: string) {
-    if (!this.client) {
-      await this.loadOneIdScript();
+  protected static loadClient(resortId: string): Promise<OneIdClient> {
+    if (this.client && this.sdk === self.OneID) {
+      return Promise.resolve(this.client);
+    }
+    if (this.initialization) return this.initialization;
+    const generation = ++this.generation;
+    const controller = new AbortController();
+    this.controller = controller;
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error('Disney sign-in did not initialize in time'));
+      }, ONE_ID_TIMEOUT_MS);
+    });
+    const initialize = async () => {
+      await this.loadOneIdScript(controller.signal);
+      if (controller.signal.aborted) throw new Error('Sign-in attempt expired');
       const os = navigator.userAgent.includes('Android') ? 'AND' : 'IOS';
       this.clientId = `TPR-${resortId}-LBSDK.${os}`;
       const client = self.OneID!.get({
@@ -62,13 +104,24 @@ class OneId {
         responderPage: `${PAGES_BASE}/responder.html`,
       });
       await client.init();
+      if (controller.signal.aborted || generation !== this.generation) {
+        throw new Error('Sign-in attempt expired');
+      }
       this.client = client;
+      this.sdk = self.OneID;
       this.deleteGuestData();
-    }
-    return this.client;
+      return client;
+    };
+    const pending = Promise.race([initialize(), deadline]).finally(() => {
+      clearTimeout(timer);
+      controller.abort();
+      if (this.initialization === pending) this.initialization = undefined;
+    });
+    this.initialization = pending;
+    return pending;
   }
 
-  protected static loadOneIdScript(): Promise<void> {
+  protected static loadOneIdScript(signal: AbortSignal): Promise<void> {
     if (self.OneID) return Promise.resolve();
     const existing = document.getElementById(
       SCRIPT_ID
@@ -79,18 +132,25 @@ class OneId {
       script.src = SCRIPT_URL;
     }
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Disney sign-in did not load in time'));
-      }, ONE_ID_TIMEOUT_MS);
+      const cleanup = () => {
+        script.removeEventListener('load', loaded);
+        script.removeEventListener('error', failed);
+        signal.removeEventListener('abort', failed);
+      };
       const loaded = () => {
-        clearTimeout(timeout);
-        if (self.OneID) resolve();
-        else reject(new Error('Disney sign-in loaded without OneID'));
+        if (!self.OneID) {
+          failed();
+          return;
+        }
+        cleanup();
+        resolve();
       };
       const failed = () => {
-        clearTimeout(timeout);
+        cleanup();
+        script.remove();
         reject(new Error('Disney sign-in could not be loaded'));
       };
+      signal.addEventListener('abort', failed, { once: true });
       script.addEventListener('load', loaded, { once: true });
       script.addEventListener('error', failed, { once: true });
       // Listen before insertion: an already-cached SDK may load before the
@@ -128,8 +188,11 @@ export default function LoginForm({
     'starting'
   );
   const [error, setError] = useState('');
+  const attempt = useRef(0);
 
   const beginLogin = useCallback(async () => {
+    const id = ++attempt.current;
+    const current = () => id === attempt.current;
     setState('starting');
     setError('');
     try {
@@ -152,9 +215,11 @@ export default function LoginForm({
             );
           }
         },
-        () => setState('ready')
+        () => setState('ready'),
+        current
       );
     } catch {
+      if (!current()) return;
       setState('error');
       setError(
         'Disney sign-in could not start. Check your connection and try again.'
@@ -164,6 +229,12 @@ export default function LoginForm({
 
   useEffect(() => {
     void beginLogin();
+    return () => {
+      // A generation counter, not a DOM ref: invalidate the latest retry too.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      attempt.current++;
+      OneId.release();
+    };
   }, [beginLogin]);
 
   useEffect(() => {
