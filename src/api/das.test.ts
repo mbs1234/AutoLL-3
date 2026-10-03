@@ -1,4 +1,10 @@
-import { expectFetch, respond, response, swid } from '@/__fixtures__/client';
+import {
+  expectFetch,
+  respond,
+  response,
+  swid,
+  testMutationControl,
+} from '@/__fixtures__/client';
 import { hm, jc, mickey, minnie, mk, sm, wdw } from '@/__fixtures__/das';
 import { DateTime, ParkTime } from '@/datetime';
 import { TODAY } from '@/testing';
@@ -149,12 +155,15 @@ describe('DasClient', () => {
   describe('cancelBooking()', () => {
     it('cancels booking', async () => {
       respond(response({}, 204));
-      expect(await client.cancelBooking(booking.guests)).toBe(undefined);
+      const control = testMutationControl();
+      expect(await client.cancelBooking(booking.guests, control)).toBe(
+        undefined
+      );
       expectFetch(
         `/das-vas/api/v1/entitlements/${booking.guests
           .map(g => g.entitlementId)
           .join(',')}`,
-        { method: 'DELETE' }
+        { method: 'DELETE', signal: control.signal }
       );
     });
   });

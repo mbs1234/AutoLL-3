@@ -263,10 +263,19 @@ describe('WDW Lightning Lane request contracts', () => {
       },
     });
 
-    const booked = await client.book({
-      ...offer(),
-      guests: { eligible: [guest, noOrder], ineligible: [ineligible] },
-    });
+    const control = {
+      signal: new AbortController().signal,
+      start: async <T>(send: () => Promise<T>) => send(),
+      onDispatch: jest.fn(),
+    };
+    const booked = await client.book(
+      {
+        ...offer(),
+        guests: { eligible: [guest, noOrder], ineligible: [ineligible] },
+      },
+      undefined,
+      control
+    );
     expect(booked.facilityId).toBe(experience.id);
     expect(booked.id).toBe('entitlement-1');
     expect(`${booked.start.time}`).toBe('10:00:00');
@@ -289,6 +298,7 @@ describe('WDW Lightning Lane request contracts', () => {
         ],
       },
       sensorData: true,
+      control,
     });
   });
 });

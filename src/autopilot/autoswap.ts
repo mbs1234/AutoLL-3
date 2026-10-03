@@ -12,6 +12,7 @@ import {
 } from './autobook';
 import { offerBaseline } from './automodify';
 import { comparePriority, isTier1 } from './priority';
+import type { CommittedReturn } from './storage';
 import { WatchTarget, inWindow } from './watchlist';
 
 /**
@@ -81,6 +82,29 @@ export function heldMPToday(plans: Booking[], date: string): LLMP[] {
   return plans.filter(booking => isHeldMP(booking, date));
 }
 
+/** Count distinct selections per person, including successes not yet in Plans. */
+export function slotOccupancy(
+  held: LLMP[],
+  commits: CommittedReturn[] = []
+): Map<string, number> {
+  const selections = new Map<string, Set<string>>();
+  const add = (guest: string, facility: string) => {
+    const slots = selections.get(guest) ?? new Set<string>();
+    slots.add(facility);
+    selections.set(guest, slots);
+  };
+  for (const booking of held) {
+    for (const guest of booking.guests) add(guest.id, booking.facilityId);
+  }
+  for (const commit of commits) {
+    if (commit.kind !== 'book') continue;
+    for (const id of Array.isArray(commit.guestIds) ? commit.guestIds : []) {
+      if (typeof id === 'string') add(id, commit.facilityId);
+    }
+  }
+  return new Map([...selections].map(([id, slots]) => [id, slots.size]));
+}
+
 /** The shared definition of a live Multi Pass reservation. */
 export function isHeldMP(booking: Booking, date: string): booking is LLMP {
   return (
@@ -106,12 +130,14 @@ type Ranked = Pick<OfferExperience, 'id' | 'priority' | 'tier' | 'avgWait'>;
  */
 export function chooseSwapVictim(
   held: LLMP[],
-  incoming: Ranked
+  incoming: Ranked,
+  guestIds: readonly string[] = []
 ): LLMP | undefined {
   return held
     .filter(
       b =>
         b.modifiable &&
+        guestIds.every(id => b.guests.some(g => g.id === id)) &&
         // A facility the resort data does not know at all is excluded.
         // `Itinerary` synthesises an experience for one -- a re-theme, a new
         // ride, a seasonal overlay -- with neither `priority` nor `tier`, so it
@@ -141,18 +167,33 @@ export function shouldSwap(
   target: WatchTarget,
   incoming: Ranked,
   held: LLMP[],
-  ledger: Pick<AutoBookLedger, 'hasAttempted'>
+  ledger: Pick<AutoBookLedger, 'hasAttempted'>,
+  guestIds: readonly string[] = [
+    ...new Set(held.flatMap(b => b.guests.map(g => g.id))),
+  ]
 ): { ok: true; victim: LLMP } | { ok: false; reason: SwapSkipReason } {
   if (!target.autoSwap) return { ok: false, reason: 'not-enabled' };
   // Already holding it makes this a move, not a swap; that path handles it.
-  if (held.some(b => b.facilityId === incoming.id)) {
+  if (
+    held.some(
+      b =>
+        b.facilityId === incoming.id &&
+        b.guests.some(g => guestIds.includes(g.id))
+    )
+  ) {
     return { ok: false, reason: 'already-held' };
   }
-  if (held.length < MAX_HELD_MP) return { ok: false, reason: 'not-full' };
+  const occupancy = slotOccupancy(held);
+  if (
+    !guestIds.length ||
+    guestIds.some(id => (occupancy.get(id) ?? 0) < MAX_HELD_MP)
+  ) {
+    return { ok: false, reason: 'not-full' };
+  }
   if (ledger.hasAttempted(target.experienceId, 'swap')) {
     return { ok: false, reason: 'already-attempted' };
   }
-  const victim = chooseSwapVictim(held, incoming);
+  const victim = chooseSwapVictim(held, incoming, guestIds);
   if (!victim) return { ok: false, reason: 'no-worse-reservation' };
   return { ok: true, victim };
 }
@@ -247,7 +288,13 @@ export async function attemptAutoSwap(
     requestControl,
   }: AutoSwapDeps
 ): Promise<SwapOutcome> {
-  const allowed = shouldSwap(target, incoming, held, ledger);
+  const allowed = shouldSwap(
+    target,
+    incoming,
+    held,
+    ledger,
+    guests.eligible.map(g => g.id)
+  );
   if (!allowed.ok) return { status: 'skipped', reason: allowed.reason };
   if (guests.eligible.length === 0) {
     return { status: 'skipped', reason: 'no-eligible-guests' };

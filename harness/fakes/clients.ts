@@ -211,10 +211,17 @@ export class FakeLLClient extends LLClient {
     return control?.start ? control.start(send) : send();
   }
 
-  override async cancelBooking(guests: LLMP['guests']): Promise<void> {
+  override async cancelBooking(
+    guests: LLMP['guests'],
+    control?: RequestControl
+  ): Promise<void> {
     await sleep(LATENCY_MS);
-    const ids = new Set(guests.map(g => g.entitlementId));
-    this.world.plans = this.world.plans.filter(b => !ids.has(b.id));
+    const send = async () => {
+      control?.onDispatch?.();
+      const ids = new Set(guests.map(g => g.entitlementId));
+      this.world.plans = this.world.plans.filter(b => !ids.has(b.id));
+    };
+    return control?.start ? control.start(send) : send();
   }
 
   private makeOffer<B extends Offer['booking']>(

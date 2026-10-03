@@ -54,8 +54,8 @@ export class GuestCache {
 
   constructor(protected ttlMs = GUEST_TTL_MS) {}
 
-  protected static key(experienceId: string, date: string): string {
-    return `${date}|${experienceId}`;
+  protected static key(experienceId: string, date: string, party = ''): string {
+    return JSON.stringify([date, experienceId, party]);
   }
 
   /**
@@ -65,9 +65,10 @@ export class GuestCache {
   get(
     experienceId: string,
     date: string,
-    now: { ms: number; time: ParkTime }
+    now: { ms: number; time: ParkTime },
+    party = ''
   ): Guests | undefined {
-    const entry = this.entries.get(GuestCache.key(experienceId, date));
+    const entry = this.entries.get(GuestCache.key(experienceId, date, party));
     if (!entry) return undefined;
     if (now.ms - entry.fetchedAt >= this.ttlMs) return undefined;
     if (entry.staleAfter && +now.time >= +entry.staleAfter) return undefined;
@@ -78,9 +79,10 @@ export class GuestCache {
     experienceId: string,
     date: string,
     guests: Guests,
-    fetchedAt: number
+    fetchedAt: number,
+    party = ''
   ): void {
-    this.entries.set(GuestCache.key(experienceId, date), {
+    this.entries.set(GuestCache.key(experienceId, date, party), {
       guests,
       fetchedAt,
       staleAfter: earliestEligibleAfter(guests),
@@ -151,6 +153,7 @@ export function entitlementsChanged(
 }
 
 export interface PrewarmDeps {
+  partyScope?: () => string;
   /** Usually `LLClient.guests`, bound. */
   fetchGuests: (experience: { id: string }, date: string) => Promise<Guests>;
   cache: GuestCache;
@@ -171,15 +174,18 @@ export interface PrewarmDeps {
 export async function prewarmGuests(
   experiences: { id: string }[],
   date: string,
-  { fetchGuests, cache, now }: PrewarmDeps
+  { fetchGuests, cache, now, partyScope = () => '' }: PrewarmDeps
 ): Promise<{ warmed: string[]; failed: string[] }> {
   const warmed: string[] = [];
   const failed: string[] = [];
+  const scope = partyScope();
   for (const experience of experiences) {
-    if (cache.get(experience.id, date, now())) continue;
+    if (scope !== partyScope()) break;
+    if (cache.get(experience.id, date, now(), scope)) continue;
     try {
       const guests = await fetchGuests(experience, date);
-      cache.set(experience.id, date, guests, now().ms);
+      if (scope !== partyScope()) break;
+      cache.set(experience.id, date, guests, now().ms, scope);
       warmed.push(experience.id);
     } catch (error) {
       // Disney pushing back is not one attraction failing to warm. Asking

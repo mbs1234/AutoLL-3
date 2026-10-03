@@ -1,5 +1,6 @@
 import { useCallback, useState, useTransition } from 'react';
 
+import { RequestNotSent, UnknownMutationOutcome } from '@/api/client';
 import Refreshing from '@/components/Refreshing';
 import Spinner from '@/components/Spinner';
 import useFlash from '@/hooks/useFlash';
@@ -60,7 +61,12 @@ export default function useDataLoader(): {
           } catch (error: any) {
             const status = error?.response?.status;
             const { name } = error;
-            if (error instanceof Error && msgs[name]) {
+            if (
+              error instanceof RequestNotSent ||
+              error instanceof UnknownMutationOutcome
+            ) {
+              setFlashArgs(error.message, 'error');
+            } else if (error instanceof Error && msgs[name]) {
               setFlashArgs(msgs[name], 'error');
             } else if (Number.isInteger(status)) {
               // The status and the endpoint, when nothing maps the status.

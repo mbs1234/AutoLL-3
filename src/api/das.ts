@@ -2,7 +2,7 @@ import { DateTime, ParkTime } from '@/datetime';
 
 import { authStore } from './auth';
 import { avatarUrl } from './avatar';
-import { ApiClient } from './client';
+import { ApiClient, RequestControl, requireMutationControl } from './client';
 import { DasBooking } from './itinerary';
 import { Experience as ExpData, InvalidId, Park } from './resort';
 
@@ -211,12 +211,17 @@ export class DasClient extends ApiClient {
     };
   }
 
-  async cancelBooking(guests: EntitledGuest[]): Promise<void> {
+  async cancelBooking(
+    guests: EntitledGuest[],
+    control?: RequestControl
+  ): Promise<void> {
+    requireMutationControl(control);
     const ids = guests.map(g => g.entitlementId);
     const idParam = ids.map(encodeURIComponent).join(',');
     await this.request({
       path: path(`entitlements/${idParam}`, 1),
       method: 'DELETE',
+      control,
     });
   }
 

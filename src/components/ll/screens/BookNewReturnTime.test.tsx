@@ -58,7 +58,15 @@ describe('BookNewReturnTime', () => {
 
     click('Modify Lightning Lane');
     await loading();
-    expect(ll.book).toHaveBeenCalledWith(newOffer);
+    expect(ll.book).toHaveBeenCalledWith(
+      newOffer,
+      undefined,
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        start: expect.any(Function),
+        onDispatch: expect.any(Function),
+      })
+    );
     expect(refreshPlans).toHaveBeenCalledTimes(1);
     expect(nav.goBack).toHaveBeenCalledWith({ screen: Home });
     expect(nav.goTo).toHaveBeenCalledWith(

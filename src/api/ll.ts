@@ -4,7 +4,7 @@ import { storageKey } from '@/storageNamespace';
 
 import { authStore } from './auth';
 import { avatarUrl } from './avatar';
-import { ApiClient, RequestControl } from './client';
+import { ApiClient, RequestControl, requireMutationControl } from './client';
 import { Booking, LLMP, isLLMP } from './itinerary';
 import { Experience as ExpData, InvalidId, Park, Resort } from './resort';
 
@@ -434,12 +434,14 @@ export abstract class LLClient extends ApiClient {
     control?: RequestControl
   ): Promise<LLMP>;
 
-  async cancelBooking(guests: LLMP['guests']) {
+  async cancelBooking(guests: LLMP['guests'], control?: RequestControl) {
+    requireMutationControl(control);
     const ids = guests.map(g => g.entitlementId);
     const idParam = ids.map(encodeURIComponent).join(',');
     await this.request({
       path: `/ea-vas/api/v1/entitlements/${idParam}`,
       method: 'DELETE',
+      control,
     });
   }
 
