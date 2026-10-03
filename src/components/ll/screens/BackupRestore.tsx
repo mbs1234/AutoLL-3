@@ -3,13 +3,16 @@ import { useRef, useState, useSyncExternalStore } from 'react';
 import { APP_NAME } from '@/appIdentity';
 import {
   type Backup,
+  RestoreRecoveryError,
   createBackup,
   describeLastBackup,
   describeSummary,
+  getRestoreRecovery,
   lastBackupAt,
   readBackup,
   readFileText,
   recordBackup,
+  recoverOriginalPlan,
   restoreBackup,
   shareBackup,
   summarize,
@@ -50,6 +53,7 @@ export default function BackupRestore({
   const [picked, setPicked] = useState<{ name: string; backup: Backup }>();
   const [problem, setProblem] = useState<string>();
   const [restored, setRestored] = useState(false);
+  const [recovery, setRecovery] = useState(getRestoreRecovery);
 
   // Deliberately not async, and nothing before `shareBackup`. `Button` calls
   // this synchronously inside the tap (it awaits only when given `back`), so the
@@ -123,8 +127,9 @@ export default function BackupRestore({
       restoreBackup(picked.backup);
       setRestored(true);
     } catch (error) {
+      if (error instanceof RestoreRecoveryError) setRecovery(error);
       setProblem(
-        `Couldn't restore: ${message(error)} This phone's plan is as it was.`
+        `Couldn't restore: ${message(error)}${error instanceof RestoreRecoveryError ? '' : " This phone's plan is as it was."}`
       );
     }
   };
@@ -217,6 +222,33 @@ export default function BackupRestore({
         <p role="alert" className="mt-3 text-sm font-semibold text-red-700">
           {problem}
         </p>
+      )}
+      {recovery && (
+        <div role="alert" className="mt-3 text-red-700">
+          <p>{recovery.message}</p>
+          <Button
+            onClick={() => {
+              void shareBackup(recovery.backup).catch(error =>
+                setProblem(message(error))
+              );
+            }}
+          >
+            Export original plan
+          </Button>
+          <Button
+            onClick={() => {
+              try {
+                recoverOriginalPlan();
+                setRecovery(undefined);
+                setProblem('Original plan recovered. Reload before using it.');
+              } catch (error) {
+                setProblem(message(error));
+              }
+            }}
+          >
+            Retry recovering original plan
+          </Button>
+        </div>
       )}
 
       {restored && (

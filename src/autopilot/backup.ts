@@ -23,11 +23,9 @@ import {
   parseCoverage,
   parseDropEvents,
   parseWatchedDays,
-  saveCoverage,
-  saveWatchedDays,
 } from './observe';
 import { anyRunning } from './running';
-import { WATCHLIST_KEY, parseWatchList, saveWatchList } from './watchlist';
+import { WATCHLIST_KEY, parseWatchList, storedWatchList } from './watchlist';
 
 /**
  * A backup of everything this build keeps on the phone, except the sign-in.
@@ -70,6 +68,8 @@ export interface Backup {
    * into its own build's namespace rather than writing another build's keys.
    */
   data: Record<string, unknown>;
+  /** Emergency export only: exact originals, including absent/non-JSON values. */
+  originalStorage?: Record<string, string | null>;
 }
 
 /**
@@ -355,46 +355,151 @@ export function readBackup(text: string): BackupReading {
 const strings = (value: unknown): string[] =>
   asArray(value).filter((v): v is string => typeof v === 'string');
 
+export class RestoreRecoveryError extends Error {
+  readonly name = 'RestoreRecoveryError';
+  constructor(
+    public originals: ReadonlyArray<readonly [StorageKey, string | null]>,
+    public backup: Backup,
+    cause: unknown
+  ) {
+    super(
+      `Storage recovery is incomplete. Keep this page open and export the original plan before reloading. ${cause instanceof Error ? cause.message : String(cause)}`
+    );
+    this.backup = {
+      ...backup,
+      originalStorage: Object.fromEntries(
+        originals.map(([key, raw]) => [suffix(key), raw])
+      ),
+    };
+  }
+}
+
+// Retain the first unrecovered snapshot across navigation and further attempts.
+let pendingRecovery: RestoreRecoveryError | undefined;
+export const getRestoreRecovery = () => pendingRecovery;
+
+/** Retry recovery only, never the failed incoming restore. */
+export function recoverOriginalPlan(): void {
+  if (anyRunning()) {
+    throw new Error('Turn off Autopilot, and stop any Time Search, first.');
+  }
+  const recovery = pendingRecovery;
+  if (!recovery) return;
+  for (const [key, raw] of recovery.originals) {
+    try {
+      if (kvdb.raw(key) !== raw) kvdb.setRaw(key, null);
+    } catch {
+      /* Try every key. */
+    }
+  }
+  for (const [key, raw] of recovery.originals) {
+    try {
+      if (kvdb.raw(key) !== raw) kvdb.setRaw(key, raw);
+    } catch {
+      /* Check exact recovery below. */
+    }
+  }
+  if (
+    !recovery.originals.every(([key, raw]) => {
+      try {
+        return kvdb.raw(key) === raw;
+      } catch {
+        return false;
+      }
+    })
+  ) {
+    throw recovery;
+  }
+  pendingRecovery = undefined;
+}
+
 /**
  * Put a checked backup back on this phone: replace the plan, merge what the
  * learner has seen, and write nothing else. Nothing is ever cleared wholesale --
  * the store belongs to Disney's website -- and if any write fails, every key
- * this touched is put back as it was, so a restore lands whole or not at all.
+ * this touched is recovered from exact originals. If storage refuses recovery
+ * too, an emergency export remains available in this page. This is not crash
+ * atomic: localStorage cannot transact across keys.
  *
  * Refuses while any engine runs: each holds its plan in memory and would write
  * it back over this. The page must reload afterwards for the same reason --
  * every screen already open still holds the plan it loaded.
  */
 export function restoreBackup({ data }: Backup): void {
+  if (pendingRecovery) throw pendingRecovery;
   if (anyRunning()) {
     throw new Error('Turn off Autopilot, and stop any Time Search, first.');
   }
   const has = (key: StorageKey) => Object.hasOwn(data, suffix(key));
   const from = (key: StorageKey) => data[suffix(key)];
-  const before = RESTORED_KEYS.map(key => [key, kvdb.get(key)] as const);
-  try {
-    for (const key of [WATCHLIST_KEY, NEXTLL_WATCHLIST_KEY]) {
-      if (has(key)) saveWatchList(parseWatchList(from(key)), key);
-      else kvdb.delete(key);
-    }
-    for (const key of [PARTY_IDS_KEY, STARRED_KEY]) {
-      if (has(key)) kvdb.set<string[]>(key, strings(from(key)));
-      else kvdb.delete(key);
-    }
-    kvdb.set(
-      EVENTS_KEY,
+  const before = RESTORED_KEYS.map(key => [key, kvdb.raw(key)] as const);
+  const originalBackup = createBackup();
+  // Validate, merge and serialize everything before the first storage write.
+  const next = new Map<StorageKey, string | null>();
+  for (const key of [WATCHLIST_KEY, NEXTLL_WATCHLIST_KEY]) {
+    next.set(
+      key,
+      has(key)
+        ? JSON.stringify(storedWatchList(parseWatchList(from(key))))
+        : null
+    );
+  }
+  for (const key of [PARTY_IDS_KEY, STARRED_KEY]) {
+    next.set(key, has(key) ? JSON.stringify(strings(from(key))) : null);
+  }
+  next.set(
+    EVENTS_KEY,
+    JSON.stringify(
       mergeDropEvents(loadDropEvents(), parseDropEvents(from(EVENTS_KEY)))
-    );
-    saveCoverage(
+    )
+  );
+  next.set(
+    COVERAGE_KEY,
+    JSON.stringify(
       mergeCoverage(loadCoverage(), parseCoverage(from(COVERAGE_KEY)))
-    );
-    saveWatchedDays(
+    )
+  );
+  next.set(
+    WATCHED_KEY,
+    JSON.stringify(
       mergeWatchedDays(loadWatchedDays(), parseWatchedDays(from(WATCHED_KEY)))
-    );
+    )
+  );
+  const changed: StorageKey[] = [];
+  try {
+    for (const [key, raw] of next) {
+      if (raw === kvdb.raw(key)) continue;
+      kvdb.setRaw(key, raw);
+      changed.push(key);
+    }
   } catch (error) {
-    for (const [key, value] of before) {
-      if (value === undefined) kvdb.delete(key);
-      else kvdb.set(key, value);
+    // Free staged space first. Do not remove unchanged originals: even a
+    // permanent write failure must not destroy a value that survived intact.
+    for (const key of changed) {
+      try {
+        kvdb.setRaw(key, null);
+      } catch {
+        /* Still attempt every original. */
+      }
+    }
+    for (const [key, raw] of before) {
+      try {
+        if (raw === kvdb.raw(key)) continue;
+        kvdb.setRaw(key, raw);
+      } catch {
+        /* A later key may still be recoverable. */
+      }
+    }
+    const restored = before.every(([key, raw]) => {
+      try {
+        return kvdb.raw(key) === raw;
+      } catch {
+        return false;
+      }
+    });
+    if (!restored) {
+      pendingRecovery = new RestoreRecoveryError(before, originalBackup, error);
+      throw pendingRecovery;
     }
     throw error;
   }
