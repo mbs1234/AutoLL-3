@@ -7,7 +7,7 @@ import { defineConfig } from 'vite';
 import { APP_NAME } from './src/appIdentity';
 
 const server = {
-  host: '0.0.0.0',
+  host: '127.0.0.1',
   port: 3000,
   https: {
     cert: './tls/dev.cert',
@@ -52,13 +52,20 @@ export default defineConfig({
   },
   build: {
     outDir: '../dist',
-    emptyOutDir: false,
+    emptyOutDir: true,
     rollupOptions: {
-      input: ['src/bg1.tsx', 'src/bg1.css', 'src/responder.html'],
+      // Separate entry names: newer Vite/Rollup otherwise reserves bg1.js for
+      // the CSS entry and renames the executable to bg12.js, breaking install.
+      input: {
+        bg1: 'src/bg1.tsx',
+        styles: 'src/bg1.css',
+        responder: 'src/responder.html',
+      },
       output: {
         entryFileNames: '[name].js',
         chunkFileNames: '[name].js',
-        assetFileNames: '[name][extname]',
+        assetFileNames: asset =>
+          asset.names.includes('styles.css') ? 'bg1.css' : '[name][extname]',
       },
     },
   },
