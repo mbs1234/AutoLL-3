@@ -308,25 +308,26 @@ export function saveWatchList(
   targets: WatchTarget[],
   key: WatchListKey = WATCHLIST_KEY
 ): void {
-  kvdb.set<StoredTarget[]>(
-    key,
-    targets.map(t => ({
-      experienceId: t.experienceId,
-      ...(t.name ? { name: t.name } : {}),
-      ...(t.parkId ? { parkId: t.parkId } : {}),
-      ...(t.date ? { date: t.date } : {}),
-      ...(typeof t.rank === 'number' ? { rank: t.rank } : {}),
-      ...(typeof t.minImprovementMinutes === 'number'
-        ? { minImprovementMinutes: t.minImprovementMinutes }
-        : {}),
-      ...(t.passkey ? { passkey: true } : {}),
-      ...(t.after ? { after: String(t.after) } : {}),
-      ...(t.before ? { before: String(t.before) } : {}),
-      ...(t.autoBook ? { autoBook: true } : {}),
-      ...(t.autoModify ? { autoModify: true } : {}),
-      ...(t.bookThenMove ? { bookThenMove: true } : {}),
-      ...(t.paused ? { paused: true } : {}),
-      ...(t.autoSwap ? { autoSwap: true } : {}),
-    }))
-  );
+  kvdb.set<StoredTarget[]>(key, storedWatchList(targets));
+}
+
+export function storedWatchList(targets: WatchTarget[]): StoredTarget[] {
+  return targets.map(t => ({
+    experienceId: t.experienceId,
+    ...(t.name ? { name: t.name } : {}),
+    ...(t.parkId ? { parkId: t.parkId } : {}),
+    ...(t.date ? { date: t.date } : {}),
+    ...(typeof t.rank === 'number' ? { rank: t.rank } : {}),
+    ...(typeof t.minImprovementMinutes === 'number'
+      ? { minImprovementMinutes: t.minImprovementMinutes }
+      : {}),
+    ...(t.passkey ? { passkey: true } : {}),
+    ...(t.after ? { after: String(t.after) } : {}),
+    ...(t.before ? { before: String(t.before) } : {}),
+    ...(t.autoBook ? { autoBook: true } : {}),
+    ...(t.autoModify ? { autoModify: true } : {}),
+    ...(t.bookThenMove ? { bookThenMove: true } : {}),
+    ...(t.paused ? { paused: true } : {}),
+    ...(t.autoSwap ? { autoSwap: true } : {}),
+  }));
 }

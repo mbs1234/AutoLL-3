@@ -7,6 +7,14 @@ interface DailyValue<T> {
 }
 
 export default {
+  /** Exact values for scoped transactional restore and byte-for-byte recovery. */
+  raw(key: StorageKey): string | null {
+    return localStorage.getItem(key);
+  },
+  setRaw(key: StorageKey, raw: string | null): void {
+    if (raw === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, raw);
+  },
   get<T = unknown>(key: StorageKey) {
     const json = localStorage.getItem(key);
     try {
