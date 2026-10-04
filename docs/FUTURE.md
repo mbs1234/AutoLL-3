@@ -93,6 +93,9 @@ was lost meanwhile because Disney refuses a second booking of an attraction for
 the same guests. That was too strong: a refusal does not cover a booking Disney
 applies late, after the attraction was booked again and that booking given up.
 Clearing any protection still carries that risk; it is a judgment, not proof.
+Codex's review of 1.9.0 found that a clear could give back a later request's
+hold, and that Autopilot heard of a clear only through Activity's best-effort
+record; 1.9.1 fixes both, and places a pass after midnight on its park day.
 
 
 ## 2. The screens

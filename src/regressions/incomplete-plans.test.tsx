@@ -7,6 +7,11 @@
  * profile was missing settled its cancellation as done, and so did a response
  * with no items at all. These pass raw responses through the real reader, the
  * real Plans provider and the protection logic together.
+ *
+ * Codex's review of 1.9.0: a pass that could not be read was counted on its
+ * calendar date, while protection is keyed by park day, which puts a return
+ * time before 4am on the day before. A cancellation in doubt for 12:30am read
+ * its own day as complete, and cleared.
  */
 import { respond } from '@/__fixtures__/client';
 import { booking as dasBooking } from '@/__fixtures__/das';
@@ -23,15 +28,28 @@ import { wdw } from '@/__fixtures__/ll';
 import { ItineraryClient, plansCover, plansGaps } from '@/api/itinerary';
 import { dasLeaseKey, quarantine, quarantinedAt } from '@/autopilot/lease';
 import { cancellationMutation } from '@/autopilot/manualMutation';
+import { DateTime, ParkTime } from '@/datetime';
 import { fetchJson } from '@/fetch';
-import { TODAY, setTime } from '@/testing';
+import { TODAY, TOMORROW, YESTERDAY, setTime } from '@/testing';
 
 const HM = dasBooking.facilityId;
 
-describe('the itinerary reader', () => {
-  const client = new ItineraryClient(wdw);
+/** The DAS selection on another day, with its guests unreadable. */
+function unreadableOn(date: string, time?: string) {
+  const item: Record<string, unknown> = { ...dasItem, displayStartDate: date };
+  if (time) item.displayStartTime = time;
+  else delete item.displayStartTime;
+  return itinerary({ items: [item], profiles: {} });
+}
 
-  beforeEach(() => setTime('10:00:00'));
+describe('the itinerary reader', () => {
+  // A fresh reader each time: its rate limiter allows five reads a second.
+  let client: ItineraryClient;
+
+  beforeEach(() => {
+    setTime('10:00:00');
+    client = new ItineraryClient(wdw);
+  });
 
   it('reads a complete response as complete', async () => {
     respond(complete([dasItem]));
@@ -51,6 +69,37 @@ describe('the itinerary reader', () => {
     // Another attraction, or another day, can still be read as complete.
     expect(plansCover(plans, '80010114', TODAY)).toBe(true);
     expect(plansCover(plans, HM, '2099-01-01')).toBe(true);
+  });
+
+  describe('places a pass it cannot read on its park day', () => {
+    it.each([
+      ['00:00:00', TODAY],
+      ['00:30:00', TODAY],
+      ['03:59:59', TODAY],
+      ['04:00:00', TOMORROW],
+    ])('at %s the next morning, on %s', async (time, day) => {
+      respond(unreadableOn(TOMORROW, time));
+      jest.spyOn(console, 'error').mockImplementationOnce(() => undefined);
+      const plans = await client.plans();
+      expect(plansGaps(plans)).toEqual([{ facilityId: HM, date: day }]);
+      expect(plansCover(plans, HM, day)).toBe(false);
+    });
+
+    it('on both days it may be when its time cannot be read', async () => {
+      respond(unreadableOn(TOMORROW));
+      jest.spyOn(console, 'error').mockImplementationOnce(() => undefined);
+      const plans = await client.plans();
+      expect(plansCover(plans, HM, TOMORROW)).toBe(false);
+      expect(plansCover(plans, HM, TODAY)).toBe(false);
+      expect(plansCover(plans, HM, YESTERDAY)).toBe(true);
+    });
+
+    it('on the park day when its date is already past', async () => {
+      respond(unreadableOn(YESTERDAY, '10:30:00'));
+      jest.spyOn(console, 'error').mockImplementationOnce(() => undefined);
+      const plans = await client.plans();
+      expect(plansGaps(plans)).toEqual([{ facilityId: HM, date: TODAY }]);
+    });
   });
 
   it('reads a response without its list as covering nothing', async () => {
@@ -111,6 +160,37 @@ describe('a DAS cancellation in doubt, against what Plans could read', () => {
     await inDoubt();
     await readPlansOnce(client, complete([]));
     expect(quarantinedAt(key)).toBeUndefined();
+  });
+
+  describe('for a selection after midnight', () => {
+    /** At 12:30am tomorrow, which is today's park day. */
+    const late = {
+      ...dasBooking,
+      start: new DateTime(TOMORROW, new ParkTime(0, 30)),
+    };
+
+    async function lateInDoubt() {
+      const { keys, evidence } = cancellationMutation(late);
+      // Protected on today's park day, as the reader would place it.
+      expect(keys[0]).toBe(key);
+      await quarantine(
+        keys[0]!,
+        { ...evidence, blockingKeys: keys },
+        Date.now() - 1_000
+      );
+    }
+
+    it('stays when the selection cannot be read', async () => {
+      await lateInDoubt();
+      await readPlansOnce(client, unreadableOn(TOMORROW, '00:30:00'));
+      expect(quarantinedAt(key)).toBeDefined();
+    });
+
+    it('clears once a complete read shows it gone', async () => {
+      await lateInDoubt();
+      await readPlansOnce(client, complete([]));
+      expect(quarantinedAt(key)).toBeUndefined();
+    });
   });
 
   it('clears even when something at another attraction could not be read', async () => {

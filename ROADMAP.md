@@ -1126,6 +1126,32 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 38. Codex's review of 1.9.0 — _completed in 1.9.1_
+
+Codex reviewed 1.9.0 (2026-10-04), kept its changes, and found three
+follow-ups in how a protection ends, with a change of wording. 1.9.1 makes all
+four.
+
+- **A clear gives back only the hold it is about.** Autopilot's lock on a
+  booking records the request it was taken for, and clearing that request's
+  protection gives back that lock and no other: not a later request's, and not
+  one inherited from another tab or from the page before a reload, which give
+  way to Plans as before.
+- **Autopilot hears of every clear.** It read clears from Activity's record of
+  the day, written best-effort, so a clear that record missed left the
+  attraction held. A clear has a record of its own now, written before the
+  protection is removed; if it cannot be written, the protection stays and the
+  panel says why.
+- **A pass after midnight is placed on its park day.** An unreadable pass was
+  counted on its calendar date, while protection is keyed by park day, so a
+  cancellation in doubt at 12:30am read its own day as complete and cleared.
+  It is now placed as the reader places a readable pass, and on both possible
+  days when its time cannot be read.
+- **The one-tap note says what is known.** "Probably did not go through"
+  claimed a likelihood nobody measured. Beside the button it now says that no
+  booking was visible in the last complete Plans check, that the request may
+  still complete, and that clearing permits another attempt.
+
 ### 37. Codex's review of 1.8.5 — _completed in 1.9.0_
 
 Codex reviewed 1.8.5 the same day (2026-10-03) and found three ways a

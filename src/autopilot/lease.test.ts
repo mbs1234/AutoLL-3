@@ -2,6 +2,7 @@ import { modifyDate, parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
 
 import {
+  CLEARED_KEY,
   LEASE_KEY,
   LEASE_TTL_MS,
   QUARANTINE_KEY,
@@ -11,6 +12,7 @@ import {
   SETTLE_AFTER_MS,
   acquire,
   available,
+  clearedMutations,
   dasLeaseKey,
   holder,
   keepAlive,
@@ -468,8 +470,8 @@ describe('the operation lease', () => {
       });
 
       // A request that lands late is not ruled out by any interval, so a
-      // late read showing nothing only says the booking probably was not made.
-      it('keeps a booking Plans do not show, however late, and notes it probably was not made', async () => {
+      // late read showing nothing only says Plans did not show the booking.
+      it('keeps a booking Plans do not show, however late, and notes that they did not', async () => {
         await quarantine(KEY, bookDoubt, RAISED);
         await reconcile(nothing, LATE - 1, none);
         expect(quarantinedMutations()[0]?.notSeenAt).toBeUndefined();
@@ -679,6 +681,91 @@ describe('the operation lease', () => {
           value: kvdb.get<{ value: unknown }>(SETTLED_RAW)?.value,
         });
         expect(settledMutations()).toEqual([]);
+      });
+    });
+
+    /*
+     * A person's clear reaches Autopilot through a record of its own.
+     *
+     * Codex's review of 1.9.0: Autopilot learned of a clear from the day's
+     * settled record, Activity's report, which is written best-effort. A clear
+     * whose record failed left the protection gone and Autopilot holding the
+     * attraction for nothing.
+     */
+    describe('the record of a clear', () => {
+      const bookDoubt = {
+        id: 'book-1',
+        kind: 'book' as const,
+        to: '11:00:00',
+        guestIds: ['mickey'],
+      };
+      // Here rather than in each test, so a test that fails part-way cannot
+      // leave storage refusing for the next.
+      afterEach(() => jest.restoreAllMocks());
+
+      /** Storage that refuses these keys, and keeps the others. Once only. */
+      const refusing = (...refused: string[]) => {
+        const set = kvdb.set.bind(kvdb);
+        return jest.spyOn(kvdb, 'set').mockImplementation((key, value) => {
+          if (refused.includes(key)) throw new Error('storage unavailable');
+          set(key, value);
+        });
+      };
+
+      it('is kept for a clear, and not for an answer', async () => {
+        await quarantine(KEY, bookDoubt, RAISED);
+        await quarantine(OTHER_KEY, { ...modifyDoubt, id: 'modify-2' }, RAISED);
+        await resolveDoubt(OTHER_KEY, 'modify-2');
+        await resolveDoubt(KEY, 'book-1', 'cleared');
+        expect(clearedMutations()).toContainEqual({ id: 'book-1', key: KEY });
+        expect(clearedMutations()).not.toContainEqual(
+          expect.objectContaining({ id: 'modify-2' })
+        );
+        expect(kvdb.getDaily(CLEARED_KEY)).toEqual({ 'book-1': KEY });
+      });
+
+      it('does not depend on Activity recording the clear', async () => {
+        jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        await quarantine(KEY, bookDoubt, RAISED);
+        refusing(SETTLED_RAW);
+        await resolveDoubt(KEY, 'book-1', 'cleared');
+        jest.mocked(kvdb.set).mockRestore();
+        expect(quarantinedAt(KEY)).toBeUndefined();
+        expect(settledMutations()).toEqual([]);
+        expect(clearedMutations()).toContainEqual({ id: 'book-1', key: KEY });
+      });
+
+      it('keeps the protection when the clear cannot be recorded', async () => {
+        await quarantine(KEY, bookDoubt, RAISED);
+        refusing(CLEARED_KEY);
+        await expect(resolveDoubt(KEY, 'book-1', 'cleared')).rejects.toThrow(
+          'storage unavailable'
+        );
+        jest.mocked(kvdb.set).mockRestore();
+        expect(quarantinedAt(KEY)).toBe(RAISED);
+        expect(clearedMutations()).not.toContainEqual(
+          expect.objectContaining({ id: 'book-1' })
+        );
+      });
+
+      it('reads a clear made in another tab', () => {
+        kvdb.setDaily(CLEARED_KEY, { 'book-9': KEY });
+        expect(clearedMutations()).toContainEqual({ id: 'book-9', key: KEY });
+      });
+
+      it('remembers the clear of a page-only protection', async () => {
+        jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        // Nothing of it can be stored: neither the protection nor its clear.
+        refusing(QUARANTINE_KEY, CLEARED_KEY);
+        const result = await quarantine(KEY, { ...bookDoubt, id: 'book-page' });
+        expect(result.durable).toBe(false);
+        await resolveDoubt(KEY, 'book-page', 'cleared');
+        jest.mocked(kvdb.set).mockRestore();
+        expect(quarantinedAt(KEY)).toBeUndefined();
+        expect(clearedMutations()).toContainEqual({
+          id: 'book-page',
+          key: KEY,
+        });
       });
     });
 

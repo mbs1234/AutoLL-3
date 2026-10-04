@@ -26,13 +26,18 @@ import type { RequestControl } from '@/api/client';
 import type { Booking, LLMP } from '@/api/itinerary';
 import type { Guest } from '@/api/ll';
 import { fireAlert } from '@/autopilot/alert';
+import { lockKey } from '@/autopilot/autobook';
 import {
+  SETTLED_KEY,
   SETTLE_AFTER_MS,
+  leaseKey,
+  quarantine,
   quarantinedMutations,
   reconcile,
   resolveDoubt,
   settledMutations,
 } from '@/autopilot/lease';
+import { saveLocks } from '@/autopilot/storage';
 import { saveWatchList } from '@/autopilot/watchlist';
 import AutopilotContext from '@/contexts/AutopilotContext';
 import BookingDateContext from '@/contexts/BookingDateContext';
@@ -41,9 +46,10 @@ import ExperiencesContext from '@/contexts/ExperiencesContext';
 import ParkContext from '@/contexts/ParkContext';
 import PlansContext from '@/contexts/PlansContext';
 import { DateTime, ParkTime } from '@/datetime';
+import kvdb from '@/kvdb';
 import AutopilotProvider from '@/providers/AutopilotProvider';
 import { saveSavedPartyIds } from '@/savedParty';
-import { TODAY, act, click, render, setTime } from '@/testing';
+import { TODAY, act, cleanup, click, render, setTime } from '@/testing';
 
 jest.mock('@/timesync');
 jest.mock('@/autopilot/alert', () => ({
@@ -263,7 +269,7 @@ it('moves a booking whose answer was lost once Plans show it landed', async () =
 
 // The booking never landed. Nothing Plans show can say so -- a request that
 // lands late is not ruled out by any interval -- so it waits for the person,
-// with a note that it probably did not go through; once they clear it,
+// with a note that Plans did not show it; once they clear it,
 // Autopilot may try again.
 it('holds a lost booking Plans never show until the person clears it, then tries again', async () => {
   const { book } = setup((n, send) => {
@@ -295,6 +301,75 @@ it('holds a lost booking Plans never show until the person clears it, then tries
   expect(settledMutations()).toEqual([
     expect.objectContaining({ kind: 'book', how: 'cleared' }),
   ]);
+});
+
+/** Run Autopilot until `book` has been called `n` times, or give up. */
+async function untilBooked(book: jest.Mock, n: number) {
+  for (let i = 0; i < 20 && book.mock.calls.length < n; i++) {
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+  }
+}
+
+// Codex's review of 1.9.0: Autopilot learned of a clear from Activity's record
+// of the day, which is written best-effort, so a clear Activity failed to
+// record left the attraction held for nothing.
+it('tries again after a clear Activity could not record', async () => {
+  const { book } = setup((n, send) => {
+    if (n > 0) return send();
+    throw lost();
+  });
+  await start();
+  const [doubt] = quarantinedMutations();
+  jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  const set = kvdb.set.bind(kvdb);
+  const refusing = jest.spyOn(kvdb, 'set').mockImplementation((key, value) => {
+    if (key === SETTLED_KEY) throw new Error('storage unavailable');
+    set(key, value);
+  });
+  await resolveDoubt(doubt!.key, doubt!.id, 'cleared');
+  refusing.mockRestore();
+  expect(settledMutations()).toEqual([]);
+  await untilBooked(book, 2);
+  expect(book).toHaveBeenCalledTimes(2);
+});
+
+// Codex's review of 1.9.0: a clear gave back whatever book lock the attraction
+// had. A page that started after a later request took the lock adopted it,
+// read the old clear and let the lock go, while Plans had not yet caught up.
+it('does not let a clear give back a later request’s hold after a reload', async () => {
+  const first = setup((n, send) => {
+    if (n > 0) return send();
+    throw lost();
+  });
+  await start();
+  const [doubt] = quarantinedMutations();
+  await resolveDoubt(doubt!.key, doubt!.id, 'cleared');
+  await untilBooked(first.book, 2);
+  expect(first.book).toHaveBeenCalledTimes(2);
+
+  // The page reloads before Plans show the second booking.
+  cleanup();
+  const second = setup((_n, send) => send());
+  await start();
+  expect(second.book).not.toHaveBeenCalled();
+});
+
+it('does not let a clear give back a hold another tab has', async () => {
+  // An earlier request's protection, cleared by the person.
+  const key = leaseKey(experience.id, TODAY);
+  await quarantine(
+    key,
+    { id: 'book-earlier', kind: 'book', guestIds: [mickey.id] },
+    Date.now() - 1_000
+  );
+  await resolveDoubt(key, 'book-earlier', 'cleared');
+  // Another tab has since booked the attraction again, and holds its lock.
+  saveLocks('another-tab', [lockKey(TODAY, 'book', experience.id)]);
+  const { book } = setup((_n, send) => send());
+  await start();
+  expect(book).not.toHaveBeenCalled();
 });
 
 it.each([403, 429])(

@@ -267,21 +267,47 @@ export function notePlansGaps(
   if (gaps.length) readGaps.set(plans, gaps);
 }
 
-/** A raw item's attraction and day, as far as they can be read. */
-function rawPlace(item: unknown): PlansGap {
+/**
+ * Where a raw item may be, as far as it can be read: its attraction, and each
+ * park day it may belong to.
+ *
+ * The park day as the reader places a pass it can read (`getFastPass`) and as
+ * its protection is keyed (`parkDate`): a date already past is the current
+ * park day, and a return time before 4am belongs to the day before its date.
+ * A day that cannot be placed is not guessed. With no readable time the item
+ * may be on its date's park day or the one before, so it is a gap on both;
+ * with no readable date, on any.
+ */
+function rawPlaces(item: unknown, parkDay: string): PlansGap[] {
   const raw = (item ?? {}) as {
     facility?: unknown;
     displayStartDate?: unknown;
+    displayStartTime?: unknown;
   };
-  return {
-    ...(typeof raw.facility === 'string' && raw.facility
+  const place =
+    typeof raw.facility === 'string' && raw.facility
       ? { facilityId: typelessId(raw.facility) }
-      : {}),
-    ...(typeof raw.displayStartDate === 'string' &&
-    /^\d{4}-\d{2}-\d{2}$/.test(raw.displayStartDate)
-      ? { date: raw.displayStartDate }
-      : {}),
-  };
+      : {};
+  const date = raw.displayStartDate;
+  if (
+    typeof date !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+    Number.isNaN(Date.parse(`${date}T00:00:00`))
+  ) {
+    return [place];
+  }
+  if (date < parkDay) return [{ ...place, date: parkDay }];
+  const time = raw.displayStartTime;
+  if (
+    typeof time === 'string' &&
+    /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(time)
+  ) {
+    return [{ ...place, date: parkDate({ date, time: ParkTime.from(time) }) }];
+  }
+  return [
+    { ...place, date },
+    { ...place, date: parkDate({ date, time: new ParkTime(0) }) },
+  ];
 }
 
 export class ItineraryClient extends ApiClient {
@@ -531,14 +557,14 @@ export class ItineraryClient extends ApiClient {
             return getReservation(item);
           } else if (typeof item.type !== 'string') {
             // No type to say it is not a pass.
-            gaps.push(rawPlace(item));
+            gaps.push(...rawPlaces(item, parkDay));
           }
         } catch (error) {
           console.error(error);
           // A pass left out, or something that may have been one: absence of
           // a pass at this attraction on this day is no longer evidence.
           if (item?.type === 'FASTPASS' || typeof item?.type !== 'string') {
-            gaps.push(rawPlace(item));
+            gaps.push(...rawPlaces(item, parkDay));
           }
         }
       })

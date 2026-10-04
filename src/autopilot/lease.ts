@@ -38,6 +38,15 @@ export const LEASE_KEY = storageKey('autopilot.leases');
 export const QUARANTINE_KEY = storageKey('autopilot.unresolved');
 /** Today's settled protections, and how each was settled. */
 export const SETTLED_KEY = storageKey('autopilot.settled');
+/**
+ * Today's requests whose protection the person cleared, by mutation id.
+ *
+ * How the instance that made one learns that it may give back its own hold on
+ * it (`clearedMutations`). Kept apart from the day's settled protections,
+ * which are Activity's report, capped and written best-effort: this is written
+ * before the protection is removed, so a protection never goes without it.
+ */
+export const CLEARED_KEY = storageKey('autopilot.cleared');
 
 /**
  * The version written on every stored doubt (`Doubt.v`).
@@ -71,7 +80,7 @@ export const RENEW_INTERVAL_MS = LEASE_TTL_MS / 3;
 
 /**
  * How long after a `book` request a complete plans read must have *started*
- * before a booking it does not show is reported as probably not made.
+ * before a booking it does not show is reported as not seen.
  *
  * Reported, not settled: the protection stays until Plans show the booking,
  * Disney answers, or the person clears it, which after this window is one tap
@@ -128,8 +137,8 @@ export type DoubtKind = 'book' | 'modify' | 'swap' | 'cancel';
  * was booked and cancelled. So a booking clears when Plans show any of its
  * guests holding the attraction, a cancellation when they no longer show its
  * passes, and otherwise only by Disney's answer or the person. What a late
- * read showing nothing does earn a booking is a note that it probably did not
- * go through (`notSeenAt`), which makes clearing it one tap.
+ * read showing nothing does earn a booking is a note that Plans did not show
+ * it (`notSeenAt`), which makes clearing it one tap.
  *
  * "Plans no longer show" is evidence only from a read that could have shown
  * them: a reservation Disney's response omitted, or one the itinerary reader
@@ -210,9 +219,9 @@ export interface Doubt {
    * more after the request, first showed none of its guests holding the
    * attraction.
    *
-   * Evidence that it probably did not go through, shown to the person with a
-   * one-tap clear, and never proof: a request that lands late is not ruled out
-   * by any interval, so it does not settle the doubt by itself.
+   * Shown to the person with a one-tap clear, and never proof that it did not
+   * go through: a request that lands late is not ruled out by any interval, so
+   * it does not settle the doubt by itself.
    */
   notSeenAt?: number;
 }
@@ -241,6 +250,14 @@ type Quarantine = Record<string, Doubt[]>;
  * interval on its next tick.
  */
 let volatileQuarantine: Quarantine = {};
+
+/**
+ * Clears of page-only protections, by mutation id, with the protection's key.
+ *
+ * Read with the stored ones. A protection that lived only in this page has no
+ * stored record to clear, and so no stored record of its clear either.
+ */
+let clearedHere: Record<string, string> = {};
 
 export interface PlanEvidence {
   /** The active reservation's return time. */
@@ -673,6 +690,10 @@ export async function resolveDoubt(
       const doubts = current[key];
       removed = doubts?.find(d => d.id === id);
       if (!removed) return;
+      // The record of the clear goes first. If it cannot be written, the
+      // protection stays and the person is told why, rather than going with
+      // nothing left to tell Autopilot it may try again.
+      if (how === 'cleared') recordClearance(id, key);
       const rest = doubts!.filter(d => d.id !== id);
       const next = { ...current };
       if (rest.length) next[key] = rest;
@@ -683,6 +704,9 @@ export async function resolveDoubt(
   } finally {
     const local = volatileQuarantine[key]?.find(d => d.id === id);
     volatileChanged = forgetVolatile(key, id);
+    if (how === 'cleared' && volatileChanged && !changed) {
+      clearedHere = { ...clearedHere, [id]: key };
+    }
     const settled = changed ? removed : volatileChanged ? local : undefined;
     if (settled) recordSettled([settledEntry(key, settled, how)]);
     if (changed || volatileChanged) publishQuarantineChange();
@@ -799,7 +823,7 @@ function verdict(
 }
 
 /**
- * Whether a read is the one that should mark a booking probably not made: one
+ * Whether a read is the one that should mark a booking as not seen: one
  * that could have shown it, started `SETTLE_AFTER_MS` or more after the
  * request, and still shows none of its guests holding the attraction.
  */
@@ -859,7 +883,7 @@ function landed(key: string, doubt: Doubt, seen: Seen): boolean {
  * whether it is complete for a key, which absence needs and presence does not.
  * Positive evidence settles a doubt at once (`verdict`), and is recorded as
  * confirmed. Absence and elapsed time never settle one; a late, complete read
- * without a booking marks it probably not made (`notSeenAt`).
+ * without a booking marks it as not seen (`notSeenAt`).
  *
  * `polledAt` is when the read *started*, which is the only honest measure of
  * what it can speak about, and it is the only clock this function has. A
@@ -984,7 +1008,8 @@ function settledEntry(
 const SETTLED_LIMIT = 50;
 
 /**
- * Add to the day's record. Never in the way of the protection itself: a
+ * Add to the day's record. Never in the way of the protection itself, nor of
+ * Autopilot, which learns of a clear from `clearedMutations` instead: a
  * storage failure here costs a line in Activity, not a settled or kept doubt.
  */
 function recordSettled(entries: readonly SettledMutation[]): void {
@@ -997,6 +1022,41 @@ function recordSettled(entries: readonly SettledMutation[]): void {
   } catch (error) {
     console.error(error);
   }
+}
+
+/** What is stored of today's clears, by mutation id; nothing if unreadable. */
+function storedClearances(): Record<string, string> {
+  let stored: unknown;
+  try {
+    stored = kvdb.getDaily<unknown>(CLEARED_KEY);
+  } catch {
+    return {};
+  }
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
+  return Object.fromEntries(
+    Object.entries(stored).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string'
+    )
+  );
+}
+
+/** Store a clear. Throws if it cannot, so that the clear does not happen. */
+function recordClearance(id: string, key: string): void {
+  kvdb.setDaily<Record<string, string>>(CLEARED_KEY, {
+    ...storedClearances(),
+    [id]: key,
+  });
+}
+
+/**
+ * Every request whose protection the person cleared today, in this page or
+ * another, with the protection's key.
+ */
+export function clearedMutations(): { id: string; key: string }[] {
+  const today = parkDate();
+  return Object.entries({ ...storedClearances(), ...clearedHere })
+    .filter(([, key]) => leaseParts(key).date >= today)
+    .map(([id, key]) => ({ id, key }));
 }
 
 /** Today's settled protections, oldest first. */
