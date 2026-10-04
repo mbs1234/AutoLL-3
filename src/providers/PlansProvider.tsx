@@ -1,7 +1,7 @@
 import { use, useCallback, useEffect, useRef, useState } from 'react';
 
 import { Booking, DasBooking, LLMP } from '@/api/itinerary';
-import { isLLMP, isMultipleExperiences } from '@/api/itinerary';
+import { isLLMP, isMultipleExperiences, plansCover } from '@/api/itinerary';
 import { leaseParts, reconcile } from '@/autopilot/lease';
 import ClientsContext from '@/contexts/ClientsContext';
 import PlansContext from '@/contexts/PlansContext';
@@ -126,6 +126,13 @@ export default function PlansProvider({
               reservationIds: idsOf(plan),
               guestIds: plan.guests.map(guest => guest.id),
             }));
+        },
+        // Whether this read could have shown every pass for the key's
+        // attraction and day. A pass the reader could not read, or a response
+        // without its list, looks exactly like one that is gone.
+        key => {
+          const { date, facilityId } = leaseParts(key);
+          return plansCover(fetched, facilityId, date);
         }
       ).catch(error => console.error(error));
     }

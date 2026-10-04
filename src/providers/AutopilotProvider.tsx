@@ -10,7 +10,7 @@ import {
 
 import { RequestNotSent } from '@/api/client';
 import type { RequestControl } from '@/api/client';
-import { Booking, isLLMP } from '@/api/itinerary';
+import { Booking, isLLMP, plansCover } from '@/api/itinerary';
 import { Guests } from '@/api/ll';
 import { APP_NAME } from '@/appIdentity';
 import {
@@ -63,6 +63,7 @@ import {
   quarantinedMutations,
   release as releaseLease,
   resolveDoubt,
+  settledMutations,
   startWhileHeld,
 } from '@/autopilot/lease';
 import {
@@ -424,6 +425,9 @@ export default function AutopilotProvider({
   const lockOwnerRef = useRef(
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   );
+  // Settled-record ids of bookings whose protection the person cleared and
+  // whose doubt-hold this instance has already given back (see the tick).
+  const clearedBookingsRef = useRef(new Set<string>());
   // Filled on the first render and never again. `useRef(new AutoBookLedger())`
   // constructs on *every* render and discards all but the first, which is
   // ordinarily only waste -- but this constructor refuses a date it cannot
@@ -849,6 +853,25 @@ export default function AutopilotProvider({
           ledgerRef.current.setBookingDate(moved);
         }
       };
+
+      // A booking whose answer was lost is held twice: by the shared
+      // protection, and by the ledger's doubt-hold, which keeps Autopilot from
+      // booking it again. The person clearing the protection after checking
+      // Disney is the one answer that releases both, so Autopilot may try the
+      // attraction once more. Once per clear, and on this tick's date only: a
+      // clear for another date is given back when the ledger is on that date.
+      onBookingDate(() => {
+        for (const entry of settledMutations()) {
+          if (entry.how !== 'cleared' || entry.kind !== 'book' || entry.das) {
+            continue;
+          }
+          if (entry.date !== date || clearedBookingsRef.current.has(entry.id)) {
+            continue;
+          }
+          clearedBookingsRef.current.add(entry.id);
+          ledgerRef.current.releaseAttempt(entry.facilityId, 'book');
+        }
+      });
       /**
        * The same ledger, pinned to this tick's date, for the action helpers.
        *
@@ -1180,6 +1203,10 @@ export default function AutopilotProvider({
         onBookingDate(() => {
           for (const id of ledgerRef.current.settleableIds) {
             const stillHeld = !!findExistingLL(settled, id, date);
+            // Absence counts toward releasing a lock only from a read that
+            // could have shown the pass: one the reader could not read looks
+            // exactly like one that was cancelled.
+            if (!stillHeld && !plansCover(settled, id, date)) continue;
             ledgerRef.current.resolveHeld(
               id,
               stillHeld,
@@ -1520,9 +1547,6 @@ export default function AutopilotProvider({
         // fetch is not also reported against a `book` that never went out.
         let eligibilityFailed = false;
         let operation: MutationOperation | undefined;
-        // Set once the action is chosen: whether it changes a reservation
-        // that exists, which is what an unresolved change is held for.
-        let changesExistingReservation = false;
         let acting:
           | {
               key: string;
@@ -1705,12 +1729,6 @@ export default function AutopilotProvider({
                 )
               : undefined;
           const changing = kind === 'swap' ? victim : existing;
-          // Only a change to a reservation that exists is held as an
-          // unresolved change. A fresh booking whose answer was lost is the
-          // ledger's doubt-hold, which keeps it from being booked again and
-          // which plans settle; holding it here as well froze the attraction
-          // for the day, so a booking that had landed could not be moved.
-          changesExistingReservation = !!changing;
 
           // Re-checked against the offer's own party, whichever action this
           // is. The guards above ran on the eligibility prediction, and Disney
@@ -1768,7 +1786,7 @@ export default function AutopilotProvider({
             abandonAt: tickStartedAt + MAX_MUTATION_MS,
             onAbandon: async abandoned => {
               const lease = acting;
-              if (lease && changesExistingReservation && abandoned.dispatched) {
+              if (lease && abandoned.dispatched) {
                 try {
                   const protection = await quarantine(
                     lease.key,
@@ -1970,6 +1988,9 @@ export default function AutopilotProvider({
                 requestControl(offerTime, {
                   kind: 'book',
                   to: String(offerTime),
+                  // What Plans settle a lost booking by: any of these guests
+                  // holding the attraction that day.
+                  guestIds: guests.eligible.map(guest => guest.id),
                 }),
               // Last gate before the entitlement is spent: generating the
               // offer is another round trip, and every guard above it ran
@@ -2031,10 +2052,23 @@ export default function AutopilotProvider({
               !refusedAtTheDoor;
             if (unknown && outcome?.status === 'failed') {
               outcome = { ...outcome, unknown: true };
+              // Nothing more happens on this attraction until Plans show the
+              // result or someone clears it, so say so where it is heard.
+              fireAlert({
+                title: `No answer from Disney: ${experience.name}`,
+                body: `It may or may not have gone through. ${experience.name} is paused until Plans show it or you clear it in Activity.`,
+                tag: `${NOTIFICATION_TAG_NAMESPACE}autopilot-unknown-${date}-${experience.id}`,
+              });
             }
             if (lease) {
               try {
-                if (unknown && changesExistingReservation) {
+                // Every kind, a fresh booking included, with its guests as the
+                // evidence Plans settle it by. A booking used to be held only
+                // by the ledger's doubt-hold, which no booking, change or
+                // cancel by hand ever read, and which nobody could clear. The
+                // doubt-hold stays as well; the person clearing this is what
+                // gives it back (see the tick).
+                if (unknown) {
                   const protection = await quarantine(
                     lease.key,
                     {
@@ -2051,7 +2085,7 @@ export default function AutopilotProvider({
                       error: `${outcome.error}; unresolved-change protection is available only while this page remains open`,
                     };
                   }
-                } else if (current.dispatched && changesExistingReservation) {
+                } else if (current.dispatched) {
                   pageOnlyProtection = false;
                   // Success and a definite rejection both answer this exact
                   // request, including when they arrive after abandonment.

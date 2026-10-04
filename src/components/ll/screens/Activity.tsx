@@ -6,15 +6,18 @@ import {
   DEMOTION_MIN_COVERED_DAYS,
   LEARNED_MIN_DAYS,
 } from '@/autopilot/learned';
-import useQuarantine from '@/autopilot/useQuarantine';
+import type { SettledHow } from '@/autopilot/lease';
+import useQuarantine, { useSettledMutations } from '@/autopilot/useQuarantine';
 import Screen from '@/components/Screen';
 import { Time } from '@/components/Time';
 import ContextStrip from '@/components/ll/ContextStrip';
 import QuarantinePanel from '@/components/ll/QuarantinePanel';
+import { description } from '@/components/ll/protectionDescription';
 import AutopilotContext, { BookingLogEntry } from '@/contexts/AutopilotContext';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import ParkContext from '@/contexts/ParkContext';
 import ResortContext from '@/contexts/ResortContext';
+import { DateTime } from '@/datetime';
 
 export const ACTIVITY = 'Activity';
 
@@ -30,6 +33,13 @@ export const ACTIVITY = 'Activity';
 function hasOnlyNegativeEvidence(coveredDays: number, observedDays: number) {
   return coveredDays >= DEMOTION_MIN_COVERED_DAYS && observedDays === 0;
 }
+
+/** Who knew that a protection could end. */
+const SETTLED_BY: Record<SettledHow, string> = {
+  confirmed: "confirmed by Disney's Plans",
+  answered: 'Disney answered',
+  cleared: 'cleared by you',
+};
 
 function unhandledStatus(status: never): never {
   throw new Error(`Unhandled booking-log status: ${String(status)}`);
@@ -141,6 +151,7 @@ export default function Activity() {
   const { park } = use(ParkContext);
   const resort = use(ResortContext);
   const doubts = useQuarantine();
+  const settled = useSettledMutations();
 
   const nameOf = (experienceId: string) =>
     attractionName(experienceId, experiences, resort);
@@ -157,6 +168,22 @@ export default function Activity() {
   return (
     <Screen title={ACTIVITY} theme={park.theme} subhead={<ContextStrip />}>
       <QuarantinePanel doubts={doubts} />
+      {settled.length > 0 && (
+        <>
+          <h3>Protection settled today ({settled.length})</h3>
+          <ul className="text-sm">
+            {[...settled].reverse().map(entry => (
+              <li key={`${entry.key}:${entry.id}`} className="py-0.5">
+                <Time time={DateTime.from(entry.at).time} />{' '}
+                {description(entry, nameOf)}{' '}
+                <span className="text-gray-600">
+                  &mdash; {SETTLED_BY[entry.how]}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       <h3>Booking activity ({bookingLog.length})</h3>
       {bookingLog.length === 0 ? (
         <p className="text-sm text-gray-600">
