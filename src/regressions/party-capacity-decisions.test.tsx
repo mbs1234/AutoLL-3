@@ -64,6 +64,13 @@ function setup({
   eligibleGuests = [mickey] as Guest[],
   ineligibleGuests = [] as Guest[],
   autoSwap = false,
+  autoModify = false,
+  // A pass for the watched ride itself, at 3 PM, for these guests.
+  heldGuests = undefined as Guest[] | undefined,
+  // Disney's offer for a move or a swap names everyone on the reservation it
+  // changes, since the request sends all of its passes. Off, the fake names
+  // only the guests asked for.
+  offerNamesHolders = false,
 }) {
   const experience = {
     ...hm,
@@ -80,6 +87,15 @@ function setup({
     end: new DateTime(TODAY, new ParkTime(12)),
     itinerary: [],
   };
+  if (heldGuests) {
+    plans = [
+      ...plans,
+      createBooking(experience as any, {
+        guests: heldGuests,
+        startTime: new ParkTime(15),
+      }),
+    ];
+  }
   const guests = jest.fn(async () => ({
     eligible: eligibleGuests,
     ineligible: ineligibleGuests,
@@ -95,10 +111,17 @@ function setup({
         guests: requested.map(g => g.id),
         booking: options?.booking?.facilityId,
       });
+      const holders = offerNamesHolders ? (options?.booking?.guests ?? []) : [];
       return {
         ...offered,
         booking: options?.booking,
-        guests: { eligible: requested, ineligible: [] },
+        guests: {
+          eligible: [
+            ...requested,
+            ...holders.filter(h => !requested.some(g => g.id === h.id)),
+          ],
+          ineligible: [],
+        },
       };
     }
   );
@@ -118,8 +141,9 @@ function setup({
       experienceId: experience.id,
       parkId: mk.id,
       date: TODAY,
-      autoBook: !autoSwap,
+      autoBook: !autoSwap && !autoModify,
       autoSwap,
+      autoModify,
       before: new ParkTime(12),
     },
   ]);
@@ -377,5 +401,59 @@ describe('booking with free slots', () => {
     await run();
     expect(book).not.toHaveBeenCalled();
     expect(skip()).toBe('partial-party');
+  });
+});
+
+const ids = (guests: unknown) => (guests as Guest[]).map(g => g.id).sort();
+
+// Disney's offer for a move or a swap names everyone on the reservation it
+// changes. Sent as it came, it moved a guest outside the saved party along
+// with the party; now only the party's are sent, and Disney splits the
+// reservation so the others keep theirs.
+describe('a move or a swap takes only the party', () => {
+  it('swaps only the party off a pass shared with someone outside it', async () => {
+    saveSavedPartyIds([mickey.id, minnie.id]);
+    saveSettings({ ...loadSettings(), requireWholeParty: true });
+    const { offerCalls, book } = setup({
+      plans: full([mickey, minnie, pluto]),
+      eligibleGuests: [mickey, minnie],
+      ineligibleGuests: [{ ...pluto, ineligibleReason: 'NOT_IN_PARTY' }],
+      autoSwap: true,
+      offerNamesHolders: true,
+    });
+    await run();
+    expectSwapForAll(offerCalls, book, [mickey.id, minnie.id]);
+    expect(ids(book.mock.calls[0]![1])).toEqual(ids([mickey, minnie]));
+  });
+
+  it('moves only the party when a pass held with someone outside it gets a better time', async () => {
+    saveSavedPartyIds([mickey.id, minnie.id]);
+    saveSettings({ ...loadSettings(), requireWholeParty: false });
+    const { offerCalls, book } = setup({
+      eligibleGuests: [mickey, minnie],
+      ineligibleGuests: [{ ...pluto, ineligibleReason: 'NOT_IN_PARTY' }],
+      autoModify: true,
+      heldGuests: [mickey, minnie, pluto],
+      offerNamesHolders: true,
+    });
+    await run();
+    expect(offerCalls).toHaveLength(1);
+    expect(offerCalls[0]!.booking).toBeDefined();
+    expect(book).toHaveBeenCalledTimes(1);
+    expect(ids(book.mock.calls[0]![1])).toEqual(ids([mickey, minnie]));
+  });
+
+  it('moves everyone the offer names when no party is saved', async () => {
+    saveSavedPartyIds([]);
+    saveSettings({ ...loadSettings(), requireWholeParty: false });
+    const { book } = setup({
+      eligibleGuests: [mickey, minnie, pluto],
+      autoModify: true,
+      heldGuests: [mickey, minnie, pluto],
+      offerNamesHolders: true,
+    });
+    await run();
+    expect(book).toHaveBeenCalledTimes(1);
+    expect(ids(book.mock.calls[0]![1])).toEqual(ids([mickey, minnie, pluto]));
   });
 });

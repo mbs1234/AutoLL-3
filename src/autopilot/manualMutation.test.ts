@@ -1,3 +1,4 @@
+import { booking as dasBooking } from '@/__fixtures__/das';
 import { booking, jc, modOffer, offer } from '@/__fixtures__/ll';
 import {
   type RequestControl,
@@ -11,6 +12,7 @@ import {
   LEASE_KEY,
   QUARANTINE_KEY,
   acquire,
+  dasLeaseKey,
   leaseKey,
   quarantinedMutations,
   resolveDoubt,
@@ -256,5 +258,13 @@ describe('1.8.4: what a refusal says, and what a doubt can be settled by', () =>
       booking.id,
       ...booking.guests.map(g => g.entitlementId),
     ]);
+  });
+
+  // Its own key: sharing the Lightning Lanes' let a DAS cancellation in doubt
+  // pause them, and be settled by a read of them.
+  test("a DAS cancellation is protected apart from the ride's Lightning Lanes", () => {
+    const { keys } = cancellationMutation(dasBooking);
+    expect(keys).toEqual([dasLeaseKey(dasBooking.facilityId, TODAY)]);
+    expect(keys).not.toContain(leaseKey(dasBooking.facilityId, TODAY));
   });
 });

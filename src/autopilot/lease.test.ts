@@ -426,9 +426,11 @@ describe('the operation lease', () => {
      * exactly this reason.
      */
     /*
-     * A booking and a cancellation settle either way, once a read is late
-     * enough: Disney refuses the repeat that holding them would prevent, and
-     * holding them until a person cleared them froze the attraction.
+     * A booking settles either way, once a read is late enough: Disney refuses
+     * the repeat that holding it would prevent, and holding it until a person
+     * cleared it froze the attraction. A cancellation settles only when its
+     * passes are gone: one that lands late cancels whatever the pass has
+     * become by then, so a read that still shows the pass proves nothing.
      */
     describe('a booking or a cancellation', () => {
       const bookDoubt = {
@@ -493,12 +495,21 @@ describe('the operation lease', () => {
         expect(await acquire(KEY, A, RAISED + 1)).toBe(true);
       });
 
-      it('clears a cancellation that did not happen once the window has passed', async () => {
+      it('keeps a cancellation whose passes are still there, however late the read', async () => {
         await quarantine(KEY, cancelDoubt, RAISED);
         await reconcile(nothing, RAISED + 1, holding(['mickey'], ['ent-1']));
         expect(await acquire(KEY, A, RAISED + 1)).toBe(false);
         await reconcile(nothing, LATE, holding(['mickey'], ['ent-1']));
-        expect(await acquire(KEY, A, LATE)).toBe(true);
+        expect(await acquire(KEY, A, LATE)).toBe(false);
+        const later = RAISED + 10 * SETTLE_AFTER_MS;
+        await reconcile(nothing, later, holding(['mickey'], ['ent-1']));
+        // A move of that pass waits too: the cancellation could still land on
+        // it after the move.
+        expect(await acquire(KEY, A, later)).toBe(false);
+        expect(quarantinedAt(KEY)).toBe(RAISED);
+        // Gone at last, it was done.
+        await reconcile(nothing, later + 1, none);
+        expect(await acquire(KEY, A, later + 1)).toBe(true);
       });
 
       it('keeps a move to its exact evidence however late the read', async () => {

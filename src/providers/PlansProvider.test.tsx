@@ -1,7 +1,13 @@
 import { use } from 'react';
 
 import { Booking } from '@/api/itinerary';
-import { leaseKey, quarantine, quarantinedAt } from '@/autopilot/lease';
+import {
+  acquire,
+  dasLeaseKey,
+  leaseKey,
+  quarantine,
+  quarantinedAt,
+} from '@/autopilot/lease';
 import ClientsContext, { Clients } from '@/contexts/ClientsContext';
 import PlansContext from '@/contexts/PlansContext';
 import { DateTime, ParkTime, parkDate } from '@/datetime';
@@ -390,5 +396,90 @@ describe('PlansProvider refreshing', () => {
     expect(screen.getByTestId('plans')).toHaveTextContent('A pass');
     // The refresh is still running. See `settled`.
     await settled();
+  });
+});
+
+/*
+ * A DAS selection is protected under its own key and read against DAS
+ * selections. Read against the ride's Lightning Lanes, which never include
+ * one, a DAS cancellation in doubt looked done on the next read.
+ */
+describe('PlansProvider and a DAS cancellation in doubt', () => {
+  const BZ = '80010114';
+  const DATE = parkDate();
+  const dasKey = dasLeaseKey(BZ, DATE);
+  const llKey = leaseKey(BZ, DATE);
+  const das = (id: string) =>
+    ({
+      type: 'DAS',
+      subtype: 'IN_PARK',
+      id,
+      facilityId: BZ,
+      name: 'Ride',
+      start: new DateTime(DATE, ParkTime.from('10:30:00')),
+      cancellable: true,
+      guests: [{ id: 'g1', name: 'Guest', entitlementId: `${id}-g1` }],
+    }) as unknown as Booking;
+  // A Lightning Lane for the same ride, at the time a move asked for: it
+  // settles the move below, which shows the read was reconciled.
+  const lightningLane = {
+    type: 'LL',
+    subtype: 'MP',
+    id: `ent-${BZ}`,
+    facilityId: BZ,
+    name: 'Ride',
+    start: new DateTime(DATE, ParkTime.from('11:00:00')),
+    cancellable: true,
+    guests: [{ id: 'g1', name: 'Guest', entitlementId: `ent-${BZ}` }],
+  } as unknown as Booking;
+  const cancelDoubt = {
+    kind: 'cancel' as const,
+    to: '',
+    reservationIds: ['das-1', 'das-1-g1'],
+  };
+  const moveDoubt = {
+    kind: 'modify' as const,
+    from: '19:00:00',
+    to: '11:00:00',
+    reservationIds: [`ent-${BZ}`],
+  };
+
+  let now = 0;
+  beforeEach(() => {
+    localStorage.clear();
+    now = 10_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  const mount = (plans: () => Promise<Booking[]>) =>
+    render(
+      <ClientsContext value={{ itinerary: { plans } } as unknown as Clients}>
+        <PlansProvider>
+          <View />
+        </PlansProvider>
+      </ClientsContext>
+    );
+
+  it('stays while the DAS selection is still there', async () => {
+    await quarantine(dasKey, cancelDoubt, 1000);
+    await quarantine(llKey, moveDoubt, 1000);
+    mount(jest.fn(async () => [das('das-1'), lightningLane]));
+    // The same read settled the move, so it was reconciled.
+    await waitFor(() => expect(quarantinedAt(llKey)).toBeUndefined());
+    expect(quarantinedAt(dasKey)).toBe(1000);
+  });
+
+  it('clears once the DAS selection is gone', async () => {
+    await quarantine(dasKey, cancelDoubt, 1000);
+    mount(jest.fn(async () => [lightningLane]));
+    await waitFor(() => expect(quarantinedAt(dasKey)).toBeUndefined());
+  });
+
+  it("does not pause the ride's Lightning Lanes", async () => {
+    await quarantine(dasKey, cancelDoubt, 1000);
+    expect(quarantinedAt(llKey)).toBeUndefined();
+    expect(await acquire(llKey, 'a-booking')).toBe(true);
+    expect(await acquire(dasKey, 'another-cancel')).toBe(false);
   });
 });

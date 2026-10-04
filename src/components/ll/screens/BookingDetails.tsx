@@ -51,6 +51,10 @@ export default function BookingDetails({
       ? booking.guests
       : undefined
   );
+  // The booking as it now stands. After Cancel removes some guests, Change and
+  // Modify act for the guests still on it: given the booking as this screen
+  // first loaded it, they asked Disney to move the removed guests as well.
+  const current = (guests ? { ...booking, guests } : booking) as Booking;
 
   const choicesByPark = new Map([
     [park as Park, []],
@@ -78,7 +82,7 @@ export default function BookingDetails({
     <Screen
       title={'Your ' + titles[type]}
       theme={theme}
-      buttons={!unmodifiable && !isNew && <ModifyButton booking={booking} />}
+      buttons={!unmodifiable && !isNew && <ModifyButton booking={current} />}
       subhead={<Day>{parkDate(start)}</Day>}
     >
       {warning && (
@@ -115,14 +119,14 @@ export default function BookingDetails({
         <ReturnTime
           {...booking}
           button={
-            isLLMP(booking) &&
+            isLLMP(current) &&
             !unmodifiable &&
             ll.rules.timeSelect &&
-            booking.modifiable && (
+            current.modifiable && (
               <Button
                 type="small"
                 onClick={() => {
-                  goTo(<ChangeBookingTime booking={booking} />);
+                  goTo(<ChangeBookingTime booking={current} />);
                 }}
               >
                 Change

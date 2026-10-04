@@ -1720,12 +1720,23 @@ export default function AutopilotProvider({
           // wording promises autopilot "will not book, move, or swap unless
           // everyone in your party is eligible". Read at call time, so
           // switching the setting on while an offer is in flight counts.
+          // Who a move or a swap may take along. With a saved party, its
+          // members alone: a reservation shared with someone outside it puts
+          // them in the offer too, and sending the offer as it came moved them
+          // unasked. Disney splits the reservation instead, and they keep
+          // theirs. Without a saved party, everyone the offer names, as before.
+          const movesGuest = (id: string) =>
+            !partyIds.length || partyIds.includes(id);
+          const movedGuests = ({ guests: offered }: { guests: Guests }) =>
+            offered.eligible.filter(g => movesGuest(g.id));
           const partyIsAcceptable = (offerGuests: Guests) =>
+            offerGuests.eligible.some(g => movesGuest(g.id)) &&
             offerGuests.eligible.every(
               g =>
                 guests.eligible.some(requested => requested.id === g.id) ||
                 // A move or a swap may name the guests already on the
-                // reservation it changes, who were not asked for again.
+                // reservation it changes, who were not asked for again. Only
+                // the party's among them are sent (`movedGuests`).
                 !!changing?.guests.some(held => held.id === g.id)
             ) &&
             (!settingsRef.current.requireWholeParty ||
@@ -1901,7 +1912,8 @@ export default function AutopilotProvider({
               isFull: guestIsFull(),
               createSwapOffer: (exp, g, victim) =>
                 ll.offer(exp, g, { booking: victim }),
-              book: (offer, control) => ll.book(offer, undefined, control),
+              book: (offer, control) =>
+                ll.book(offer, movedGuests(offer), control),
               guests,
               ledger: datedLedger,
               clashes,
@@ -1927,7 +1939,8 @@ export default function AutopilotProvider({
               {
                 createModifyOffer: (exp, g, booking) =>
                   ll.offer(exp, g, { booking }),
-                book: (offer, control) => ll.book(offer, undefined, control),
+                book: (offer, control) =>
+                  ll.book(offer, movedGuests(offer), control),
                 guests,
                 ledger: datedLedger,
                 clashes,

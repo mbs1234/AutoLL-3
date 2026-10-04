@@ -58,12 +58,12 @@ export const LEASE_TTL_MS = 120_000;
 export const RENEW_INTERVAL_MS = LEASE_TTL_MS / 3;
 
 /**
- * How long after a `book` or `cancel` request a plans read must have *started*
- * before an absent result counts as an answer.
+ * How long after a `book` request a plans read must have *started* before an
+ * absent booking counts as an answer.
  *
- * Long enough for the itinerary to catch up with a change Disney accepted,
+ * Long enough for the itinerary to catch up with a booking Disney accepted,
  * short enough that a lost response at a drop does not cost the attraction
- * for the morning. A read that already shows the result settles at once.
+ * for the morning. A read that already shows the booking settles at once.
  */
 export const SETTLE_AFTER_MS = 30_000;
 
@@ -106,15 +106,20 @@ export type DoubtKind = 'book' | 'modify' | 'swap' | 'cancel';
  * definitive late response, or an explicit confirmation from the person who
  * checked Disney's Plans.
  *
- * Two kinds are the deliberate exception, because Disney itself refuses the
- * repeat that the rule above exists to prevent. A booking that is resent when
- * the first one did land is refused (a guest holds each attraction once a
- * day), and a cancellation that is resent is refused as already done. So for
- * `book` and `cancel` a plans read started long enough after the request
- * settles the doubt either way (`SETTLE_AFTER_MS`); what is left uncertain
- * costs nothing more than Disney's refusal. Holding them until a person
- * cleared them froze the attraction for the rest of the day, often after the
+ * A booking is the deliberate exception, because Disney itself refuses the
+ * repeat that the rule above exists to prevent: a booking resent when the
+ * first one did land is refused, since a guest holds each attraction once a
+ * day. So for `book` a plans read started long enough after the request
+ * settles the doubt either way (`SETTLE_AFTER_MS`); if the first one lands
+ * late after all, one of the two is refused. Holding it until a person
+ * cleared it froze the attraction for the rest of the day, often after the
  * booking had in fact landed.
+ *
+ * A cancellation is not an exception, although Disney refuses one resent. A
+ * cancellation that lands late does not wait for a repeat: it removes the
+ * pass as it stands then, after a move the cleared protection let through as
+ * readily as before it. So a cancellation clears only when Plans no longer
+ * show the passes it was for, like a move on its exact result.
  */
 export interface Doubt {
   /** Stable identity of the mutation that raised this question. */
@@ -221,6 +226,8 @@ export interface QuarantinedMutation extends Doubt {
   key: string;
   date: string;
   facilityId: string;
+  /** A DAS selection's, under its own key (`dasLeaseKey`). */
+  das: boolean;
   /** False when this page is the only place the doubt could be recorded. */
   durable: boolean;
 }
@@ -613,7 +620,7 @@ export function quarantinedMutations(): QuarantinedMutation[] {
   const local = activeVolatileQuarantine();
   return Object.entries(loadQuarantine())
     .flatMap(([key, doubts]) => {
-      const { date, facilityId } = leaseParts(key);
+      const { date, facilityId, das } = leaseParts(key);
       const localIds = new Set((local[key] ?? []).map(doubt => doubt.id));
       return doubts.map(doubt => ({
         ...doubt,
@@ -621,6 +628,7 @@ export function quarantinedMutations(): QuarantinedMutation[] {
         key,
         date,
         facilityId,
+        das,
         durable: !localIds.has(doubt.id),
       }));
     })
@@ -672,10 +680,11 @@ type Inventory = (key: string) => readonly PlannedReservation[];
 /**
  * What one plans read says about the change a doubt is about.
  *
- * Deliberately narrow for a move or a swap: only the exact requested state
- * counts, and everything else, including absence and a different time, leaves
- * the doubt for a person. A booking and a cancellation are settled either way,
- * for the reason the `Doubt` note gives; `polledAt` is when the read started.
+ * Deliberately narrow for a move, a swap and a cancellation: only the exact
+ * requested state counts, and everything else, including absence and a
+ * different time, leaves the doubt for a person. A booking is settled either
+ * way, for the reason the `Doubt` note gives; `polledAt` is when the read
+ * started.
  */
 function verdict(
   key: string,
@@ -702,8 +711,9 @@ function verdict(
     const present = inventory(key).some(reservation =>
       reservation.reservationIds.some(id => cancelled.includes(id))
     );
-    if (!present) return 'landed';
-    return late ? 'not-landed' : undefined;
+    // Still there proves nothing, however long after: the cancellation may
+    // yet land, on whatever the pass has become by then.
+    return present ? undefined : 'landed';
   }
   return landed(key, doubt, seen) ? 'landed' : undefined;
 }
@@ -745,8 +755,9 @@ function landed(key: string, doubt: Doubt, seen: Seen): boolean {
  * `seen` reports the active Lightning Lane that read found for a key, or
  * undefined; `inventory` lists every Lightning Lane it holds for a key. For a
  * move or a swap, positive evidence settles at once, and absence, elapsed time
- * and contrary reads never do. A booking or a cancellation settles either way
- * once the read is late enough (see `verdict`).
+ * and contrary reads never do; a cancellation settles only when its passes are
+ * gone. A booking settles either way once the read is late enough (see
+ * `verdict`).
  *
  * `polledAt` is when the read *started*, which is the only honest measure of
  * what it can speak about, and it is the only clock this function has. A
@@ -783,9 +794,9 @@ export async function reconcile(
         const kept: Doubt[] = [];
         for (const doubt of doubts) {
           // A response already in flight when the mutation was dispatched
-          // cannot speak about it. After that, a move or a swap clears only on
-          // the exact requested state; a booking or a cancellation also on a
-          // late enough read that shows it did not happen.
+          // cannot speak about it. After that, a move, a swap or a
+          // cancellation clears only on the exact requested state; a booking
+          // also on a late enough read that shows it did not happen.
           if (settles(key, doubt)) changed = true;
           else kept.push(doubt);
         }
@@ -803,10 +814,36 @@ export function leaseKey(facilityId: string, date: string): string {
   return `${date}:${facilityId}`;
 }
 
-/** The reservation a key names. A park date carries no colon, so the first splits it. */
-export function leaseParts(key: string): { date: string; facilityId: string } {
+const DAS_PREFIX = 'das:';
+
+/**
+ * A DAS selection's key: its own, beside the Lightning Lanes for the same
+ * attraction and day. Sharing theirs let a DAS cancellation in doubt pause the
+ * attraction's Lightning Lanes, and let a read of those Lightning Lanes, which
+ * never include a DAS selection, settle it as done.
+ */
+export function dasLeaseKey(facilityId: string, date: string): string {
+  return leaseKey(`${DAS_PREFIX}${facilityId}`, date);
+}
+
+/**
+ * The reservation a key names. A park date carries no colon, so the first
+ * splits it; the attraction is given without a DAS key's prefix, which `das`
+ * reports instead.
+ */
+export function leaseParts(key: string): {
+  date: string;
+  facilityId: string;
+  das: boolean;
+} {
   const colon = key.indexOf(':');
-  return { date: key.slice(0, colon), facilityId: key.slice(colon + 1) };
+  const rest = key.slice(colon + 1);
+  const das = rest.startsWith(DAS_PREFIX);
+  return {
+    date: key.slice(0, colon),
+    facilityId: das ? rest.slice(DAS_PREFIX.length) : rest,
+    das,
+  };
 }
 
 /** Whether acquisition can actually be made exclusive in this browser. */

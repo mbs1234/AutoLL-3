@@ -552,7 +552,7 @@
       stops working.
     </p>
     <div class="masthead-meta">
-      <span>Version 1.8.4</span>
+      <span>Version 1.8.5</span>
       <span>Three parts · 23 sections</span>
       <span>Unofficial · not endorsed by Disney</span>
     </div>
@@ -752,8 +752,10 @@
         when it downloads but Disney's setup does not finish. That is the fix
         for the blank white screen v1.0 used to leave you on. A slow setup
         carries on behind that button, so tapping it picks the setup up rather
-        than starting it over. If you close Disney's sheet on purpose, it stays
-        closed.
+        than starting it over. If it is still stuck after two tries, the card
+        says so and offers <span class="ui">Reload the page</span>, which
+        starts it afresh; tap your bookmark again once the page has reloaded.
+        If you close Disney's sheet on purpose, it stays closed.
       </p>
       <p>If it asks you to sign in again, a line under the heading says why:</p>
       <div class="tablewrap">
@@ -2175,12 +2177,17 @@
       <p>Most holds settle themselves from Plans:</p>
       <ul>
         <li>
-          <strong>A booking or a cancel</strong> clears once Plans have caught
-          up, usually within a minute. Plans showing the pass (or no longer
-          showing the cancelled one) means it went through; Plans read at least
-          thirty seconds after the request still showing nothing changed means
-          it did not. Disney would refuse the same booking twice, so the next
-          try is safe either way.
+          <strong>A booking</strong> clears once Plans have caught up, usually
+          within a minute. Plans showing the pass means it went through; Plans
+          read at least thirty seconds after the request still showing nothing
+          means it did not. Disney would refuse the same booking twice, so the
+          next try is safe either way.
+        </li>
+        <li>
+          <strong>A cancel</strong> clears when Plans no longer show the passes
+          it was for. While they are still there it waits for you, however
+          long: the cancel may not have happened, or it may yet land on
+          whatever the pass has become by then.
         </li>
         <li>
           <strong>A move or a swap</strong> clears only when Plans show the
@@ -2259,7 +2266,7 @@
         well, or it may start empty next time.
       </p>
       <p>
-        <strong>Rough edges, as of 1.8.4.</strong> None known beyond what
+        <strong>Rough edges, as of 1.8.5.</strong> None known beyond what
         <a href="https://github.com/mbs1234/AutoLL-3/blob/main/docs/FUTURE.md">docs/FUTURE.md</a>
         lists, with what each would cost to fix.
       </p>

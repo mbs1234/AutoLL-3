@@ -10,6 +10,7 @@ import { parkDate } from '@/datetime';
 import { actionWasRejected, outcomeIsUnknown } from './autobook';
 import {
   acquire,
+  dasLeaseKey,
   keepAlive,
   leaseKey,
   mutationId,
@@ -79,8 +80,9 @@ export function cancellationMutation(
   guests: readonly { entitlementId: string }[] = booking.guests
 ): ManualMutation {
   const all = guests.length >= booking.guests.length;
+  const key = booking.type === 'DAS' ? dasLeaseKey : leaseKey;
   return {
-    keys: [leaseKey(booking.facilityId, parkDate(booking.start))],
+    keys: [key(booking.facilityId, parkDate(booking.start))],
     evidence: {
       kind: 'cancel',
       to: '',

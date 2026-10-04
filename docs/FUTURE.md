@@ -78,20 +78,19 @@ watching for days.
 Each landed with a test, and each of those tests was checked against a reverted
 fix to prove it fails without it.
 
-**Two small ones, found while making 1.8.4 (2026-10-03).** Neither can lose a
-reservation.
+**The two small ones found while making 1.8.4 are fixed in 1.8.5:** Change and
+Modify after removing guests act for the guests still on the pass, and a DAS
+selection has its own protection key, read against DAS selections.
 
-- **Change after removing guests asks for them again.** A pass's details screen
-  keeps the pass as it first loaded, so after **Cancel** removes some guests,
-  **Change** on the same screen asks Disney to move it for everyone it had.
-  Going back to Plans first avoids it. `BookingDetails.tsx` hands
-  `ChangeBookingTime` the original `booking` rather than one with the remaining
-  guests. _Small._
-- **A DAS selection and a Lightning Lane share a protection key.** Both lock the
-  attraction and day (`leaseKey` in `manualMutation.ts`), so while either is
-  being changed, or is protected after a lost answer, the other is paused too,
-  by hand and by Autopilot. It errs towards refusing. _Small_, but every place
-  that builds the key has to change at once.
+**One outstanding, from Codex's review of 1.8.4 (2026-10-03): Autopilot's own
+lost bookings are not in the shared protection.** A fresh booking of Autopilot's
+whose answer was lost is held by its action ledger alone, which keeps Autopilot
+from booking it twice but which a booking, change or cancel by hand does not
+read. Now that a booking can settle from Plans, it can go back into the shared
+protection with its guests as evidence, without the day-long freeze that took
+it out in 1.8.4. Nothing is lost meanwhile: Disney refuses a second booking of
+the attraction for the same guests. _Medium_, and in Autopilot's main loop, so
+after the rehearsal.
 
 
 ## 2. The screens
