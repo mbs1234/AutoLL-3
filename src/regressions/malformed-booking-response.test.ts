@@ -95,6 +95,24 @@ test.each([
     },
   ],
   [
+    // Everyone listed as booked must come with the entitlement the app acts
+    // on. Reading the rest as the whole booking hid this guest's pass from
+    // the cleanup and the records.
+    'a booked guest listed without an entitlement',
+    {
+      ...valid(),
+      booking: {
+        ...valid().booking,
+        guests: [...valid().booking.guests.slice(0, 2), { guestId: 'pluto' }],
+      },
+    },
+  ],
+  [
+    // An answer about another attraction, not this booking.
+    'its only entry filed under another attraction',
+    { ...valid(), booking: { ...valid().booking, experienceId: 'elsewhere' } },
+  ],
+  [
     'an unreadable start',
     {
       ...valid(),
@@ -246,18 +264,19 @@ test('reads the entry for the attraction booked when there are two', async () =>
   );
 });
 
-test('reads a lone entry Disney files under another id', async () => {
+// No attraction named at all is a shape question, not a contradiction: the
+// only entry is read as this booking, and logged.
+test('reads a lone entry that names no attraction', async () => {
   const client = new LLClientWDW(wdw);
-  respond(
-    response({
-      ...valid(),
-      booking: { ...valid().booking, experienceId: 'renamed' },
-    })
-  );
+  const { experienceId, ...unnamed } = valid().booking;
+  void experienceId;
+  respond(response({ ...valid(), booking: unnamed }));
   const booked = await client.book(modOffer, undefined, testMutationControl());
   expect(booked.facilityId).toBe(booking.facilityId);
   expect(booked.id).toBe(booking.id);
-  expect(warn).toHaveBeenCalledWith(expect.stringContaining('renamed'));
+  expect(warn).toHaveBeenCalledWith(
+    expect.stringContaining('names no attraction')
+  );
 });
 
 test('names a guest the party leaves unnamed, or leaves out', async () => {

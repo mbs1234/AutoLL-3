@@ -577,24 +577,31 @@ export class LLClientWDW extends LLClient {
 
   /**
    * What the app needs from a booking response, and no more: the entry for
-   * the attraction, a return window that parses, and at least one guest booked
-   * with an entitlement. Throws when any of that is missing.
+   * the attraction, a return window that parses, and the guests booked, each
+   * with an entitlement. Throws when any of that is missing or contradicts the
+   * request.
    *
    * Nothing stricter has ever been checked against a real Disney response, and
-   * a false refusal is the expensive mistake here: it turns a booking that
-   * happened into an unresolved change, which freezes the attraction until
-   * someone clears it by hand. So a party that names more people than were
-   * booked (a Modify for part of the party), a second entry, or a guest listed
-   * without a name is read and logged rather than refused. The guests are the
-   * ones Disney says it booked; the party only lends them their names.
+   * a false refusal costs something: it turns a booking that happened into an
+   * unresolved change until Plans show it. So a party that names more people
+   * than were booked (a Modify for part of the party), a second entry, or a
+   * guest listed without a name is read and logged rather than refused. The
+   * guests are the ones Disney says it booked; the party only lends them their
+   * names.
+   *
+   * What it will not do is guess. An entry filed under another attraction is
+   * an answer about something else, and a booked guest with no entitlement is
+   * a booking only partly described: reading either as this booking would
+   * report a success the response does not state.
    */
   protected readBooking(offer: Offer, response: NewBookingResponse): LLMP {
     const { experience } = offer;
     const entries: unknown[] = Array.isArray(response?.entitlementExperiences)
       ? response.entitlementExperiences
       : [];
-    // This attraction's entry, or failing that the only entry there is. Two
-    // entries and neither of them this attraction would be a guess.
+    // This attraction's entry, or failing that the only entry there is when it
+    // names no attraction at all. Two entries and neither of them this
+    // attraction would be a guess.
     const entry =
       entries.find(e => isRecord(e) && e.experienceId === experience.id) ??
       (entries.length === 1 ? entries[0] : undefined);
@@ -604,8 +611,13 @@ export class LLClientWDW extends LLClient {
       );
     }
     if (entry.experienceId !== experience.id) {
+      if (entry.experienceId != null) {
+        throw new Error(
+          `Booking response is for ${String(entry.experienceId)}, not ${experience.id}`
+        );
+      }
       console.warn(
-        `Booking response is for ${String(entry.experienceId)}, not ${experience.id}; reading its only entry`
+        `Booking response names no attraction; reading its only entry as ${experience.id}`
       );
     } else if (entries.length > 1) {
       console.warn(
@@ -633,8 +645,11 @@ export class LLClientWDW extends LLClient {
       throw new Error('Booking response names no guest with an entitlement');
     }
     if (booked.length < listed.length) {
-      console.warn(
-        `Booking response: left out ${listed.length - booked.length} guest(s) with no id or entitlement`
+      // Someone the response lists as booked, without the entitlement that
+      // would let this app see or change their pass. Reading the rest as the
+      // whole booking would hide them from the cleanup and the records.
+      throw new Error(
+        `Booking response lists ${listed.length - booked.length} guest(s) with no id or entitlement`
       );
     }
 

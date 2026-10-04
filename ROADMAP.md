@@ -1126,6 +1126,31 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 36. Codex's review of 1.8.4 — _completed in 1.8.5_
+
+Codex reviewed 1.8.4 the day it shipped (2026-10-03) and agreed with its fixes,
+with five requests. 1.8.5 makes four of them and the cancellation half of the
+fifth; the rest of that one is `FUTURE.md` §1's outstanding item.
+
+- **Autopilot moves only the party.** A move or swap sends Disney only the saved
+  party's guests, so a pass shared with someone outside the party is split and
+  they keep theirs. Before, the offer went as it came and moved them too.
+- **The booking reader does not guess.** An answer naming another attraction,
+  or listing a booked guest without an entitlement, is an unknown outcome
+  rather than a success.
+- **A cancellation clears only on proof.** It used to clear 30 seconds on if
+  Plans still showed the passes, but a cancellation that lands late can remove
+  a pass changed in the meantime. A booking still clears either way, since
+  Disney refuses a second booking of the attraction for the same guests.
+- **DAS has its own protection,** read against DAS selections. A DAS
+  cancellation in doubt no longer pauses the ride's Lightning Lanes, or looks
+  done on the next read.
+- **Sign-in can be reloaded when it is stuck.** After two setups in a row time
+  out, the card offers **Reload the page**. The retry button is drawn as a
+  button; the class it used no longer existed.
+- **Change and Modify after removing guests** act for the guests still on the
+  pass.
+
 ### 35. The October 3 audit — _completed in 1.8.3 and 1.8.4_
 
 An outside audit of `4d01832` (2026-10-03) found seven defects, and 1.8.3 fixed

@@ -83,8 +83,10 @@ that is held in your browser only. If the sheet does not appear, the card says
 will not download, or thirty more when it downloads but Disney's setup does not
 finish. That is the fix for the blank white screen v1.0 used to leave you on. A
 slow setup carries on behind that button, so tapping it picks the setup up
-rather than starting it over. If you close Disney's sheet on purpose, it stays
-closed.
+rather than starting it over. If it is still stuck after two tries, the card
+says so and offers **Reload the page**, which starts it afresh; tap your
+bookmark again once the page has reloaded. If you close Disney's sheet on
+purpose, it stays closed.
 
 If it asks you to sign in again, a line under the heading says why:
 
@@ -1002,11 +1004,13 @@ attraction are paused, by Autopilot and by hand, until it is settled.
 
 Most holds settle themselves from Plans:
 
-- **A booking or a cancel** clears once Plans have caught up, usually within a
-  minute. Plans showing the pass (or no longer showing the cancelled one) means
-  it went through; Plans read at least thirty seconds after the request still
-  showing nothing changed means it did not. Disney would refuse the same
-  booking twice, so the next try is safe either way.
+- **A booking** clears once Plans have caught up, usually within a minute.
+  Plans showing the pass means it went through; Plans read at least thirty
+  seconds after the request still showing nothing means it did not. Disney
+  would refuse the same booking twice, so the next try is safe either way.
+- **A cancel** clears when Plans no longer show the passes it was for. While
+  they are still there it waits for you, however long: the cancel may not have
+  happened, or it may yet land on whatever the pass has become by then.
 - **A move or a swap** clears only when Plans show the exact requested time.
   Plans that still show the old time cannot tell a move that failed from one
   Disney has not shown yet.
@@ -1063,7 +1067,7 @@ it has recovered.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.8.4.** None known beyond what
+**Rough edges, as of 1.8.5.** None known beyond what
 [docs/FUTURE.md](FUTURE.md) lists, with what each would cost to fix.
 
 ---

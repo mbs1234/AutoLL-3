@@ -186,6 +186,36 @@ test('(c) an initialization that never settles offers Retry 30 s after the downl
   expect(client.launchLogin).not.toHaveBeenCalled();
 });
 
+// Retry joins the initialization under way rather than start a second client
+// beside it, so one that never finishes kept every Retry waiting on it, with a
+// reload the only way out and nothing on the card saying so.
+test('(c) after two initializations in a row time out, it offers a reload', async () => {
+  const client = fakeClient('never');
+  const sdk = fakeSdk(client);
+  window.OneID = sdk;
+  const reload = jest.fn();
+  const reloadButton = () =>
+    screen.queryByRole('button', { name: 'Reload the page' });
+  render(
+    <LoginForm resort={{ id: 'WDW' }} onLogin={() => {}} reload={reload} />
+  );
+  await settle();
+  await elapse(30_000);
+  // Once is usually a slow connection, which Retry does get past.
+  expect(screen.getByRole('alert')).toHaveTextContent(COULD_NOT_START);
+  expect(reloadButton()).not.toBeInTheDocument();
+  fireEvent.click(retryButton()!);
+  await settle();
+  await elapse(30_000);
+  expect(screen.getByRole('alert')).toHaveTextContent(COULD_NOT_START);
+  fireEvent.click(reloadButton()!);
+  expect(reload).toHaveBeenCalledTimes(1);
+  // Retry is still there, and still starts no second client.
+  expect(retryButton()).toBeInTheDocument();
+  expect(sdk.get).toHaveBeenCalledTimes(1);
+  expect(client.init).toHaveBeenCalledTimes(1);
+});
+
 test('(c) an initialization that lands after the deadline is kept for the next Retry', async () => {
   const client = fakeClient(45_000);
   const sdk = fakeSdk(client);

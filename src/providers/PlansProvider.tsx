@@ -1,6 +1,6 @@
 import { use, useCallback, useEffect, useRef, useState } from 'react';
 
-import { Booking, LLMP } from '@/api/itinerary';
+import { Booking, DasBooking, LLMP } from '@/api/itinerary';
 import { isLLMP, isMultipleExperiences } from '@/api/itinerary';
 import { leaseParts, reconcile } from '@/autopilot/lease';
 import ClientsContext from '@/contexts/ClientsContext';
@@ -69,7 +69,7 @@ export default function PlansProvider({
     // plans should not also wait on a lock.
     if (request > reconciledSequence.current) {
       reconciledSequence.current = request;
-      const idsOf = (plan: LLMP) => [
+      const idsOf = (plan: LLMP | DasBooking) => [
         plan.id,
         ...plan.guests.map(guest => guest.entitlementId),
       ];
@@ -104,16 +104,20 @@ export default function PlansProvider({
             : undefined;
         },
         polledAt,
-        // Every Lightning Lane for the attraction and day, for a booking or a
-        // cancellation in doubt. Redeemed or not: a pass that was used still
-        // shows that the booking which created it landed.
+        // Every pass the key protects for the attraction and day, for a
+        // booking or a cancellation in doubt: its Lightning Lanes, or for a
+        // DAS key its DAS selections. Read against Lightning Lanes alone, a
+        // DAS cancellation looked done whether or not it was. Redeemed or not:
+        // a pass that was used still shows that the booking which created it
+        // landed.
         key => {
-          const { date, facilityId } = leaseParts(key);
+          const { date, facilityId, das } = leaseParts(key);
           return fetched
             .filter(
-              (plan): plan is LLMP =>
-                isLLMP(plan) &&
-                !isMultipleExperiences(plan) &&
+              (plan): plan is LLMP | DasBooking =>
+                (das
+                  ? plan.type === 'DAS'
+                  : isLLMP(plan) && !isMultipleExperiences(plan)) &&
                 plan.facilityId === facilityId &&
                 parkDate(plan.start) === date
             )

@@ -38,7 +38,9 @@ function description(
     return `Book ${nameOf(doubt.facilityId)}${to ? ` at ${to}` : ''} on ${date}`;
   }
   if (doubt.kind === 'cancel') {
-    return `Cancel guests at ${nameOf(doubt.facilityId)} on ${date}`;
+    return doubt.das
+      ? `Cancel a DAS selection at ${nameOf(doubt.facilityId)} on ${date}`
+      : `Cancel guests at ${nameOf(doubt.facilityId)} on ${date}`;
   }
   return `Change ${nameOf(doubt.facilityId)} on ${date}`;
 }
@@ -111,9 +113,10 @@ export default function QuarantinePanel({
       <p className="mt-1">
         Disney did not return a definite answer. {APP_NAME} will not book, move,
         swap, or cancel the affected attractions until Plans show what happened
-        or you confirm it. A booking or a cancellation clears by itself once
-        Plans have caught up, usually within a minute; a move or a swap clears
-        when Plans show the exact requested result.
+        or you confirm it. A booking clears by itself once Plans have caught up,
+        usually within a minute. A cancellation clears when Plans no longer show
+        the cancelled passes, and a move or a swap when they show the exact
+        requested result.
       </p>
       <ul className="mt-2 space-y-2">
         {doubts.map(doubt => (

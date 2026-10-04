@@ -72,7 +72,9 @@ describe('BookingDetails', () => {
     );
 
     const onCancel = nav.goTo.mock.lastCall?.[0]?.props?.onCancel;
-    act(() => onCancel([mickey, minnie]));
+    // Mickey and Minnie, as the booking holds them.
+    const kept = booking.guests.slice(0, 2);
+    act(() => onCancel(kept));
     see(mickey.name);
     see(minnie.name);
     await waitFor(() => see.no(pluto.name));
@@ -84,11 +86,33 @@ describe('BookingDetails', () => {
       new OfferError({ eligible: [], ineligible: booking.guests })
     );
     click('Change');
+    // For the guests still on it, after Pluto was removed above.
     expect(nav.goTo).toHaveBeenLastCalledWith(
-      <ChangeBookingTime booking={booking} />
+      <ChangeBookingTime booking={{ ...booking, guests: kept }} />
     );
 
     see.no('Show Plans', 'button');
+  });
+
+  // After Cancel removes some guests, the pass is theirs alone. Change and
+  // Modify used to get it as this screen first loaded it, and asked Disney to
+  // move the removed guests as well.
+  it('changes and modifies only for the guests still on the pass', async () => {
+    renderComponent(booking);
+    click('Cancel');
+    const onCancel = nav.goTo.mock.lastCall?.[0]?.props?.onCancel;
+    const remaining = booking.guests.filter(g => g.id !== pluto.id);
+    act(() => onCancel(remaining));
+    await waitFor(() => see.no(pluto.name));
+    click('Change');
+    expect(nav.goTo).toHaveBeenLastCalledWith(
+      <ChangeBookingTime booking={{ ...booking, guests: remaining }} />
+    );
+    click('Modify');
+    expect(rebooking.begin).toHaveBeenLastCalledWith({
+      ...booking,
+      guests: remaining,
+    });
   });
 
   it('has Show Plans button if new booking', () => {
