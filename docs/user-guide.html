@@ -552,7 +552,7 @@
       stops working.
     </p>
     <div class="masthead-meta">
-      <span>Version 1.8.5</span>
+      <span>Version 1.9.0</span>
       <span>Three parts · 23 sections</span>
       <span>Unofficial · not endorsed by Disney</span>
     </div>
@@ -1746,6 +1746,13 @@
         Plans mirrors Disney; it is not live. A pass cancelled on another phone
         will not disappear until you refresh.
       </p>
+      <p>
+        <strong>“Disney's Plans could not all be read”</strong> means a pass in
+        Disney's answer could not be read, or the answer came without its list.
+        Something may be missing from the tab, so check Disney's app before
+        relying on it. A read like that releases nothing that is held: a pass
+        missing from it may only be unreadable.
+      </p>
     </section>
 
     <section id="times">
@@ -1952,7 +1959,16 @@
         </figcaption>
       </figure>
       <p>
-        Today tab → <span class="ui">Activity</span>. Three sections.
+        Today tab → <span class="ui">Activity</span>. At the top, when anything
+        is held, the protection panel (see
+        <a href="#unresolved">A change that never came back</a>). Then up to
+        four sections.
+      </p>
+      <p>
+        <strong>Protection settled today (N)</strong> — every hold that ended
+        today, newest first, and how: <em>confirmed by Disney's Plans</em>,
+        <em>Disney answered</em> (its late answer came back after all), or
+        <em>cleared by you</em>. It appears once something has settled.
       </p>
       <p>
         <strong>Booking activity (N)</strong> — today's bookings, moves, swaps,
@@ -2170,18 +2186,23 @@
         Activity and Plan Check both list it under a red panel, naming the
         attraction and what the change was trying to do — “Move Haunted Mansion
         from 7:15 PM to 11:40 AM on March 5” — and Today says so in a banner.
-        The same goes for a booking, a change or a cancel you made by hand.
-        Booking, moving, swapping and cancelling that attraction are paused, by
-        Autopilot and by hand, until it is settled.
+        The same goes for a booking, a change or a cancel you made by hand,
+        and for Autopilot's own bookings: when one gets no answer, the phone
+        alerts you with <em>No answer from Disney</em>. Booking, moving,
+        swapping and cancelling that attraction are paused, by Autopilot and by
+        hand, until it is settled.
       </p>
       <p>Most holds settle themselves from Plans:</p>
       <ul>
         <li>
-          <strong>A booking</strong> clears once Plans have caught up, usually
-          within a minute. Plans showing the pass means it went through; Plans
-          read at least thirty seconds after the request still showing nothing
-          means it did not. Disney would refuse the same booking twice, so the
-          next try is safe either way.
+          <strong>A booking</strong> clears when Plans show any of its guests
+          holding the attraction: it went through. Plans still showing nothing
+          do not prove it did not, because Disney can apply a request late.
+          Once Plans read thirty seconds or more after the request still show
+          nothing, the panel says the booking <strong>probably did not go
+          through</strong>, and one tap on
+          <span class="ui">Clear this protection</span> releases it. Clearing
+          one of Autopilot's lets it try the attraction once more.
         </li>
         <li>
           <strong>A cancel</strong> clears when Plans no longer show the passes
@@ -2196,11 +2217,27 @@
         </li>
       </ul>
       <p>
+        A read of Plans that could not see everything settles nothing it might
+        have missed. If a pass could not be read, or Disney's answer came
+        without its list, a hold on that attraction waits for a complete read.
+      </p>
+      <p>
         <strong>Open Disney's Plans and look.</strong> Then, to release it
         yourself: <span class="ui">I checked Disney — resolve this</span> →
         <span class="ui">Clear this protection</span>. It asks twice because
-        clearing it is the one action here that can cost you a reservation.
+        clearing it is the one action here that can cost you a reservation. A
+        booking that probably did not go through takes one tap instead.
       </p>
+      <div class="call stop">
+        <span class="call-label">Clearing is a judgment, not proof</span>
+        <p>
+          Disney can still apply a lost request after you clear it. A booking
+          can then turn up as an extra pass, for example after the attraction
+          was booked again and that booking given up, and a cancel can remove
+          whatever the pass has become. If Plans show something you did not
+          expect, that is the likely reason.
+        </p>
+      </div>
 
       <h4>Common questions</h4>
       <div class="tablewrap">
@@ -2266,7 +2303,7 @@
         well, or it may start empty next time.
       </p>
       <p>
-        <strong>Rough edges, as of 1.8.5.</strong> None known beyond what
+        <strong>Rough edges, as of 1.9.0.</strong> None known beyond what
         <a href="https://github.com/mbs1234/AutoLL-3/blob/main/docs/FUTURE.md">docs/FUTURE.md</a>
         lists, with what each would cost to fix.
       </p>

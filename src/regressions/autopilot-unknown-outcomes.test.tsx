@@ -1,10 +1,16 @@
 /*
  * Autopilot after an answer it never got, or a refusal it did.
  *
- * 1.8.3 held every booking whose answer was lost as an unresolved change,
- * which nothing but a person could clear, and counted Disney's 403 and 429 as
+ * 1.8.3 held every booking whose answer was lost as an unresolved change that
+ * nothing but a person could clear, and counted Disney's 403 and 429 as
  * unknown. Either froze the attraction for the day: a booking that had landed
  * could not be moved, and a refused one could not be tried again by hand.
+ *
+ * 1.9.0 holds a lost booking as an unresolved change again, now with its
+ * guests as the evidence Plans settle it by, and clears it only on that
+ * evidence or the person: a booking that landed is moved once Plans show it,
+ * and one that never shows waits for the person, who can then let Autopilot
+ * try again.
  */
 import { use } from 'react';
 
@@ -19,7 +25,14 @@ import { RequestError } from '@/api/client';
 import type { RequestControl } from '@/api/client';
 import type { Booking, LLMP } from '@/api/itinerary';
 import type { Guest } from '@/api/ll';
-import { quarantinedMutations } from '@/autopilot/lease';
+import { fireAlert } from '@/autopilot/alert';
+import {
+  SETTLE_AFTER_MS,
+  quarantinedMutations,
+  reconcile,
+  resolveDoubt,
+  settledMutations,
+} from '@/autopilot/lease';
 import { saveWatchList } from '@/autopilot/watchlist';
 import AutopilotContext from '@/contexts/AutopilotContext';
 import BookingDateContext from '@/contexts/BookingDateContext';
@@ -185,6 +198,20 @@ async function start() {
   });
 }
 
+/** One plans read reconciled, as the Plans provider does with every one. */
+async function readPlans(plans: readonly Booking[], at = Date.now()) {
+  await reconcile(
+    () => undefined,
+    at,
+    () =>
+      plans.map(plan => ({
+        time: String(plan.start.time),
+        reservationIds: [plan.id],
+        guestIds: plan.guests.map(guest => guest.id),
+      }))
+  );
+}
+
 const lost = () =>
   new RequestError(
     { ok: false, status: 0, data: undefined } as any,
@@ -206,8 +233,20 @@ it('moves a booking whose answer was lost once Plans show it landed', async () =
     throw lost();
   }, plans);
   await start();
-  // Not held as an unresolved change: the ledger's doubt-hold covers it.
+  // Held as an unresolved change, as every lost change is, with its guests.
+  expect(quarantinedMutations()).toEqual([
+    expect.objectContaining({ kind: 'book', guestIds: [mickey.id] }),
+  ]);
+  expect(fireAlert).toHaveBeenCalledWith(
+    expect.objectContaining({ title: 'No answer from Disney: Buzz' })
+  );
+  // Plans showing it is what settles it, as the Plans provider does with
+  // every read.
+  await readPlans(plans.current);
   expect(quarantinedMutations()).toEqual([]);
+  expect(settledMutations()).toEqual([
+    expect.objectContaining({ kind: 'book', how: 'confirmed' }),
+  ]);
   // A much better time inside the window appears later.
   tip.time = new ParkTime(9, 30);
   for (let i = 0; i < 40 && book.mock.calls.length < 2; i++) {
@@ -220,6 +259,42 @@ it('moves a booking whose answer was lost once Plans show it landed', async () =
     booking: experience.id,
     time: '09:30:00',
   });
+});
+
+// The booking never landed. Nothing Plans show can say so -- a request that
+// lands late is not ruled out by any interval -- so it waits for the person,
+// with a note that it probably did not go through; once they clear it,
+// Autopilot may try again.
+it('holds a lost booking Plans never show until the person clears it, then tries again', async () => {
+  const { book } = setup((n, send) => {
+    if (n > 0) return send();
+    throw lost();
+  });
+  await start();
+  const [doubt] = quarantinedMutations();
+  expect(doubt).toMatchObject({ kind: 'book', guestIds: [mickey.id] });
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(SETTLE_AFTER_MS);
+  });
+  await readPlans([], Date.now());
+  const [noted] = quarantinedMutations();
+  expect(noted?.notSeenAt).toBeDefined();
+  for (let i = 0; i < 10; i++) {
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+  }
+  expect(book).toHaveBeenCalledTimes(1);
+  await resolveDoubt(doubt!.key, doubt!.id, 'cleared');
+  for (let i = 0; i < 20 && book.mock.calls.length < 2; i++) {
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+  }
+  expect(book).toHaveBeenCalledTimes(2);
+  expect(settledMutations()).toEqual([
+    expect.objectContaining({ kind: 'book', how: 'cleared' }),
+  ]);
 });
 
 it.each([403, 429])(

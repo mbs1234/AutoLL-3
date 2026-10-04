@@ -6,7 +6,7 @@ import { use, useState } from 'react';
 import { mk, wdw } from '@/__fixtures__/resort';
 import { RequestError } from '@/api/client';
 import type { RequestControl } from '@/api/client';
-import { Booking } from '@/api/itinerary';
+import { Booking, notePlansGaps } from '@/api/itinerary';
 import { Experience, FlexExperience } from '@/api/ll';
 import { fireAlert, primeAudio, rearmAudio } from '@/autopilot/alert';
 import { AutoBookLedger, CONFIRM_ABSENT_POLLS } from '@/autopilot/autobook';
@@ -4517,6 +4517,36 @@ describe('AutopilotProvider across booking dates', () => {
     await act(async () => {
       screen.getByText('pause BZ').click();
     });
+    setPolledPlans([]);
+    await untilPlansPolls(pollPlans, CONFIRM_ABSENT_POLLS);
+    expect(loadLocks()).toEqual([]);
+  });
+
+  // Absence counts only from a read that could have shown the pass. A pass the
+  // reader could not read is missing from the list exactly as a cancelled one
+  // is, and releasing on it would let the attraction be moved again while the
+  // first move's outcome is still unknown.
+  it('keeps a move lock while the reads missing the pass are incomplete', async () => {
+    saveWatchList([{ experienceId: BZ, autoModify: true }]);
+    const { book, pollPlans, setPolledPlans } = setupBooking({
+      offerHour: 11,
+      plans: [heldOn(TODAY, 19, 'ent-1')],
+    });
+    await enable();
+    await waitFor(() => expect(book).toHaveBeenCalledTimes(1));
+    await untilPlansPolls(pollPlans);
+    expect(loadLocks()).toEqual([`${TODAY}:modify:${BZ}`]);
+
+    await act(async () => {
+      screen.getByText('pause BZ').click();
+    });
+    const unreadable: Booking[] = [];
+    notePlansGaps(unreadable, [{ facilityId: BZ, date: TODAY }]);
+    setPolledPlans(unreadable);
+    await untilPlansPolls(pollPlans, CONFIRM_ABSENT_POLLS * 2);
+    expect(loadLocks()).toEqual([`${TODAY}:modify:${BZ}`]);
+
+    // The same absence from a complete read releases it.
     setPolledPlans([]);
     await untilPlansPolls(pollPlans, CONFIRM_ABSENT_POLLS);
     expect(loadLocks()).toEqual([]);

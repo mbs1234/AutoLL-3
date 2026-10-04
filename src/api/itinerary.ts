@@ -220,6 +220,70 @@ const RES_TYPES = new Set(['ACTIVITY', 'DINING']);
  */
 export const typelessId = (id: string) => id.split(';')[0]!;
 
+/**
+ * Something one itinerary read could not read: a pass it had to leave out, as
+ * far as it can be placed. Either part undefined means it could be any.
+ */
+export interface PlansGap {
+  facilityId?: string;
+  date?: string;
+}
+
+/** What each read left out, by the list it returned. */
+const readGaps = new WeakMap<readonly Booking[], readonly PlansGap[]>();
+
+/**
+ * Whether a plans read could have shown every pass for an attraction on a
+ * day, so that one missing from it is really missing.
+ *
+ * The reader drops what it cannot read, and a response without its list of
+ * items reads as an empty itinerary; both look exactly like passes that are
+ * gone. Absence counts as evidence only where this says the read was whole.
+ * A list this reader did not return -- a fake, or one built by hand -- is
+ * taken as whole.
+ */
+export function plansCover(
+  plans: readonly Booking[],
+  facilityId: string,
+  date: string
+): boolean {
+  return !(readGaps.get(plans) ?? []).some(
+    gap =>
+      (gap.facilityId === undefined || gap.facilityId === facilityId) &&
+      (gap.date === undefined || gap.date === date)
+  );
+}
+
+/** What a plans read left out, for a warning on screen. */
+export function plansGaps(plans: readonly Booking[]): readonly PlansGap[] {
+  return readGaps.get(plans) ?? [];
+}
+
+/** Record what the read that returned `plans` left out. */
+export function notePlansGaps(
+  plans: readonly Booking[],
+  gaps: readonly PlansGap[]
+): void {
+  if (gaps.length) readGaps.set(plans, gaps);
+}
+
+/** A raw item's attraction and day, as far as they can be read. */
+function rawPlace(item: unknown): PlansGap {
+  const raw = (item ?? {}) as {
+    facility?: unknown;
+    displayStartDate?: unknown;
+  };
+  return {
+    ...(typeof raw.facility === 'string' && raw.facility
+      ? { facilityId: typelessId(raw.facility) }
+      : {}),
+    ...(typeof raw.displayStartDate === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(raw.displayStartDate)
+      ? { date: raw.displayStartDate }
+      : {}),
+  };
+}
+
 export class ItineraryClient extends ApiClient {
   onRefresh: (bookings: Booking[]) => void = () => {};
   onUnauthorized = () => {};
@@ -229,9 +293,7 @@ export class ItineraryClient extends ApiClient {
     const today = DateTime.now().date;
     const parkDay = parkDate();
     const itineraryApiName = RESORT_TO_ITINERARY_API_NAME[this.resort.id];
-    const {
-      data: { loggedInGuestId = '', items = [], assets = {}, profiles = {} },
-    } = await this.request<ItineraryResponse>({
+    const { data } = await this.request<ItineraryResponse>({
       path: `/plan/${itineraryApiName}/api/v1/itinerary-items/${swid}?item-types=FASTPASS&item-types=DINING&item-types=ACTIVITY&item-types=VIRTUAL_QUEUE_POSITION`,
       params: {
         destination: this.resort.id,
@@ -243,6 +305,15 @@ export class ItineraryClient extends ApiClient {
       },
       ignoreUnauth: 'itinerary-refresh',
     });
+    const {
+      loggedInGuestId = '',
+      items = [],
+      assets = {},
+      profiles = {},
+    } = data;
+    // A response with no list of items reads as an empty itinerary, which is
+    // also what an itinerary with every pass cancelled looks like.
+    const gaps: PlansGap[] = Array.isArray(data?.items) ? [] : [{}];
     const primaryGuestId = typelessId(loggedInGuestId);
 
     const getGuest = (g: ReservationItem['guests'][0]) => {
@@ -458,9 +529,17 @@ export class ItineraryClient extends ApiClient {
             return getBoardingGroup(item);
           } else if (item.type && RES_TYPES.has(item.type)) {
             return getReservation(item);
+          } else if (typeof item.type !== 'string') {
+            // No type to say it is not a pass.
+            gaps.push(rawPlace(item));
           }
         } catch (error) {
           console.error(error);
+          // A pass left out, or something that may have been one: absence of
+          // a pass at this attraction on this day is no longer evidence.
+          if (item?.type === 'FASTPASS' || typeof item?.type !== 'string') {
+            gaps.push(rawPlace(item));
+          }
         }
       })
       .filter((booking): booking is Booking => !!booking)
@@ -475,6 +554,7 @@ export class ItineraryClient extends ApiClient {
           (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
         );
       });
+    notePlansGaps(bookings, gaps);
     this.onRefresh(bookings);
     return bookings;
   }

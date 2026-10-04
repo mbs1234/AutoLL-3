@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 
 import {
   QuarantinedMutation,
+  SettledMutation,
   quarantinedMutations,
+  settledMutations,
   subscribeQuarantine,
 } from './lease';
 
@@ -20,4 +22,19 @@ export default function useQuarantine(): QuarantinedMutation[] {
   }, []);
 
   return doubts;
+}
+
+/** A live view of the protections settled today, oldest first. */
+export function useSettledMutations(): SettledMutation[] {
+  const [settled, setSettled] = useState(settledMutations);
+
+  useEffect(() => {
+    // Every settling removes a doubt, so the same notice reports both.
+    const update = () => setSettled(settledMutations());
+    const unsubscribe = subscribeQuarantine(update);
+    update();
+    return unsubscribe;
+  }, []);
+
+  return settled;
 }

@@ -36,6 +36,18 @@ import { storageKey } from '@/storageNamespace';
 
 export const LEASE_KEY = storageKey('autopilot.leases');
 export const QUARANTINE_KEY = storageKey('autopilot.unresolved');
+/** Today's settled protections, and how each was settled. */
+export const SETTLED_KEY = storageKey('autopilot.settled');
+
+/**
+ * The version written on every stored doubt (`Doubt.v`).
+ *
+ * Records without one were written by 1.8.5 or before. That is what lets a
+ * cancellation from then be read for what it may be: 1.8.3 and 1.8.4 kept a
+ * DAS cancellation under the ride's Lightning Lane key, so an unversioned
+ * cancellation under that key may be either, and protects both.
+ */
+export const QUARANTINE_VERSION = 2;
 
 /**
  * How long a lease stands without renewal.
@@ -58,12 +70,13 @@ export const LEASE_TTL_MS = 120_000;
 export const RENEW_INTERVAL_MS = LEASE_TTL_MS / 3;
 
 /**
- * How long after a `book` request a plans read must have *started* before an
- * absent booking counts as an answer.
+ * How long after a `book` request a complete plans read must have *started*
+ * before a booking it does not show is reported as probably not made.
  *
- * Long enough for the itinerary to catch up with a booking Disney accepted,
- * short enough that a lost response at a drop does not cost the attraction
- * for the morning. A read that already shows the booking settles at once.
+ * Reported, not settled: the protection stays until Plans show the booking,
+ * Disney answers, or the person clears it, which after this window is one tap
+ * (`Doubt.notSeenAt`). Long enough for the itinerary to catch up with a booking
+ * Disney accepted. A read that already shows the booking settles at once.
  */
 export const SETTLE_AFTER_MS = 30_000;
 
@@ -106,20 +119,22 @@ export type DoubtKind = 'book' | 'modify' | 'swap' | 'cancel';
  * definitive late response, or an explicit confirmation from the person who
  * checked Disney's Plans.
  *
- * A booking is the deliberate exception, because Disney itself refuses the
- * repeat that the rule above exists to prevent: a booking resent when the
- * first one did land is refused, since a guest holds each attraction once a
- * day. So for `book` a plans read started long enough after the request
- * settles the doubt either way (`SETTLE_AFTER_MS`); if the first one lands
- * late after all, one of the two is refused. Holding it until a person
- * cleared it froze the attraction for the rest of the day, often after the
- * booking had in fact landed.
+ * That holds for every kind. 1.8.4 made bookings and cancellations an
+ * exception and cleared them on a late enough read showing nothing changed,
+ * reasoning that Disney refuses the repeat. A refusal of a repeat is not what
+ * makes a late request harmless, though: a cancellation that lands late
+ * removes the pass as it stands then, after a move the cleared protection let
+ * through, and a booking that lands late can recreate a pass after its retry
+ * was booked and cancelled. So a booking clears when Plans show any of its
+ * guests holding the attraction, a cancellation when they no longer show its
+ * passes, and otherwise only by Disney's answer or the person. What a late
+ * read showing nothing does earn a booking is a note that it probably did not
+ * go through (`notSeenAt`), which makes clearing it one tap.
  *
- * A cancellation is not an exception, although Disney refuses one resent. A
- * cancellation that lands late does not wait for a repeat: it removes the
- * pass as it stands then, after a move the cleared protection let through as
- * readily as before it. So a cancellation clears only when Plans no longer
- * show the passes it was for, like a move on its exact result.
+ * "Plans no longer show" is evidence only from a read that could have shown
+ * them: a reservation Disney's response omitted, or one the itinerary reader
+ * could not read, looks exactly like one that is gone (`reconcile`'s
+ * `covers`).
  */
 export interface Doubt {
   /** Stable identity of the mutation that raised this question. */
@@ -188,6 +203,18 @@ export interface Doubt {
    * field and therefore block their own storage key only.
    */
   blockingKeys?: string[];
+  /** The record's version (`QUARANTINE_VERSION`); missing before 1.9.0. */
+  v?: number;
+  /**
+   * For a booking, when a complete plans read, started `SETTLE_AFTER_MS` or
+   * more after the request, first showed none of its guests holding the
+   * attraction.
+   *
+   * Evidence that it probably did not go through, shown to the person with a
+   * one-tap clear, and never proof: a request that lands late is not ruled out
+   * by any interval, so it does not settle the doubt by itself.
+   */
+  notSeenAt?: number;
 }
 
 /**
@@ -410,6 +437,21 @@ function reservationIds(value: unknown): string[] {
   ];
 }
 
+/** A record from before versioning, stored under a Lightning Lane key. */
+function isUnversionedLaneCancel(key: string, version: number | undefined) {
+  return version === undefined && !leaseParts(key).das;
+}
+
+/**
+ * The keys whose passes a cancellation is about: its own, and for one that
+ * may be a DAS selection's (see `parseDoubts`) the DAS key beside it.
+ */
+function cancelKeys(key: string, doubt: Doubt): string[] {
+  if (!isUnversionedLaneCancel(key, doubt.v)) return [key];
+  const { facilityId, date } = leaseParts(key);
+  return [key, dasLeaseKey(facilityId, date)];
+}
+
 /** One stored entry, which is a list but may be a single doubt from an older build. */
 function parseDoubts(primaryKey: string, value: unknown): Doubt[] {
   const out: Doubt[] = [];
@@ -443,10 +485,27 @@ function parseDoubts(primaryKey: string, value: unknown): Doubt[] {
         leaseKey(gaining, leaseParts(primaryKey).date),
       ]);
     }
+    const version = typeof doubt.v === 'number' ? doubt.v : undefined;
+    // A cancellation stored before records were versioned may be a DAS
+    // selection's: 1.8.3 and 1.8.4 kept those under the ride's Lightning Lane
+    // key, the key it sits under here. Nothing in it says which, so it
+    // protects both until it is settled (`cancelKeys`).
+    if (kind === 'cancel' && isUnversionedLaneCancel(primaryKey, version)) {
+      const { facilityId, date } = leaseParts(primaryKey);
+      blockingKeys = canonicalKeys([
+        primaryKey,
+        ...blockingKeys,
+        dasLeaseKey(facilityId, date),
+      ]);
+    }
     out.push({
       id:
         typeof doubt.id === 'string' ? doubt.id : `legacy-${doubt.at}-${index}`,
       at: doubt.at,
+      ...(version !== undefined ? { v: version } : {}),
+      ...(typeof doubt.notSeenAt === 'number'
+        ? { notSeenAt: doubt.notSeenAt }
+        : {}),
       ...(kind ? { kind } : {}),
       ...(typeof doubt.from === 'string' ? { from: doubt.from } : {}),
       ...(typeof doubt.to === 'string' ? { to: doubt.to } : {}),
@@ -528,6 +587,7 @@ export async function quarantine(
   const raised: Doubt = {
     id,
     at: now,
+    v: QUARANTINE_VERSION,
     ...(was.kind ? { kind: was.kind } : {}),
     ...(was.from ? { from: was.from } : {}),
     ...(was.to ? { to: was.to } : {}),
@@ -587,9 +647,19 @@ export async function quarantine(
   return { id, durable: true };
 }
 
-/** Remove only the question whose outcome is now known. */
-export async function resolveDoubt(key: string, id: string): Promise<void> {
+/**
+ * Remove only the question whose outcome is now known.
+ *
+ * `how` says who knew it, for the day's record: Disney's own late answer, by
+ * default, or the person who checked (`'cleared'`).
+ */
+export async function resolveDoubt(
+  key: string,
+  id: string,
+  how: SettledHow = 'answered'
+): Promise<void> {
   let changed = false;
+  let removed: Doubt | undefined;
   // The page-local copy goes first, and in a `finally`, because the durable
   // read is one of the two things that can be broken here -- and if it throws,
   // the volatile doubt it was raised alongside would otherwise have no terminus
@@ -601,8 +671,9 @@ export async function resolveDoubt(key: string, id: string): Promise<void> {
     await exclusive(() => {
       const current = loadPersistedQuarantine();
       const doubts = current[key];
-      if (!doubts?.some(d => d.id === id)) return;
-      const rest = doubts.filter(d => d.id !== id);
+      removed = doubts?.find(d => d.id === id);
+      if (!removed) return;
+      const rest = doubts!.filter(d => d.id !== id);
       const next = { ...current };
       if (rest.length) next[key] = rest;
       else delete next[key];
@@ -610,7 +681,10 @@ export async function resolveDoubt(key: string, id: string): Promise<void> {
       changed = true;
     });
   } finally {
+    const local = volatileQuarantine[key]?.find(d => d.id === id);
     volatileChanged = forgetVolatile(key, id);
+    const settled = changed ? removed : volatileChanged ? local : undefined;
+    if (settled) recordSettled([settledEntry(key, settled, how)]);
     if (changed || volatileChanged) publishQuarantineChange();
   }
 }
@@ -639,7 +713,8 @@ export function quarantinedMutations(): QuarantinedMutation[] {
 export function subscribeQuarantine(listener: () => void): () => void {
   if (typeof window === 'undefined') return () => undefined;
   const storage = (event: StorageEvent) => {
-    if (event.key === QUARANTINE_KEY) listener();
+    // The day's record of settled ones is written just after, and read with.
+    if (event.key === QUARANTINE_KEY || event.key === SETTLED_KEY) listener();
   };
   window.addEventListener(QUARANTINE_EVENT, listener);
   window.addEventListener('storage', storage);
@@ -677,23 +752,24 @@ type Seen = (
 
 type Inventory = (key: string) => readonly PlannedReservation[];
 
+type Covers = (key: string) => boolean;
+
 /**
- * What one plans read says about the change a doubt is about.
+ * Whether one plans read proves the change a doubt is about landed.
  *
- * Deliberately narrow for a move, a swap and a cancellation: only the exact
- * requested state counts, and everything else, including absence and a
- * different time, leaves the doubt for a person. A booking is settled either
- * way, for the reason the `Doubt` note gives; `polledAt` is when the read
- * started.
+ * Only positive evidence counts: a booking's guests holding the attraction, a
+ * cancellation's passes gone, a move or a swap at its exact requested result.
+ * Absence and elapsed time never settle a doubt (see the `Doubt` note). The one
+ * conclusion drawn from absence, "the passes are gone", needs a read that could
+ * have shown them: `covers` says whether this read is complete for a key.
  */
 function verdict(
   key: string,
   doubt: Doubt,
   seen: Seen,
-  polledAt: number,
-  inventory?: Inventory
-): 'landed' | 'not-landed' | undefined {
-  const late = polledAt >= doubt.at + SETTLE_AFTER_MS;
+  inventory?: Inventory,
+  covers: Covers = () => true
+): 'landed' | undefined {
   if (doubt.kind === 'book') {
     const guests = doubt.guestIds;
     if (!guests?.length || !inventory) return undefined;
@@ -702,20 +778,46 @@ function verdict(
     const held = inventory(key).some(reservation =>
       reservation.guestIds.some(id => guests.includes(id))
     );
-    if (held) return 'landed';
-    return late ? 'not-landed' : undefined;
+    return held ? 'landed' : undefined;
   }
   if (doubt.kind === 'cancel') {
     const cancelled = doubt.reservationIds;
     if (!cancelled?.length || !inventory) return undefined;
-    const present = inventory(key).some(reservation =>
-      reservation.reservationIds.some(id => cancelled.includes(id))
+    const keys = cancelKeys(key, doubt);
+    const present = keys.some(k =>
+      inventory(k).some(reservation =>
+        reservation.reservationIds.some(id => cancelled.includes(id))
+      )
     );
     // Still there proves nothing, however long after: the cancellation may
-    // yet land, on whatever the pass has become by then.
-    return present ? undefined : 'landed';
+    // yet land, on whatever the pass has become by then. Gone proves it only
+    // from a read that could have shown them.
+    if (present) return undefined;
+    return keys.every(covers) ? 'landed' : undefined;
   }
   return landed(key, doubt, seen) ? 'landed' : undefined;
+}
+
+/**
+ * Whether a read is the one that should mark a booking probably not made: one
+ * that could have shown it, started `SETTLE_AFTER_MS` or more after the
+ * request, and still shows none of its guests holding the attraction.
+ */
+function notSeen(
+  key: string,
+  doubt: Doubt,
+  polledAt: number,
+  inventory: Inventory | undefined,
+  covers: Covers
+): boolean {
+  return (
+    doubt.kind === 'book' &&
+    doubt.notSeenAt === undefined &&
+    !!doubt.guestIds?.length &&
+    !!inventory &&
+    polledAt >= doubt.at + SETTLE_AFTER_MS &&
+    covers(key)
+  );
 }
 
 /** Whether one plans read proves that a move or a swap actually landed. */
@@ -753,11 +855,11 @@ function landed(key: string, doubt: Doubt, seen: Seen): boolean {
  * Offer one plans read as evidence about every reservation in doubt.
  *
  * `seen` reports the active Lightning Lane that read found for a key, or
- * undefined; `inventory` lists every Lightning Lane it holds for a key. For a
- * move or a swap, positive evidence settles at once, and absence, elapsed time
- * and contrary reads never do; a cancellation settles only when its passes are
- * gone. A booking settles either way once the read is late enough (see
- * `verdict`).
+ * undefined; `inventory` lists every pass it holds for a key; `covers` says
+ * whether it is complete for a key, which absence needs and presence does not.
+ * Positive evidence settles a doubt at once (`verdict`), and is recorded as
+ * confirmed. Absence and elapsed time never settle one; a late, complete read
+ * without a booking marks it probably not made (`notSeenAt`).
  *
  * `polledAt` is when the read *started*, which is the only honest measure of
  * what it can speak about, and it is the only clock this function has. A
@@ -768,24 +870,36 @@ function landed(key: string, doubt: Doubt, seen: Seen): boolean {
 export async function reconcile(
   seen: Seen,
   polledAt = Date.now(),
-  inventory?: Inventory
+  inventory?: Inventory,
+  covers: Covers = () => true
 ): Promise<void> {
   const settles = (key: string, doubt: Doubt) =>
     polledAt > doubt.at &&
-    verdict(key, doubt, seen, polledAt, inventory) !== undefined;
+    verdict(key, doubt, seen, inventory, covers) !== undefined;
+  const marks = (key: string, doubt: Doubt) =>
+    polledAt > doubt.at && notSeen(key, doubt, polledAt, inventory, covers);
   let volatileChanged = false;
+  const volatileSettled: SettledMutation[] = [];
   const nextVolatile: Quarantine = {};
   for (const [key, doubts] of Object.entries(volatileQuarantine)) {
-    const kept = doubts.filter(doubt => {
-      const resolved = settles(key, doubt);
-      volatileChanged ||= resolved;
-      return !resolved;
-    });
+    const kept: Doubt[] = [];
+    for (const doubt of doubts) {
+      if (settles(key, doubt)) {
+        volatileChanged = true;
+        volatileSettled.push(settledEntry(key, doubt, 'confirmed'));
+      } else if (marks(key, doubt)) {
+        volatileChanged = true;
+        kept.push({ ...doubt, notSeenAt: polledAt });
+      } else {
+        kept.push(doubt);
+      }
+    }
     if (kept.length) nextVolatile[key] = kept;
   }
   volatileQuarantine = nextVolatile;
 
   let changed = false;
+  const settled: SettledMutation[] = [...volatileSettled];
   try {
     await exclusive(() => {
       const current = loadPersistedQuarantine();
@@ -794,19 +908,117 @@ export async function reconcile(
         const kept: Doubt[] = [];
         for (const doubt of doubts) {
           // A response already in flight when the mutation was dispatched
-          // cannot speak about it. After that, a move, a swap or a
-          // cancellation clears only on the exact requested state; a booking
-          // also on a late enough read that shows it did not happen.
-          if (settles(key, doubt)) changed = true;
-          else kept.push(doubt);
+          // cannot speak about it. After that, every kind clears only on
+          // positive evidence of its result.
+          if (settles(key, doubt)) {
+            changed = true;
+            settled.push(settledEntry(key, doubt, 'confirmed'));
+          } else if (marks(key, doubt)) {
+            changed = true;
+            kept.push({ ...doubt, notSeenAt: polledAt });
+          } else {
+            kept.push(doubt);
+          }
         }
         if (kept.length) next[key] = kept;
       }
       if (changed) kvdb.set<Quarantine>(QUARANTINE_KEY, next);
     });
   } finally {
+    recordSettled(settled);
     if (changed || volatileChanged) publishQuarantineChange();
   }
+}
+
+/** How a protection came to be settled. */
+export type SettledHow =
+  /** Disney's Plans showed the result. */
+  | 'confirmed'
+  /** Disney's own late answer to the request. */
+  | 'answered'
+  /** The person, after checking. */
+  | 'cleared';
+
+/** One settled protection, for Activity's record of the day. */
+export interface SettledMutation {
+  id: string;
+  key: string;
+  date: string;
+  facilityId: string;
+  das: boolean;
+  kind?: DoubtKind;
+  from?: string;
+  to?: string;
+  gaining?: string;
+  /** The record's version, as the doubt had it; missing before 1.9.0. */
+  v?: number;
+  how: SettledHow;
+  /** When it was settled. */
+  at: number;
+}
+
+function settledEntry(
+  key: string,
+  doubt: Doubt,
+  how: SettledHow,
+  at = Date.now()
+): SettledMutation {
+  const { date, facilityId, das } = leaseParts(key);
+  return {
+    id: doubt.id,
+    key,
+    date,
+    facilityId,
+    das,
+    ...(doubt.kind ? { kind: doubt.kind } : {}),
+    ...(doubt.from ? { from: doubt.from } : {}),
+    ...(doubt.to ? { to: doubt.to } : {}),
+    ...(doubt.gaining ? { gaining: doubt.gaining } : {}),
+    ...(doubt.v !== undefined ? { v: doubt.v } : {}),
+    how,
+    at,
+  };
+}
+
+/** The most kept: a day's record, not an archive. */
+const SETTLED_LIMIT = 50;
+
+/**
+ * Add to the day's record. Never in the way of the protection itself: a
+ * storage failure here costs a line in Activity, not a settled or kept doubt.
+ */
+function recordSettled(entries: readonly SettledMutation[]): void {
+  if (!entries.length) return;
+  try {
+    kvdb.setDaily<SettledMutation[]>(
+      SETTLED_KEY,
+      [...settledMutations(), ...entries].slice(-SETTLED_LIMIT)
+    );
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+/** Today's settled protections, oldest first. */
+export function settledMutations(): SettledMutation[] {
+  let stored: unknown;
+  try {
+    stored = kvdb.getDaily<unknown>(SETTLED_KEY);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(stored)) return [];
+  return stored.filter(
+    (entry): entry is SettledMutation =>
+      !!entry &&
+      typeof entry === 'object' &&
+      typeof (entry as SettledMutation).id === 'string' &&
+      typeof (entry as SettledMutation).key === 'string' &&
+      typeof (entry as SettledMutation).at === 'number' &&
+      ['confirmed', 'answered', 'cleared'].includes(
+        (entry as SettledMutation).how
+      )
+  );
 }
 
 /** Keyed by affected attraction and park day, not by action kind. */
@@ -988,6 +1200,7 @@ export async function resolveDoubtAndAcquire(
   const keys = requiredLeaseKeys(target);
   let changed = false;
   let written: Quarantine | undefined;
+  let answered: Doubt | undefined;
   const acquired = await exclusive(() => {
     const at = now ?? Date.now();
     const current = mergeQuarantines(
@@ -997,6 +1210,7 @@ export async function resolveDoubtAndAcquire(
     const doubts = current[primary] ?? [];
     const rest = doubts.filter(doubt => doubt.id !== id);
     const found = rest.length !== doubts.length;
+    answered = doubts.find(doubt => doubt.id === id);
 
     const withoutResolved = { ...current };
     if (rest.length) withoutResolved[primary] = rest;
@@ -1033,6 +1247,9 @@ export async function resolveDoubtAndAcquire(
     forgetVolatile(primary, id);
   } else if (changed) {
     forgetVolatile(primary, id);
+  }
+  if (changed && answered) {
+    recordSettled([settledEntry(primary, answered, 'answered')]);
   }
   if (changed) publishQuarantineChange();
   return acquired;

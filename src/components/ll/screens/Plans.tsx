@@ -1,6 +1,6 @@
 import { memo, use } from 'react';
 
-import { Booking } from '@/api/itinerary';
+import { Booking, plansGaps } from '@/api/itinerary';
 import { Park } from '@/api/resort';
 import { Day } from '@/components/Day';
 import Tab from '@/components/Tab';
@@ -23,6 +23,16 @@ export default function Plans(props: Partial<ScreenProps>) {
       theme={DEFAULT_THEME}
       {...props}
     >
+      {plansGaps(plans).length > 0 && (
+        <p
+          className="mt-2 rounded-sm bg-yellow-100 p-2 text-sm text-yellow-900"
+          role="status"
+        >
+          Disney's Plans could not all be read, so something may be missing
+          here. Check Disney's app before you rely on this list. Protected
+          changes stay protected until Plans can be read in full.
+        </p>
+      )}
       <PlansList plans={plans} />
       {loaderElem}
     </Tab>

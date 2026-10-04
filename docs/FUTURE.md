@@ -7,7 +7,8 @@ answered and a Time Search was given precedence over the engine — decided and
 built the same day, so it is not listed below. Revised again on 2026-09-23, when
 the ordering moved to `ROADMAP.md`'s calendar and five items were added
 (§2.8–§2.11 and §3.13), and a sixth the same day (§2.12). §1 and §6 gained what
-making 1.8.4 turned up, on 2026-10-03.
+making 1.8.4 turned up, on 2026-10-03. Later that day 1.9.0 closed §1's last
+item, and §4.5 reopened a question §7 had closed on Genie+'s two-hour rule.
 
 This is the standing list of what is not done: the items still open from
 `PLAN.md` and `UX-PLAN.md`, the
@@ -82,15 +83,16 @@ fix to prove it fails without it.
 Modify after removing guests act for the guests still on the pass, and a DAS
 selection has its own protection key, read against DAS selections.
 
-**One outstanding, from Codex's review of 1.8.4 (2026-10-03): Autopilot's own
-lost bookings are not in the shared protection.** A fresh booking of Autopilot's
-whose answer was lost is held by its action ledger alone, which keeps Autopilot
-from booking it twice but which a booking, change or cancel by hand does not
-read. Now that a booking can settle from Plans, it can go back into the shared
-protection with its guests as evidence, without the day-long freeze that took
-it out in 1.8.4. Nothing is lost meanwhile: Disney refuses a second booking of
-the attraction for the same guests. _Medium_, and in Autopilot's main loop, so
-after the rehearsal.
+**The one left from Codex's review of 1.8.4 is fixed in 1.9.0: Autopilot's own
+lost bookings are in the shared protection,** with their guests as the evidence
+Plans settle them by. Before, Autopilot's action ledger alone held them: it kept
+Autopilot from booking the attraction again, but a booking, change or cancel by
+hand did not read it, and nobody could clear it. The ledger still holds them,
+and clearing the protection gives that back. This section used to say nothing
+was lost meanwhile because Disney refuses a second booking of an attraction for
+the same guests. That was too strong: a refusal does not cover a booking Disney
+applies late, after the attraction was booked again and that booking given up.
+Clearing any protection still carries that risk; it is a judgment, not proof.
 
 
 ## 2. The screens
@@ -415,11 +417,11 @@ full treatment.
 
 ## 4. Decisions before code
 
-**All four are answered as of 2026-09-15, and three of the four are answered
-"leave it alone".** Nothing here is waiting on anybody. The items are kept with
-their reasoning rather than deleted, because each says what would make the
-question live again — and because a decision recorded only as silence gets
-re-proposed as a discovery.
+**The first four were answered on 2026-09-15, three of them "leave it alone".**
+The fifth was reopened on 2026-10-03 and is the only one waiting on a decision.
+The items are kept with their reasoning rather than deleted, because each says
+what would make the question live again — and because a decision recorded only
+as silence gets re-proposed as a discovery.
 
 ### 4.1 ~~Should a NextLL search survive a tab switch?~~ — UX-PLAN §6.3. No
 
@@ -493,6 +495,25 @@ reading a closed attraction as inventory). The static flags were verified twice
 and are correct today.
 
 _Where:_ `src/api/ll/wdw.ts:176,246-265`. _Size:_ medium.
+
+### 4.5 Should Autopilot weigh how a return time delays the next pick? — reopened
+
+`PLAN.md` §9 listed a cascade model, scoring offers by how much they delay the
+next booking, as refuted: the next selection opened two hours after booking,
+whatever the return time. That was Genie+'s rule. Under Lightning Lane Multi
+Pass the next selection opens when you redeem one or when its arrival window
+passes (`PLAN.md` §2, checked 2026-10-03), so a late return holds a slot until
+you ride it or its window passes, and `bookThenMove` taking a late time first is
+no longer free.
+
+**Open, and nothing is built on it.** The app does not depend on the old rule:
+it reads when the next booking opens from Disney's tip board. What is open is
+strategy: whether an earlier return should win over one better placed in the
+window, and what a late first booking costs on a day with more targets than
+slots. Decide before building anything.
+
+_Where:_ how Autopilot chooses an offer (`src/autopilot/autobook.ts`) and Book
+then move (`src/autopilot/automodify.ts`). _Size:_ a decision first.
 
 ---
 
@@ -684,14 +705,14 @@ kind (bookings) spend the budget, then locked out the booking the user actually
 wanted. A runaway *request* loop was never its job either; `RateLimit(5)` and
 its five-second cooldown exist for that and say so. If the one-way risk needs
 bounding, bound moves and swaps on their own terms — see §3.7, which is the
-honest version of it. A cascade model scoring offers by how much they delay the
-next booking — the gate is 120 minutes from booking, not a function of the return
-time you hold. Rejecting offers that land after park close — Disney does not
-sell them, so the guard is a no-op. Feeding learned drop times into the Tier 1
-hold — a false positive costs a wasted request in the cadence and a forfeited
-Tier 1 in the hold. A Tier 1 guard on the future-date path — the obvious guard
-deadlocks, because the hold only avoids deadlock when the better attraction has
-a drop still ahead *today*.
+honest version of it. (A cascade model scoring offers by how much they delay
+the next booking was listed here too. Its refutation rested on Genie+'s two-hour
+rule, and it is open again as §4.5.) Rejecting offers that land after park
+close — Disney does not sell them, so the guard is a no-op. Feeding learned drop
+times into the Tier 1 hold — a false positive costs a wasted request in the
+cadence and a forfeited Tier 1 in the hold. A Tier 1 guard on the future-date
+path — the obvious guard deadlocks, because the hold only avoids deadlock when
+the better attraction has a drop still ahead *today*.
 
 **Screens.** "Suggest a safe window" on the timeline, and editing the timeline
 in place — both would put a second opinion beside the booker's own predicate. A

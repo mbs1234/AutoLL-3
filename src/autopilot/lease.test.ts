@@ -5,10 +5,13 @@ import {
   LEASE_KEY,
   LEASE_TTL_MS,
   QUARANTINE_KEY,
+  QUARANTINE_VERSION,
   RENEW_INTERVAL_MS,
+  SETTLED_KEY as SETTLED_RAW,
   SETTLE_AFTER_MS,
   acquire,
   available,
+  dasLeaseKey,
   holder,
   keepAlive,
   leaseKey,
@@ -19,6 +22,7 @@ import {
   release,
   resolveDoubt,
   resolveDoubtAndAcquire,
+  settledMutations,
   startWhileHeld,
 } from './lease';
 
@@ -463,12 +467,29 @@ describe('the operation lease', () => {
         expect(await acquire(KEY, A, RAISED + 1)).toBe(false);
       });
 
-      it('lets an absent booking count only once the window has passed', async () => {
+      // A request that lands late is not ruled out by any interval, so a
+      // late read showing nothing only says the booking probably was not made.
+      it('keeps a booking Plans do not show, however late, and notes it probably was not made', async () => {
         await quarantine(KEY, bookDoubt, RAISED);
         await reconcile(nothing, LATE - 1, none);
-        expect(await acquire(KEY, A, LATE)).toBe(false);
+        expect(quarantinedMutations()[0]?.notSeenAt).toBeUndefined();
         await reconcile(nothing, LATE, none);
-        expect(await acquire(KEY, A, LATE)).toBe(true);
+        expect(await acquire(KEY, A, LATE)).toBe(false);
+        expect(quarantinedMutations()[0]?.notSeenAt).toBe(LATE);
+        const later = RAISED + 10 * SETTLE_AFTER_MS;
+        await reconcile(nothing, later, none);
+        expect(await acquire(KEY, A, later)).toBe(false);
+        // The first read that showed nothing is the one recorded.
+        expect(quarantinedMutations()[0]?.notSeenAt).toBe(LATE);
+      });
+
+      it('notes it only from a read that could have shown it', async () => {
+        await quarantine(KEY, bookDoubt, RAISED);
+        await reconcile(nothing, LATE, none, () => false);
+        expect(quarantinedMutations()[0]?.notSeenAt).toBeUndefined();
+        // Shown in an incomplete read still counts: presence needs no more.
+        await reconcile(nothing, LATE + 1, holding(['mickey']), () => false);
+        expect(await acquire(KEY, A, LATE + 1)).toBe(true);
       });
 
       it('ignores a read that started before the booking was sent', async () => {
@@ -512,12 +533,152 @@ describe('the operation lease', () => {
         expect(await acquire(KEY, A, later + 1)).toBe(true);
       });
 
+      // Passes the reader could not read, or a response without its list, look
+      // exactly like passes that are gone.
+      it('keeps a cancellation whose passes are missing from an incomplete read', async () => {
+        await quarantine(KEY, cancelDoubt, RAISED);
+        await reconcile(nothing, RAISED + 1, none, () => false);
+        expect(await acquire(KEY, A, RAISED + 1)).toBe(false);
+        await reconcile(nothing, RAISED + 2, none, key => key !== KEY);
+        expect(await acquire(KEY, A, RAISED + 2)).toBe(false);
+        await reconcile(nothing, RAISED + 3, none, () => true);
+        expect(await acquire(KEY, A, RAISED + 3)).toBe(true);
+      });
+
       it('keeps a move to its exact evidence however late the read', async () => {
         await quarantine(KEY, modifyDoubt, RAISED);
         await reconcile(nothing, RAISED + 10 * SETTLE_AFTER_MS, none);
         expect(await acquire(KEY, A, RAISED + 10 * SETTLE_AFTER_MS)).toBe(
           false
         );
+      });
+    });
+
+    /*
+     * Records carry a version from 1.9.0. A cancellation stored before that may
+     * be a DAS selection's -- 1.8.3 and 1.8.4 kept those under the ride's
+     * Lightning Lane key -- so it protects both keys, and settles only when its
+     * passes are gone from both. (The real 1.8.4 store is tested in
+     * `regressions/legacy-protection-store.test.tsx`.)
+     */
+    describe('a record from before versioning', () => {
+      const DAS_KEY = dasLeaseKey('80010114', DATE);
+      const cancelDoubt = {
+        id: 'cancel-old',
+        kind: 'cancel',
+        at: RAISED,
+        to: '',
+        reservationIds: ['das-1', 'ent-1'],
+        blockingKeys: [KEY],
+      };
+      const store = (doubt: object) =>
+        kvdb.set(QUARANTINE_KEY, { [KEY]: [doubt] });
+      const passes = (byKey: Record<string, string[]>) => (key: string) =>
+        (byKey[key] ?? []).map(id => ({
+          time: '10:30:00',
+          reservationIds: [id],
+          guestIds: ['mickey'],
+        }));
+
+      it('is written with the version now', async () => {
+        await quarantine(KEY, modifyDoubt, RAISED);
+        expect(
+          kvdb.get<Record<string, { v?: number }[]>>(QUARANTINE_KEY)
+        ).toEqual({
+          [KEY]: [expect.objectContaining({ v: QUARANTINE_VERSION })],
+        });
+      });
+
+      it('protects the DAS key beside its own, when it is a cancellation', async () => {
+        store(cancelDoubt);
+        expect(quarantinedAt(DAS_KEY)).toBe(RAISED);
+        expect(quarantinedAt(KEY)).toBe(RAISED);
+        expect(await acquire(DAS_KEY, A)).toBe(false);
+      });
+
+      it('stays while its passes are on either side', async () => {
+        store(cancelDoubt);
+        await reconcile(nothing, RAISED + 1, passes({ [DAS_KEY]: ['das-1'] }));
+        expect(quarantinedAt(DAS_KEY)).toBe(RAISED);
+        await reconcile(nothing, RAISED + 2, passes({ [KEY]: ['ent-1'] }));
+        expect(quarantinedAt(KEY)).toBe(RAISED);
+        await reconcile(
+          nothing,
+          RAISED + 3,
+          passes({}),
+          key => key !== DAS_KEY
+        );
+        expect(quarantinedAt(KEY)).toBe(RAISED);
+        await reconcile(nothing, RAISED + 4, passes({}));
+        expect(quarantinedAt(KEY)).toBeUndefined();
+        expect(quarantinedAt(DAS_KEY)).toBeUndefined();
+      });
+
+      it('leaves a versioned Lightning Lane cancellation to its own key', async () => {
+        store({ ...cancelDoubt, v: QUARANTINE_VERSION });
+        expect(quarantinedAt(DAS_KEY)).toBeUndefined();
+        await reconcile(nothing, RAISED + 1, passes({ [DAS_KEY]: ['das-1'] }));
+        expect(quarantinedAt(KEY)).toBeUndefined();
+      });
+
+      it('leaves other kinds as they were', async () => {
+        store({ ...modifyDoubt, at: RAISED, blockingKeys: [KEY] });
+        expect(quarantinedAt(DAS_KEY)).toBeUndefined();
+      });
+    });
+
+    /*
+     * The day's record of how each protection was settled, for Activity: by
+     * Disney's Plans, by Disney's own late answer, or by the person.
+     */
+    describe('the record of settled protections', () => {
+      it('records each with how it was settled', async () => {
+        await quarantine(KEY, modifyDoubt, RAISED);
+        await quarantine(OTHER_KEY, { ...modifyDoubt, id: 'modify-2' }, RAISED);
+        await quarantine(
+          KEY,
+          { id: 'book-1', kind: 'book', to: '11:00:00', guestIds: ['mickey'] },
+          RAISED
+        );
+        // Plans show the move on KEY, and say nothing about OTHER_KEY.
+        await reconcile(
+          key => (key === KEY ? seenAt('11:00:00') : undefined),
+          RAISED + 1,
+          () => []
+        );
+        await resolveDoubt(OTHER_KEY, 'modify-2');
+        await resolveDoubt(KEY, 'book-1', 'cleared');
+        expect(settledMutations()).toEqual([
+          expect.objectContaining({
+            id: 'modify-1',
+            kind: 'modify',
+            how: 'confirmed',
+            facilityId: '80010114',
+            to: '11:00:00',
+          }),
+          expect.objectContaining({ id: 'modify-2', how: 'answered' }),
+          expect.objectContaining({
+            id: 'book-1',
+            kind: 'book',
+            how: 'cleared',
+          }),
+        ]);
+      });
+
+      it('records nothing when there was nothing to settle', async () => {
+        await resolveDoubt(KEY, 'never-raised');
+        expect(settledMutations()).toEqual([]);
+      });
+
+      it("is a day's record", async () => {
+        await quarantine(KEY, modifyDoubt, RAISED);
+        await resolveDoubt(KEY, 'modify-1', 'cleared');
+        expect(settledMutations()).toHaveLength(1);
+        kvdb.set(SETTLED_RAW, {
+          date: '2000-01-01',
+          value: kvdb.get<{ value: unknown }>(SETTLED_RAW)?.value,
+        });
+        expect(settledMutations()).toEqual([]);
       });
     });
 

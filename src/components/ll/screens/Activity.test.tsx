@@ -5,9 +5,12 @@ import { wdw } from '@/__fixtures__/resort';
 import { APP_NAME } from '@/appIdentity';
 import {
   QUARANTINE_KEY,
+  SETTLE_AFTER_MS,
   leaseKey,
   quarantine,
   quarantinedAt,
+  reconcile,
+  resolveDoubt,
 } from '@/autopilot/lease';
 import { ParkTime, parkDate } from '@/datetime';
 import kvdb from '@/kvdb';
@@ -186,6 +189,98 @@ describe('Activity diagnostics', () => {
         screen.queryByText(/unresolved Lightning Lane change/)
       ).not.toBeInTheDocument()
     );
+  });
+
+  it('offers one tap for a booking Plans still do not show', async () => {
+    const key = leaseKey(BZ, parkDate());
+    await quarantine(
+      key,
+      { id: 'book-1', kind: 'book', to: '11:00:00', guestIds: ['mickey'] },
+      Date.now() - SETTLE_AFTER_MS
+    );
+    // A complete read, 30 seconds on, with nobody holding the attraction.
+    await reconcile(
+      () => undefined,
+      Date.now(),
+      () => []
+    );
+    expect(quarantinedAt(key)).toBeDefined();
+    setup();
+    expect(
+      screen.getByText(/Plans still do not show this booking/)
+    ).toBeVisible();
+    expect(
+      screen.queryByText('I checked Disney — resolve this')
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Clear this protection'));
+    await waitFor(() => expect(quarantinedAt(key)).toBeUndefined());
+    const record = await screen.findByText(/cleared by you/);
+    expect(record.closest('li')).toHaveTextContent(/Book .* at 11:00/);
+    expect(screen.getByText(/Protection settled today \(1\)/)).toBeVisible();
+  });
+
+  it('keeps two steps for a booking not yet looked for long enough', async () => {
+    const key = leaseKey(BZ, parkDate());
+    await quarantine(
+      key,
+      { id: 'book-1', kind: 'book', to: '11:00:00', guestIds: ['mickey'] },
+      Date.now() - 1_000
+    );
+    await reconcile(
+      () => undefined,
+      Date.now(),
+      () => []
+    );
+    setup();
+    expect(
+      screen.queryByText(/Plans still do not show this booking/)
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('I checked Disney — resolve this')).toBeVisible();
+  });
+
+  it('lists how each protection settled today', async () => {
+    const booked = leaseKey(BZ, parkDate());
+    await quarantine(
+      booked,
+      { id: 'book-1', kind: 'book', to: '11:00:00', guestIds: ['mickey'] },
+      Date.now() - 1_000
+    );
+    await reconcile(
+      () => undefined,
+      Date.now(),
+      () => [{ time: '11:00:00', reservationIds: ['r1'], guestIds: ['mickey'] }]
+    );
+    const moved = leaseKey(sdd.id, parkDate());
+    await quarantine(moved, { id: 'move-1', kind: 'modify', to: '12:00:00' });
+    await resolveDoubt(moved, 'move-1');
+    setup();
+    expect(screen.getByText(/Protection settled today \(2\)/)).toBeVisible();
+    expect(
+      screen.getByText(/confirmed by Disney's Plans/).closest('li')
+    ).toHaveTextContent(/Book /);
+    expect(screen.getByText(/Disney answered/).closest('li')).toHaveTextContent(
+      new RegExp(`Move ${sdd.name}`)
+    );
+  });
+
+  it('says a cancellation saved before 1.9.0 may have been a DAS one', async () => {
+    const key = leaseKey(BZ, parkDate());
+    localStorage.setItem(
+      QUARANTINE_KEY,
+      JSON.stringify({
+        [key]: [
+          {
+            id: 'legacy-cancel',
+            at: Date.now() - 1_000,
+            kind: 'cancel',
+            reservationIds: ['r1'],
+            blockingKeys: [key],
+          },
+        ],
+      })
+    );
+    setup();
+    expect(screen.getByText(/Cancel guests or a DAS selection/)).toBeVisible();
   });
 
   it('labels only a record with no kind as left by an older version', async () => {

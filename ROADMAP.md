@@ -1126,11 +1126,40 @@ required.
 Kept as records of the defect and the acceptance criteria each one closed.
 Their line citations describe the tree before the fix.
 
+### 37. Codex's review of 1.8.5 — _completed in 1.9.0_
+
+Codex reviewed 1.8.5 the same day (2026-10-03) and found three ways a
+protection could end without proof, and a rule in the plan that is no longer
+Disney's. 1.9.0 closes all four, and with them item 36's outstanding request.
+
+- **Plans settle a protection only on what they could show.** The itinerary
+  reader dropped a pass it could not read, and read an answer with no list of
+  items as an empty itinerary; both looked like passes that were gone. Absence
+  now counts only from a read that could have shown the pass, for protection
+  and for Autopilot's own record of its bookings, and the Plans tab warns when
+  a read was incomplete.
+- **A protection saved by 1.8.4 still protects.** Saved protections carry a
+  version. A cancellation saved before could have been a Lightning Lane or a
+  DAS one, so it guards both and clears only when Plans show neither.
+- **A booking clears only on proof:** Plans showing its guests holding the
+  attraction, Disney's late answer, or the person. One that Plans still do not
+  show 30 seconds on is marked as probably not made, and clearing it takes one
+  tap.
+- **Autopilot's own lost bookings are in the shared protection,** visible and
+  respected by bookings, changes and cancels by hand, with an alert. Clearing
+  one lets Autopilot try the attraction once more.
+- **Activity records how each protection ended:** confirmed by Disney's Plans,
+  Disney answered, or cleared by you.
+- **The plan's 120-minute rule was Genie+'s.** `docs/PLAN.md` §2 gives Lightning
+  Lane Multi Pass's, and the refutation of a cascade model that rested on the
+  old rule is withdrawn (`docs/FUTURE.md` §4.5).
+
 ### 36. Codex's review of 1.8.4 — _completed in 1.8.5_
 
 Codex reviewed 1.8.4 the day it shipped (2026-10-03) and agreed with its fixes,
 with five requests. 1.8.5 makes four of them and the cancellation half of the
-fifth; the rest of that one is `FUTURE.md` §1's outstanding item.
+fifth; the rest of that one was `FUTURE.md` §1's outstanding item, done in
+1.9.0.
 
 - **Autopilot moves only the party.** A move or swap sends Disney only the saved
   party's guests, so a pass shared with someone outside the party is split and
@@ -1142,6 +1171,8 @@ fifth; the rest of that one is `FUTURE.md` §1's outstanding item.
   Plans still showed the passes, but a cancellation that lands late can remove
   a pass changed in the meantime. A booking still clears either way, since
   Disney refuses a second booking of the attraction for the same guests.
+  _Withdrawn in 1.9.0 (item 37): that refusal does not cover a booking Disney
+  applies late._
 - **DAS has its own protection,** read against DAS selections. A DAS
   cancellation in doubt no longer pauses the ride's Lightning Lanes, or looks
   done on the next read.

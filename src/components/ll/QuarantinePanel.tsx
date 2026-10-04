@@ -7,43 +7,8 @@ import type { QuarantinedMutation } from '@/autopilot/lease';
 import Button from '@/components/Button';
 import ExperiencesContext from '@/contexts/ExperiencesContext';
 import ResortContext from '@/contexts/ResortContext';
-import { ParkTime, formatDate, formatTime } from '@/datetime';
 
-function shownTime(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    return formatTime(ParkTime.from(value));
-  } catch {
-    return value;
-  }
-}
-
-function description(
-  doubt: QuarantinedMutation,
-  nameOf: (id: string) => string
-): string {
-  const from = shownTime(doubt.from);
-  const to = shownTime(doubt.to);
-  const date = formatDate(doubt.date, 'short');
-  if (doubt.kind === 'swap') {
-    const gaining = doubt.gaining
-      ? nameOf(doubt.gaining)
-      : 'the replacement attraction';
-    return `Swap ${nameOf(doubt.facilityId)} for ${gaining}${to ? ` at ${to}` : ''} on ${date}`;
-  }
-  if (doubt.kind === 'modify') {
-    return `Move ${nameOf(doubt.facilityId)}${from ? ` from ${from}` : ''}${to ? ` to ${to}` : ''} on ${date}`;
-  }
-  if (doubt.kind === 'book') {
-    return `Book ${nameOf(doubt.facilityId)}${to ? ` at ${to}` : ''} on ${date}`;
-  }
-  if (doubt.kind === 'cancel') {
-    return doubt.das
-      ? `Cancel a DAS selection at ${nameOf(doubt.facilityId)} on ${date}`
-      : `Cancel guests at ${nameOf(doubt.facilityId)} on ${date}`;
-  }
-  return `Change ${nameOf(doubt.facilityId)} on ${date}`;
-}
+import { description } from './protectionDescription';
 
 /**
  * Whether plans can settle this by themselves.
@@ -56,6 +21,15 @@ function settlesByItself(doubt: QuarantinedMutation): boolean {
   if (doubt.kind === 'book') return !!doubt.guestIds?.length;
   if (doubt.kind) return !!doubt.reservationIds?.length;
   return false;
+}
+
+/**
+ * A booking that a complete read, 30 seconds or more after it was sent, still
+ * did not show. Not proof, so it is not cleared for the person; but likely
+ * enough that clearing it takes one tap instead of two.
+ */
+function probablyNotMade(doubt: QuarantinedMutation): boolean {
+  return doubt.kind === 'book' && doubt.notSeenAt !== undefined;
 }
 
 /** Visible, operation-specific protection with an explicit manual escape. */
@@ -89,7 +63,7 @@ export default function QuarantinePanel({
       return next;
     });
     try {
-      await resolveDoubt(doubt.key, doubt.id);
+      await resolveDoubt(doubt.key, doubt.id, 'cleared');
       setConfirming(undefined);
     } catch (caught) {
       setErrors(current => ({
@@ -113,10 +87,11 @@ export default function QuarantinePanel({
       <p className="mt-1">
         Disney did not return a definite answer. {APP_NAME} will not book, move,
         swap, or cancel the affected attractions until Plans show what happened
-        or you confirm it. A booking clears by itself once Plans have caught up,
-        usually within a minute. A cancellation clears when Plans no longer show
-        the cancelled passes, and a move or a swap when they show the exact
-        requested result.
+        or you confirm it. A booking clears when Plans show it, a cancellation
+        when Plans no longer show the cancelled passes, and a move or a swap
+        when they show the exact requested result. A booking Plans still do not
+        show after 30 seconds probably did not go through, and one tap clears
+        it.
       </p>
       <ul className="mt-2 space-y-2">
         {doubts.map(doubt => (
@@ -130,13 +105,30 @@ export default function QuarantinePanel({
                 Check Disney Plans, then resolve it here.
               </p>
             )}
+            {probablyNotMade(doubt) && (
+              <p className="mt-1 font-semibold" role="status">
+                Plans still do not show this booking. It probably did not go
+                through.
+              </p>
+            )}
             {!doubt.durable && (
               <p className="mt-1 font-semibold" role="status">
                 This protection is available only while this page remains open.
                 Keep other {APP_NAME} tabs closed and check Disney Plans now.
               </p>
             )}
-            {confirming === identity(doubt) ? (
+            {probablyNotMade(doubt) ? (
+              <Button
+                type="small"
+                className="mt-2"
+                disabled={clearing === identity(doubt)}
+                onClick={() => void clear(doubt)}
+              >
+                {clearing === identity(doubt)
+                  ? 'Clearing…'
+                  : 'Clear this protection'}
+              </Button>
+            ) : confirming === identity(doubt) ? (
               <div
                 aria-labelledby={warningId}
                 className="mt-2"

@@ -1,5 +1,5 @@
 import { ak, booking, bookings, ep, hs, mk } from '@/__fixtures__/ll';
-import { Booking } from '@/api/itinerary';
+import { Booking, notePlansGaps } from '@/api/itinerary';
 import PlansContext from '@/contexts/PlansContext';
 import { click, nav, render, screen, see, setTime, within } from '@/testing';
 
@@ -73,6 +73,18 @@ describe('Plans', () => {
 
     click(booking.name);
     expect(goTo).toHaveBeenLastCalledWith(<BookingDetails booking={booking} />);
+  });
+
+  it('warns when Plans could not all be read', () => {
+    const plans = [...bookings];
+    notePlansGaps(plans, [{ facilityId: booking.facilityId }]);
+    renderComponent(plans);
+    expect(screen.getByText(/could not all be read/)).toBeVisible();
+  });
+
+  it('does not warn after a complete read', () => {
+    renderComponent(bookings);
+    expect(screen.queryByText(/could not all be read/)).not.toBeInTheDocument();
   });
 
   it('shows "No existing plans" message', async () => {

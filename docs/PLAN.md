@@ -275,22 +275,29 @@ upper bound on the longest published window, not a bug.
 **Three at a time.** You hold at most three Multi Pass selections; as one is
 used a slot frees.
 
-**When the next slot opens — corrected.** My first draft of this plan said the
-slot frees when the arrival window _ends_. That is wrong, and the correction
-matters. Disney's own FAQ: _"After redeeming a Lightning Lane experience — or
-after two hours have passed since making your selection — you can choose
-another."_ So the gate is **120 minutes after you book, or on redemption,
-whichever comes first** — it is not a function of the return time you hold.
+**When the next slot opens — corrected twice.** My first draft of this plan
+said the slot frees when the arrival window _ends_. A correction replaced that
+with a two-hour clock, from a Disney FAQ that let you choose another after
+redeeming one or two hours after booking it. **That was the Genie+ rule, not
+Lightning Lane Multi Pass's.** Checked 2026-10-03: once you redeem a selection,
+or once its arrival window has passed, you can make another, one at a time
+([Disney: Lightning Lane passes](https://disneyworld.disney.go.com/lightning-lane-passes/),
+[planDisney](https://plandisney.disney.go.com/question/new-lightning-lane-multi-pass-once-parks-redeeming-tier-581074/)).
+There is no two-hour clock, and the first draft was nearer the truth: the gate
+_is_ a function of the return times you hold.
 
-The practical consequence is the opposite of what the "cascade" idea in my
-draft assumed: booking at 9:05 with an 8pm return unlocks your next pick at
-11:05, exactly as a 10am return would. Stacking late returns while the
-120-minute clock runs is a _recommended_ strategy, and it is precisely what
-bg1's `bookThenMove` already implements.
+So the consequence the correction drew is reversed. Booking at 9:05 with an 8pm
+return does not unlock the next pick at 11:05; that pass holds one of the three
+slots until you ride it or 8pm passes. Stacking late returns, which the
+correction called a _recommended_ strategy, delays later picks, and the case
+that `bookThenMove` costs nothing by taking a late time first falls with it.
+Whether Autopilot should prefer earlier returns is open again: see P3.2.
 
-**bg1 does not need to model any of this.** `LLClient.nextBookTime` reads
-`flexEligibilityWindows` straight from the tipboard — Disney's authoritative
-answer, refreshed every poll. The remaining gap is display, not logic.
+**bg1 does not need to model any of this to stay correct.**
+`LLClient.nextBookTime` reads `flexEligibilityWindows` straight from the
+tipboard — Disney's authoritative answer, refreshed every poll — so the app
+never relied on the two-hour clock. What the old rule decided was strategy, and
+the remaining gap in logic is display.
 
 **Tier 1 unlock.** Lifted by an **actual tap-in**, not by a window elapsing.
 Tracked per guest; a party is blocked until every member has tapped in
@@ -616,27 +623,35 @@ The role half is not: the user marks one target as the passkey by hand, and
 hits which already matched the watch list (`autopilot/priority.ts:52-54`).
 Nothing selects the earliest-returning eligible non-Tier-1 on its own.
 
-**P3.2 · Surface the timing (not a cascade model).** My draft proposed a
-`cascade.ts` scoring offers by how much they delay the next booking. **That was
-refuted and should not be built:** the gate is 120 minutes from booking, not a
-function of the return time you hold, so a late first booking delays nothing.
-A further reason it was wrong: bg1 already sends `targetedTime:
-nextAvailableTime` on every offer and calls `changeOfferTime()` when the result
-comes back >10 minutes later, so "nothing prefers an earlier return time" is
-false.
+**P3.2 · Surface the timing, and reopen the cascade question.** My draft
+proposed a `cascade.ts` scoring offers by how much they delay the next booking.
+It was refuted on two grounds: the gate was 120 minutes from booking, not a
+function of the return time you hold, so a late first booking delayed nothing;
+and bg1 already sends `targetedTime: nextAvailableTime` on every offer and calls
+`changeOfferTime()` when the result comes back >10 minutes later, so "nothing
+prefers an earlier return time" is false.
 
-_A second such reason was given here and was wrong about the code; withdrawn
+_The first ground is withdrawn, 2026-10-03._ The two-hour gate was Genie+'s
+rule. Under Lightning Lane Multi Pass the next selection opens when you redeem
+one or when its arrival window passes (§2), so a late return can delay the next
+pick, and how much an offer delays it is a fair question again. The second
+ground stands, but it says only that the app asks for the earliest time, not
+how an earlier time should weigh against a better window. **Re-evaluate before
+building anything:** what Autopilot's targets would gain from preferring earlier
+returns, and what `bookThenMove` taking a late time first now costs.
+`docs/FUTURE.md` §4.5 carries it.
+
+_A third reason was given here and was wrong about the code; withdrawn
 2026-09-12._ `ll.times()` is not switched off at WDW. `rules.timeSelect = false`
 is only the abstract base default (`api/ll.ts:268`); `LLClientWDW` overrides it
 to `true` (`api/ll/wdw.ts:141`) and `times()` is fully implemented
 (`api/ll/wdw.ts:384-407`) — it is what the NextLL time search runs on. The
-refutation stands on the 120-minute gate and on `targetedTime` /
-`changeOfferTime`.
+refutation stood on the 120-minute gate and on `targetedTime` /
+`changeOfferTime`, and only the second remains.
 
-What survives is display: show `nextBookTime` as _"you can book your next
-Lightning Lane at 11:52 AM"_ on Home and Autopilot. It is authoritative, bg1
-already has it, and it turns the whole start-vs-end debate into a non-question.
-_Effort: small._
+What survives either way is display: show `nextBookTime` as _"you can book your
+next Lightning Lane at 11:52 AM"_ on Home and Autopilot. It is authoritative and
+bg1 already has it. _Effort: small._
 
 **P3.3 · Expiry rescue.** Letting a pass expire unredeemed counts as riding it.
 When a held LL's window plus grace is about to lapse unredeemed, modify it to a
@@ -764,14 +779,18 @@ only source for what bg1 books. _Effort: medium._
 
 ## 9. Refuted — do not rebuild these
 
-Nineteen findings were adversarially refuted. `docs/FUTURE.md` §7 carries a
+Nineteen findings were adversarially refuted, and one refutation has since been
+withdrawn (item 1). `docs/FUTURE.md` §7 carries a
 condensed copy of this list, for readers working from that file; **this section
 is the authoritative one**, because it is the one that keeps the arguments. The
 most consequential:
 
-1. **A cascade scoring model.** The gate is 120 minutes from booking, not the
-   return time you hold. bg1 also already targets the earliest time and
-   self-corrects via `changeOfferTime`. See P3.2.
+1. ~~**A cascade scoring model.**~~ _Withdrawn 2026-10-03, and open again._
+   Its refutation rested on a 120-minute gate, which was Genie+'s rule: under
+   Lightning Lane Multi Pass the next selection waits for a redemption or for an
+   arrival window to pass, so the return time you hold matters. bg1 does target
+   the earliest time and self-corrects via `changeOfferTime`, but that is asking
+   for an early time, not weighing one. See P3.2.
 2. **Rejecting post-close offers.** Disney does not sell LL return times past
    close, and LL is unavailable during party hours. The guard is a no-op.
 3. **Deleting DINOSAUR.** The tipboard never returns it, so its priority

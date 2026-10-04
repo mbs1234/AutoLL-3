@@ -137,8 +137,8 @@ export function heldEntitlements(plans: Booking[], date: string): Set<string> {
  * Deliberately symmetrical. A loss loosens eligibility: a tap-in, an expiry,
  * or a reservation cancelled by hand all free a slot and lift the block that
  * went with it. A gain tightens it: a booking made in Disney's own app while
- * autopilot runs consumes a slot, the tier slot, and starts the 120-minute
- * clock, and autopilot clears its cache only for bookings it made itself. The
+ * autopilot runs consumes a slot and the tier slot, and autopilot clears its
+ * cache only for bookings it made itself. The
  * second direction is the dangerous one, since a cache that overstates
  * eligibility books for a party that cannot book.
  */

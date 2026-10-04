@@ -728,6 +728,12 @@ On a Multi Pass's details screen:
 > Plans mirrors Disney; it is not live. A pass cancelled on another phone will
 > not disappear until you refresh.
 
+> **"Disney's Plans could not all be read"** means a pass in Disney's answer
+> could not be read, or the answer came without its list. Something may be
+> missing from the tab, so check Disney's app before relying on it. A read like
+> that releases nothing that is held: a pass missing from it may only be
+> unreadable.
+
 ## 18. The Times tab
 
 ![The Times guide](user-guide/times.png)
@@ -867,7 +873,12 @@ refusal from Disney, or when Disney asks them to slow down (Part 3).
 
 ![Activity](user-guide/activity.png)
 
-Today tab → **Activity**. Three sections:
+Today tab → **Activity**. At the top, when anything is held, the protection
+panel (see *A change that never came back*). Then up to four sections:
+
+**Protection settled today (N)** — every hold that ended today, newest first,
+and how: *confirmed by Disney's Plans*, *Disney answered* (its late answer came
+back after all), or *cleared by you*. It appears once something has settled.
 
 **Booking activity (N)** — today's bookings, moves, swaps, rehearsals and
 failures, newest first, capped at 20 rows. Repeated failures collapse to one row
@@ -999,15 +1010,20 @@ So that reservation is **held**, and the hold is visible. Activity and Plan
 Check both list it under a red panel, naming the attraction and what the change
 was trying to do — "Move Haunted Mansion from 7:15 PM to 11:40 AM on March
 5" — and Today says so in a banner. The same goes for a booking, a change or a
-cancel you made by hand. Booking, moving, swapping and cancelling that
-attraction are paused, by Autopilot and by hand, until it is settled.
+cancel you made by hand, and for Autopilot's own bookings: when one gets no
+answer, the phone alerts you with *No answer from Disney*. Booking, moving,
+swapping and cancelling that attraction are paused, by Autopilot and by hand,
+until it is settled.
 
 Most holds settle themselves from Plans:
 
-- **A booking** clears once Plans have caught up, usually within a minute.
-  Plans showing the pass means it went through; Plans read at least thirty
-  seconds after the request still showing nothing means it did not. Disney
-  would refuse the same booking twice, so the next try is safe either way.
+- **A booking** clears when Plans show any of its guests holding the
+  attraction: it went through. Plans still showing nothing do not prove it did
+  not, because Disney can apply a request late. Once Plans read thirty seconds
+  or more after the request still show nothing, the panel says the booking
+  **probably did not go through**, and one tap on **Clear this protection**
+  releases it. Clearing one of Autopilot's lets it try the attraction once
+  more.
 - **A cancel** clears when Plans no longer show the passes it was for. While
   they are still there it waits for you, however long: the cancel may not have
   happened, or it may yet land on whatever the pass has become by then.
@@ -1015,9 +1031,20 @@ Most holds settle themselves from Plans:
   Plans that still show the old time cannot tell a move that failed from one
   Disney has not shown yet.
 
+A read of Plans that could not see everything settles nothing it might have
+missed. If a pass could not be read, or Disney's answer came without its list,
+a hold on that attraction waits for a complete read.
+
 **Open Disney's Plans and look.** Then, if you want to release it yourself:
 **I checked Disney — resolve this** → **Clear this protection**. It asks twice
-because clearing it is the one action here that can cost you a reservation.
+because clearing it is the one action here that can cost you a reservation. A
+booking that probably did not go through takes one tap instead.
+
+**Clearing is a judgment, not proof.** Disney can still apply a lost request
+after you clear it. A booking can then turn up as an extra pass, for example
+after the attraction was booked again and that booking given up, and a cancel
+can remove whatever the pass has become. If Plans show something you did not
+expect, that is the likely reason.
 
 ## Common questions
 
@@ -1067,7 +1094,7 @@ it has recovered.
 **Between trips, open AutoLL-3 at least once a week** as well, or it may start
 empty next time.
 
-**Rough edges, as of 1.8.5.** None known beyond what
+**Rough edges, as of 1.9.0.** None known beyond what
 [docs/FUTURE.md](FUTURE.md) lists, with what each would cost to fix.
 
 ---
