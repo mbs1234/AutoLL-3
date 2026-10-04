@@ -206,13 +206,21 @@ describe('Activity diagnostics', () => {
     );
     expect(quarantinedAt(key)).toBeDefined();
     setup();
-    expect(
-      screen.getByText(/Plans still do not show this booking/)
-    ).toBeVisible();
+    // Neutral, and beside the button: it was not seen, it may still land,
+    // and clearing lets Autopilot try again (Codex's review of 1.9.0).
+    const note = screen.getByText(
+      /No booking was visible in the last complete Plans check/
+    );
+    expect(note).toBeVisible();
+    expect(note).toHaveTextContent(
+      'The original request may still complete. Clearing permits another attempt.'
+    );
+    const clear = screen.getByRole('button', { name: 'Clear this protection' });
+    expect(note.parentElement).toContainElement(clear);
     expect(
       screen.queryByText('I checked Disney — resolve this')
     ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText('Clear this protection'));
+    fireEvent.click(clear);
     await waitFor(() => expect(quarantinedAt(key)).toBeUndefined());
     const record = await screen.findByText(/cleared by you/);
     expect(record.closest('li')).toHaveTextContent(/Book .* at 11:00/);
@@ -233,7 +241,9 @@ describe('Activity diagnostics', () => {
     );
     setup();
     expect(
-      screen.queryByText(/Plans still do not show this booking/)
+      screen.queryByText(
+        /No booking was visible in the last complete Plans check/
+      )
     ).not.toBeInTheDocument();
     expect(screen.getByText('I checked Disney — resolve this')).toBeVisible();
   });

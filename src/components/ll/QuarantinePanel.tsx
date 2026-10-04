@@ -24,11 +24,12 @@ function settlesByItself(doubt: QuarantinedMutation): boolean {
 }
 
 /**
- * A booking that a complete read, 30 seconds or more after it was sent, still
- * did not show. Not proof, so it is not cleared for the person; but likely
- * enough that clearing it takes one tap instead of two.
+ * A booking that a complete read of Plans, 30 seconds or more after it was
+ * sent, did not show. Not proof that it failed: the request may still land, so
+ * nothing clears it but the person. Clearing it takes one tap instead of two,
+ * with what that allows said beside the button.
  */
-function probablyNotMade(doubt: QuarantinedMutation): boolean {
+function notSeenInPlans(doubt: QuarantinedMutation): boolean {
   return doubt.kind === 'book' && doubt.notSeenAt !== undefined;
 }
 
@@ -89,9 +90,9 @@ export default function QuarantinePanel({
         swap, or cancel the affected attractions until Plans show what happened
         or you confirm it. A booking clears when Plans show it, a cancellation
         when Plans no longer show the cancelled passes, and a move or a swap
-        when they show the exact requested result. A booking Plans still do not
-        show after 30 seconds probably did not go through, and one tap clears
-        it.
+        when they show the exact requested result. A booking that a complete
+        check of Plans still does not show, 30 seconds or more after the
+        request, can be cleared in one tap.
       </p>
       <ul className="mt-2 space-y-2">
         {doubts.map(doubt => (
@@ -105,29 +106,30 @@ export default function QuarantinePanel({
                 Check Disney Plans, then resolve it here.
               </p>
             )}
-            {probablyNotMade(doubt) && (
-              <p className="mt-1 font-semibold" role="status">
-                Plans still do not show this booking. It probably did not go
-                through.
-              </p>
-            )}
             {!doubt.durable && (
               <p className="mt-1 font-semibold" role="status">
                 This protection is available only while this page remains open.
                 Keep other {APP_NAME} tabs closed and check Disney Plans now.
               </p>
             )}
-            {probablyNotMade(doubt) ? (
-              <Button
-                type="small"
-                className="mt-2"
-                disabled={clearing === identity(doubt)}
-                onClick={() => void clear(doubt)}
-              >
-                {clearing === identity(doubt)
-                  ? 'Clearing…'
-                  : 'Clear this protection'}
-              </Button>
+            {notSeenInPlans(doubt) ? (
+              <div className="mt-2">
+                <p className="font-semibold" role="status">
+                  No booking was visible in the last complete Plans check. The
+                  original request may still complete. Clearing permits another
+                  attempt.
+                </p>
+                <Button
+                  type="small"
+                  className="mt-2"
+                  disabled={clearing === identity(doubt)}
+                  onClick={() => void clear(doubt)}
+                >
+                  {clearing === identity(doubt)
+                    ? 'Clearing…'
+                    : 'Clear this protection'}
+                </Button>
+              </div>
             ) : confirming === identity(doubt) ? (
               <div
                 aria-labelledby={warningId}

@@ -462,6 +462,18 @@ export class AutoBookLedger {
    * that one is still true.
    */
   protected owned = new Set<string>();
+  /**
+   * The request each of this instance's own locks was taken for, by the
+   * request's mutation id, where the caller named one.
+   *
+   * What lets a person's clear give back exactly the hold it is about
+   * (`releaseCleared`). A clear names one request, and the lock on that action
+   * may since have been given back and taken again by a later request, or be
+   * a copy adopted from another instance. Releasing either on the earlier
+   * request's clear lets the attraction be acted on while another attempt is
+   * outstanding.
+   */
+  protected takenFor = new Map<string, string>();
 
   /**
    * @param date the booking date to start on. Required, and first, so that
@@ -669,6 +681,7 @@ export class AutoBookLedger {
   startNewDay(): void {
     this.attempted.clear();
     this.owned.clear();
+    this.takenFor.clear();
     this.released.clear();
     this.unshared.clear();
     this.unresolved.clear();
@@ -785,14 +798,20 @@ export class AutoBookLedger {
    * Marked before the request goes out, not after. If a booking request times
    * out, it may still have succeeded server-side, so retrying is the dangerous
    * option -- better to skip and let the user see it in their plans.
+   *
+   * `request` is the mutation id of the request the lock is taken for, so that
+   * clearing that request's protection gives back this lock and no other
+   * (`releaseCleared`).
    */
   markAttempted(
     experienceId: string,
     kind: LockKind = 'book',
-    rehearsal = false
+    rehearsal = false,
+    request?: string
   ): () => void {
     const key = this.key(kind, experienceId);
     const before = {
+      takenFor: this.takenFor.get(key),
       attempted: this.attempted.has(key),
       owned: this.owned.has(key),
       released: this.released.has(key),
@@ -816,6 +835,8 @@ export class AutoBookLedger {
       set(this.confirmed, key, before.confirmed);
       if (before.absences === undefined) this.absences.delete(key);
       else this.absences.set(key, before.absences);
+      if (before.takenFor === undefined) this.takenFor.delete(key);
+      else this.takenFor.set(key, before.takenFor);
     };
     // A key locked again after being released is no longer released: leaving it
     // in the set would have `adoptAttempted` refuse to re-adopt this very lock,
@@ -825,6 +846,9 @@ export class AutoBookLedger {
     this.unshared.delete(key);
     this.attempted.add(key);
     this.owned.add(key);
+    // Whatever request held this lock before, this one holds it now.
+    if (request !== undefined && !rehearsal) this.takenFor.set(key, request);
+    else this.takenFor.delete(key);
     // A dry run issues no request, so there is nothing to doubt and nothing to
     // settle -- it marks only so the rehearsal logs once. Recorded for every
     // kind now that the settle sweep covers every kind: a rehearsed move left
@@ -904,7 +928,41 @@ export class AutoBookLedger {
    * available rather than oscillating.
    */
   releaseAttempt(experienceId: string, kind: LockKind): void {
+    this.release(experienceId, kind, true);
+  }
+
+  /**
+   * Give back the lock one request took, now that the person has cleared its
+   * protection after checking Disney. Returns whether it did.
+   *
+   * Only a lock this instance took for that very request. One adopted from
+   * another instance -- another tab, a nested provider, or the page before a
+   * reload -- is its owner's to give back, and adopted locks give way to Plans
+   * on their own (`resolveHeld`). One a later request has taken since answers
+   * a different question. Releasing either on this request's clear would let
+   * the attraction be booked while another attempt is outstanding.
+   */
+  releaseCleared(
+    experienceId: string,
+    kind: LockKind,
+    request: string
+  ): boolean {
     const key = this.key(kind, experienceId);
+    if (!this.owned.has(key) || this.takenFor.get(key) !== request) {
+      return false;
+    }
+    // Not the older build's undated copy: that is never this instance's own.
+    this.release(experienceId, kind, false);
+    return true;
+  }
+
+  protected release(
+    experienceId: string,
+    kind: LockKind,
+    withUndated: boolean
+  ): void {
+    const key = this.key(kind, experienceId);
+    this.takenFor.delete(key);
     this.unshared.delete(key);
     this.attempted.delete(key);
     this.owned.delete(key);
@@ -929,7 +987,7 @@ export class AutoBookLedger {
     // a release cleared both at once. Without it a search told to try again
     // would skip the attraction for the rest of the park day.
     const undated = undatedKey(kind, experienceId);
-    if (this.legacy.delete(undated)) {
+    if (withUndated && this.legacy.delete(undated)) {
       this.released.add(undated);
       // Same rule, same reason: the count goes, and there is no `confirmed` to
       // drop because a date-less lock is never owned and so never consults one.
@@ -1147,6 +1205,7 @@ export class AutoBookLedger {
     const mine = [...this.owned];
     this.attempted.clear();
     this.owned.clear();
+    this.takenFor.clear();
     this.unshared.clear();
     this.unresolved.clear();
     this.absences.clear();

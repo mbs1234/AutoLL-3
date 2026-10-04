@@ -644,6 +644,79 @@ describe('AutoBookLedger.releaseAttempt()', () => {
   });
 });
 
+// A person's clear names one request. Codex's review of 1.9.0: a clear gave
+// back whatever book lock the attraction had -- a later request's, or one
+// adopted from another tab or the page before a reload.
+describe('AutoBookLedger.releaseCleared()', () => {
+  it('gives back the lock taken for the cleared request', () => {
+    const ledger = new AutoBookLedger(DATE);
+    ledger.markAttempted(BZ, 'book', false, 'request-a');
+    expect(ledger.releaseCleared(BZ, 'book', 'request-a')).toBe(true);
+    expect(ledger.hasAttempted(BZ)).toBe(false);
+  });
+
+  it('keeps the lock a later request took', () => {
+    const ledger = new AutoBookLedger(DATE);
+    ledger.markAttempted(BZ, 'book', false, 'request-a');
+    ledger.releaseAttempt(BZ, 'book');
+    ledger.markAttempted(BZ, 'book', false, 'request-b');
+    expect(ledger.releaseCleared(BZ, 'book', 'request-a')).toBe(false);
+    expect(ledger.hasAttempted(BZ)).toBe(true);
+    // Once only: the first clear already gave its own lock back.
+    expect(ledger.releaseCleared(BZ, 'book', 'request-b')).toBe(true);
+    expect(ledger.releaseCleared(BZ, 'book', 'request-b')).toBe(false);
+  });
+
+  it('keeps a lock adopted from another instance', () => {
+    const ledger = new AutoBookLedger(DATE);
+    ledger.adoptAttempted([lockKey(DATE, 'book', BZ)]);
+    expect(ledger.releaseCleared(BZ, 'book', 'request-a')).toBe(false);
+    expect(ledger.hasAttempted(BZ)).toBe(true);
+  });
+
+  it('keeps a lock taken with no request named, or for a rehearsal', () => {
+    const ledger = new AutoBookLedger(DATE);
+    ledger.markAttempted(BZ, 'book');
+    expect(ledger.releaseCleared(BZ, 'book', 'request-a')).toBe(false);
+    ledger.markAttempted(HM, 'book', true, 'request-a');
+    expect(ledger.releaseCleared(HM, 'book', 'request-a')).toBe(false);
+    expect(ledger.hasAttempted(BZ)).toBe(true);
+    expect(ledger.hasAttempted(HM)).toBe(true);
+  });
+
+  it('restores the request an undone attempt replaced', () => {
+    const ledger = new AutoBookLedger(DATE);
+    ledger.markAttempted(BZ, 'book', false, 'request-a');
+    const undo = ledger.markAttempted(BZ, 'book', false, 'request-b');
+    undo();
+    expect(ledger.releaseCleared(BZ, 'book', 'request-b')).toBe(false);
+    expect(ledger.releaseCleared(BZ, 'book', 'request-a')).toBe(true);
+  });
+
+  // `releaseAttempt` drops an older build's undated copy too, as the escape a
+  // hand-started search needs. A clear gives back only this instance's own.
+  it("leaves an older build's undated lock alone", () => {
+    const ledger = new AutoBookLedger(DATE);
+    ledger.adoptAttempted([`book:${BZ}`]);
+    ledger.markAttempted(BZ, 'book', false, 'request-a');
+    expect(ledger.releaseCleared(BZ, 'book', 'request-a')).toBe(true);
+    expect(ledger.hasUndatedLock(BZ)).toBe(true);
+    expect(ledger.hasAttempted(BZ)).toBe(true);
+  });
+
+  it('forgets every request at a new day and a reset', () => {
+    const ledger = new AutoBookLedger(DATE);
+    ledger.markAttempted(BZ, 'book', false, 'request-a');
+    ledger.reset();
+    ledger.adoptAttempted([lockKey(DATE, 'book', BZ)]);
+    expect(ledger.releaseCleared(BZ, 'book', 'request-a')).toBe(false);
+    ledger.startNewDay();
+    ledger.markAttempted(HM, 'book', false, 'request-b');
+    ledger.startNewDay();
+    expect(ledger.releaseCleared(HM, 'book', 'request-b')).toBe(false);
+  });
+});
+
 // The ledger takes its lock before the request goes out, so a failure leaves
 // it held. `repeatMoves` gives it back only where nothing can have happened.
 describe('actionWasRejected()', () => {

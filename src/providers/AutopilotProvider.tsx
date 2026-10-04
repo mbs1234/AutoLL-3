@@ -55,15 +55,16 @@ import {
 } from '@/autopilot/learned';
 import {
   acquire as acquireLease,
+  clearedMutations,
   keepAlive as keepLeaseAlive,
   leaseKey,
+  leaseParts,
   mutationId,
   quarantine,
   quarantinedAt,
   quarantinedMutations,
   release as releaseLease,
   resolveDoubt,
-  settledMutations,
   startWhileHeld,
 } from '@/autopilot/lease';
 import {
@@ -425,9 +426,6 @@ export default function AutopilotProvider({
   const lockOwnerRef = useRef(
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   );
-  // Settled-record ids of bookings whose protection the person cleared and
-  // whose doubt-hold this instance has already given back (see the tick).
-  const clearedBookingsRef = useRef(new Set<string>());
   // Filled on the first render and never again. `useRef(new AutoBookLedger())`
   // constructs on *every* render and discards all but the first, which is
   // ordinarily only waste -- but this constructor refuses a date it cannot
@@ -858,18 +856,15 @@ export default function AutopilotProvider({
       // protection, and by the ledger's doubt-hold, which keeps Autopilot from
       // booking it again. The person clearing the protection after checking
       // Disney is the one answer that releases both, so Autopilot may try the
-      // attraction once more. Once per clear, and on this tick's date only: a
-      // clear for another date is given back when the ledger is on that date.
+      // attraction once more -- but only the hold this instance took for that
+      // very request (`releaseCleared`), never a later request's or another
+      // instance's. On this tick's date only: a clear for another date is
+      // given back when the ledger is on that date.
       onBookingDate(() => {
-        for (const entry of settledMutations()) {
-          if (entry.how !== 'cleared' || entry.kind !== 'book' || entry.das) {
-            continue;
-          }
-          if (entry.date !== date || clearedBookingsRef.current.has(entry.id)) {
-            continue;
-          }
-          clearedBookingsRef.current.add(entry.id);
-          ledgerRef.current.releaseAttempt(entry.facilityId, 'book');
+        for (const { id, key } of clearedMutations()) {
+          const { date: day, facilityId, das } = leaseParts(key);
+          if (das || day !== date) continue;
+          ledgerRef.current.releaseCleared(facilityId, 'book', id);
         }
       });
       /**
@@ -883,13 +878,17 @@ export default function AutopilotProvider({
        * `markBooked` is the one that costs something -- it clears the
        * doubt-hold for a lost response, and on the wrong date that is the only
        * thing stopping a second entitlement being spent there.
+       *
+       * `request` is the mutation id of the action it is handed to. The lock
+       * it takes is recorded against it, so that clearing that request's
+       * protection gives back that lock and no other.
        */
-      const datedLedger: BookLedger = {
+      const datedLedger = (request: string): BookLedger => ({
         hasAttempted: (id, kind) =>
           onBookingDate(() => ledgerRef.current.hasAttempted(id, kind)),
         markAttempted: (id, kind, rehearsal) => {
           const rollback = onBookingDate(() =>
-            ledgerRef.current.markAttempted(id, kind, rehearsal)
+            ledgerRef.current.markAttempted(id, kind, rehearsal, request)
           );
           // The undo runs if the dispatch marker refuses the send, and has to
           // undo it on the date it was taken on.
@@ -901,7 +900,7 @@ export default function AutopilotProvider({
         get bookedCount() {
           return ledgerRef.current.bookedCount;
         },
-      };
+      });
       const forToday = date === parkDate();
       const activeTargets = targetsRef.current.filter(target =>
         targetApplies(target, park.id, date)
@@ -1933,7 +1932,7 @@ export default function AutopilotProvider({
               book: (offer, control) =>
                 ll.book(offer, movedGuests(offer), control),
               guests,
-              ledger: datedLedger,
+              ledger: datedLedger(owner),
               clashes,
               partyIsAcceptable,
               requestControl: ({ from, to }) =>
@@ -1960,7 +1959,7 @@ export default function AutopilotProvider({
                 book: (offer, control) =>
                   ll.book(offer, movedGuests(offer), control),
                 guests,
-                ledger: datedLedger,
+                ledger: datedLedger(owner),
                 clashes,
                 partyIsAcceptable,
                 requestControl: ({ from, to }) =>
@@ -1981,7 +1980,7 @@ export default function AutopilotProvider({
               createOffer: (exp, g) => ll.offer(exp, g, { date }),
               book: (offer, control) => ll.book(offer, undefined, control),
               guests,
-              ledger: datedLedger,
+              ledger: datedLedger(owner),
               clashes,
               partyIsAcceptable,
               requestControl: offerTime =>
